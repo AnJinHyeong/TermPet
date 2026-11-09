@@ -68,15 +68,9 @@ struct MenuPanelView: View {
             }
 
             SectionLabel("표시 위치")
-            // 세그먼트 버튼 ≈ <select>를 버튼 묶음으로 보여주는 것
-            Picker("", selection: Binding(get: { pet.model.layer }, set: { pet.setLayer($0) })) {
-                ForEach(PetWindowLayer.allCases) { layer in
-                    Text(layer.shortTitle).tag(layer)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .padding(.horizontal, 16)
+            // 세그먼트 버튼 ≈ <select>를 버튼 묶음으로 보여주는 것 (기본 Picker는 파란색이라 앱 색에 맞춰 직접 그림)
+            LayerSegment(selected: pet.model.layer) { pet.setLayer($0) }
+                .padding(.horizontal, 12)
 
             SectionLabel("놀기")
             ChipRow {
@@ -430,6 +424,35 @@ private struct IntegrationRow: View {
         case .codex: return Color(red: 0.25, green: 0.25, blue: 0.28)
         case .zsh: return Color(red: 0.20, green: 0.62, blue: 0.45)
         }
+    }
+}
+
+/// 표시 위치 선택: 아이콘 + 짧은 이름 3칸, 선택된 칸은 주황
+private struct LayerSegment: View {
+    let selected: PetWindowLayer
+    let onSelect: (PetWindowLayer) -> Void
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(PetWindowLayer.allCases) { layer in
+                let on = layer == selected
+                Button { onSelect(layer) } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: layer.symbol).font(.system(size: 10, weight: .semibold))
+                        Text(layer.shortTitle).font(.system(size: 11, weight: on ? .semibold : .medium)).lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+                    .foregroundStyle(on ? .white : .primary.opacity(0.75))
+                    .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(on ? Color.accent : .clear))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .hint(layer.title)
+            }
+        }
+        .padding(2)
+        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.06)))
     }
 }
 
