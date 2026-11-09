@@ -21,21 +21,10 @@ enum HostApp: Equatable {
         "net.kovidgoyal.kitty": .kitty,
     ]
 
+    /// knownBundleIds 표 하나만 관리 (같은 값을 두 군데 적지 않도록 역으로 찾는다)
     var bundleId: String {
-        switch self {
-        case .cursor: return "com.todesktop.230313mzl4w4u92"
-        case .vscode: return "com.microsoft.VSCode"
-        case .vscodeInsiders: return "com.microsoft.VSCodeInsiders"
-        case .windsurf: return "com.exafunction.windsurf"
-        case .zed: return "dev.zed.Zed"
-        case .iterm: return "com.googlecode.iterm2"
-        case .terminal: return "com.apple.Terminal"
-        case .warp: return "dev.warp.Warp-Stable"
-        case .ghostty: return "com.mitchellh.ghostty"
-        case .wezterm: return "com.github.wez.wezterm"
-        case .kitty: return "net.kovidgoyal.kitty"
-        case .other(let id): return id
-        }
+        if case .other(let id) = self { return id }
+        return Self.knownBundleIds.first { $0.value == self }!.key
     }
 
     /// 폴더를 열면 해당 프로젝트 창으로 이동하는 에디터인지

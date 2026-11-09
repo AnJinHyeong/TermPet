@@ -6,6 +6,7 @@ import SwiftUI
 /// React 비유: 작은 컴포넌트(Row, Tile)를 조합한 하나의 화면 컴포넌트.
 struct MenuPanelView: View {
     let app: AppDelegate
+    @State private var launchAtLogin = LoginItem.isEnabled  // @State ≈ useState
     private var pet: PetController { app.petController }
     private var characters: CharacterLibrary { app.characters }
 
@@ -80,7 +81,10 @@ struct MenuPanelView: View {
         }
         .frame(width: 300)
         .padding(.top, 4)
-        .onAppear { app.integrations.refresh() } // 터미널에서 직접 고쳤을 수도 있으니 열 때마다 다시 확인
+        .onAppear {
+            app.integrations.refresh() // 터미널에서 직접 고쳤을 수도 있으니 열 때마다 다시 확인
+            launchAtLogin = LoginItem.isEnabled
+        }
     }
 
     // MARK: - 헤더 / 푸터
@@ -113,6 +117,23 @@ struct MenuPanelView: View {
     }
 
     private var footer: some View {
+        VStack(spacing: 8) {
+            Toggle("로그인할 때 자동으로 실행", isOn: Binding(
+                get: { launchAtLogin },
+                set: { on in
+                    do { try LoginItem.set(on) } catch { NSLog("[TermPet] login item: \(error)") }
+                    launchAtLogin = LoginItem.isEnabled // 실패하면 실제 상태로 되돌아감
+                }))
+                .toggleStyle(.checkbox)
+                .font(.system(size: 12))
+                .frame(maxWidth: .infinity, alignment: .leading)
+            footerLine
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
+    private var footerLine: some View {
         HStack {
             Text("펫을 누르면 놓친 알림을 다시 보여줘요")
                 .font(.system(size: 11))
@@ -124,8 +145,6 @@ struct MenuPanelView: View {
                 .foregroundStyle(.secondary)
                 .keyboardShortcut("q")
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
     }
 
     private var serverColor: Color {

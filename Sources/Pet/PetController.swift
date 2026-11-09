@@ -86,9 +86,11 @@ final class PetController: NSObject {
     /// 움직일 때만 60fps, 가만히 있을 땐 낮춰서 CPU/배터리 절약 (스프라이트는 6~12fps라 눈으로 차이 없음)
     static func loopFPS(for action: PetAction, maxFPS: Double) -> Double {
         switch action {
-        case .walk, .fall, .dragged: return maxFPS
-        case .sleep: return min(maxFPS, 10)
-        default: return min(maxFPS, 20)
+        case .fall, .dragged: return maxFPS      // 빠르게 움직일 때만 60fps
+        case .walk: return min(maxFPS, 30)       // 걷기는 느려서(약 35pt/s) 30fps로도 부드러움
+        case .idle: return min(maxFPS, 12)    // 숨쉬기·눈 깜빡임 정도라 12fps면 충분 (대부분의 시간)
+        case .sleep: return min(maxFPS, 6)
+        default: return min(maxFPS, 30)       // 신남·화남 등 짧은 반응은 부드럽게
         }
     }
 
@@ -200,7 +202,7 @@ final class PetController: NSObject {
     @objc private func timerFired() {
         let now = CACurrentMediaTime()
         // 슬립에서 깨어났거나 렉이 걸렸을 때 한 번에 순간이동하지 않도록 dt 상한
-        let dt = min(now - lastTick, 0.15)
+        let dt = min(now - lastTick, 0.2)
         lastTick = now
         step(dt)
     }

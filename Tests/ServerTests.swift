@@ -1,3 +1,4 @@
+import Network
 import XCTest
 @testable import TermPet
 
@@ -158,5 +159,74 @@ final class RequestLogTests: XCTestCase {
         log.append("second line") // 크기 초과 → 회전
         XCTAssertEqual(try String(contentsOf: log.url, encoding: .utf8), "second line\n")
         XCTAssertEqual(try String(contentsOf: log.url.appendingPathExtension("1"), encoding: .utf8), "first line\n")
+    }
+}
+
+/// 실제 소켓으로 서버에 접속하는 통합 테스트 (데이터가 여러 번에 나뉘어 와도 처리하는지)
+@MainActor
+final class LocalHTTPServerSocketTests: XCTestCase {
+    func testRequestSplitAcrossPacketsIsAccepted() throws {
+        let port = UInt16.random(in: 40000...49000)
+        let server = LocalHTTPServer(port: port, token: "t0k")
+        let listening = expectation(description: "listening")
+        let received = expectation(description: "event")
+        server.onStateChange = { if case .listening = $0 { listening.fulfill() } }
+        server.onEvent = { event in
+            XCTAssertEqual(event.message, "나눠 보냄")
+            received.fulfill()
+        }
+        server.start()
+        defer { server.stop() }
+        wait(for: [listening], timeout: 3)
+
+        let body = Data(#"{"source":"shell","kind":"done","message":"나눠 보냄"}"#.utf8)
+        let head = "POST /event HTTP/1.1\r\nHost: x\r\nX-TermPet-Token: t0k\r\nContent-Length: \(body.count)\r\n\r\n"
+        let connection = NWConnection(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!, using: .tcp)
+        let response = expectation(description: "response")
+        connection.stateUpdateHandler = { state in
+            guard case .ready = state else { return }
+            connection.send(content: Data(head.utf8), completion: .contentProcessed { _ in })
+            DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) { // 본문은 0.2초 뒤에 따로
+                connection.send(content: body, completion: .contentProcessed { _ in })
+                connection.receive(minimumIncompleteLength: 1, maximumLength: 4096) { data, _, _, _ in
+                    XCTAssertTrue(String(decoding: data ?? Data(), as: UTF8.self).hasPrefix("HTTP/1.1 202"))
+                    response.fulfill()
+                }
+            }
+        }
+        connection.start(queue: .global())
+        wait(for: [response, received], timeout: 5)
+        connection.cancel()
+    }
+}
+
+/// 훅 스크립트의 핵심 약속: 앱이 꺼져 있어도 즉시 exit 0, 아무것도 출력하지 않음
+final class HookScriptTests: XCTestCase {
+    func testExitsZeroQuicklyWhenAppIsOff() throws {
+        let script = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Scripts/termpet-hook")
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("termpet-hook-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        try "tok".write(to: home.appendingPathComponent("token"), atomically: true, encoding: .utf8)
+        try "1".write(to: home.appendingPathComponent("port"), atomically: true, encoding: .utf8) // 아무도 안 듣는 포트
+
+        for args in [["claude"], ["codex"], ["shell", "1", "40", "/tmp", "make"]] {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/bash")
+            process.arguments = [script.path] + args
+            process.environment = ["TERMPET_HOME": home.path, "PATH": "/usr/bin:/bin"]
+            let input = Pipe(), output = Pipe()
+            process.standardInput = input
+            process.standardOutput = output
+            let start = Date()
+            try process.run()
+            input.fileHandleForWriting.write(Data(#"{"hook_event_name":"Stop"}"#.utf8))
+            try input.fileHandleForWriting.close()
+            process.waitUntilExit()
+            XCTAssertEqual(process.terminationStatus, 0, "\(args)")
+            XCTAssertLessThan(Date().timeIntervalSince(start), 1.5, "\(args)")
+            XCTAssertTrue(output.fileHandleForReading.readDataToEndOfFile().isEmpty, "\(args)")
+        }
     }
 }

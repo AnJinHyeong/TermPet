@@ -79,7 +79,8 @@ enum BackgroundRemover {
             growBackground(&pixels)
             if isIsolated(pixels) {
                 method = .gradientFill                // 부드러운 그라데이션 배경
-            } else if peelToOutline(&pixels, original: original), keepMainComponents(&pixels), isIsolated(pixels) {
+            } else if peelToOutline(&pixels, original: original), keepMainComponents(&pixels), isIsolated(pixels),
+                      hasEnoughForeground(pixels) {
                 method = .glowFill                    // 빛번짐/반짝이 배경 (게임 도트 이미지 등)
             } else {
                 guard let masked = RGBAImage(try visionForeground(image)) else { throw Failure.unreadableImage }
@@ -145,6 +146,14 @@ enum BackgroundRemover {
             }
         }
         return true
+    }
+
+    /// 빛번짐 제거가 캐릭터 몸까지 먹어 들어가 조각만 남았으면 실패로 보고 다음 방법(Vision)으로
+    static func hasEnoughForeground(_ img: RGBAImage, minRatio: Double = 0.03) -> Bool {
+        let total = img.width * img.height
+        guard total > 0 else { return false }
+        let opaque = stride(from: 3, to: img.data.count, by: 4).reduce(0) { $0 + (img.data[$1] > 16 ? 1 : 0) }
+        return Double(opaque) >= Double(total) * minRatio
     }
 
     /// 남은(불투명) 영역이 이미지 대부분을 덮고 있으면 배경 제거에 실패한 것

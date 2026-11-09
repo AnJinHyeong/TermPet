@@ -104,6 +104,7 @@ final class HostAppTests: XCTestCase {
         XCTAssertEqual(HostApp.resolve(bundleId: "com.microsoft.VSCode", termProgram: nil), .vscode)
         XCTAssertEqual(HostApp.resolve(bundleId: "com.googlecode.iterm2", termProgram: nil), .iterm)
         XCTAssertEqual(HostApp.resolve(bundleId: "com.example.foo", termProgram: nil), .other(bundleId: "com.example.foo"))
+        for (id, app) in HostApp.knownBundleIds { XCTAssertEqual(app.bundleId, id) } // 표 하나로 양방향 일치
     }
 
     func testResolveByTermProgramFallback() {
