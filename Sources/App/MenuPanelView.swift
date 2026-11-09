@@ -378,7 +378,7 @@ private struct IntegrationRow: View {
     var needsUpdate = false
     let available: Bool
     let onUpdate: () -> Void
-    /// 스위치를 켜거나 끔 (true = 연결)
+    /// 연결(true) / 해제(false)
     let onToggle: (Bool) -> Void
 
     var body: some View {
@@ -394,23 +394,20 @@ private struct IntegrationRow: View {
             if !available {
                 Text("설치 안 됨").font(.system(size: 11)).foregroundStyle(.secondary)
             } else {
-                if needsUpdate {
-                    Button(action: onUpdate) {
-                        Text("업데이트").font(.system(size: 11, weight: .semibold))
-                            .padding(.horizontal, 8)
-                            .frame(height: 22)
-                            .modifier(PrimarySurface())
+                // 상태가 글자로 바로 보이는 버튼: 켜짐(✓ 연결됨) = 진한 주황, 꺼짐(연결) = 회색 — 다른 칩과 같은 규칙
+                Button { needsUpdate ? onUpdate() : onToggle(!installed) } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: needsUpdate ? "arrow.triangle.2.circlepath" : installed ? "checkmark" : "link")
+                            .font(.system(size: 9, weight: .bold))
+                        Text(needsUpdate ? "업데이트" : installed ? "연결됨" : "연결")
+                            .font(.system(size: 11, weight: .semibold))
                     }
-                    .buttonStyle(.plain)
-                    .hint("작업 중 표시용 항목 추가 (백업 후)")
+                    .frame(width: 74, height: 24)
+                    .modifier(ControlSurface(on: installed, radius: 7))
                 }
-                // 켜짐/꺼짐이 한눈에 보이는 스위치 (macOS 설정 앱과 같은 방식, 상단 스위치와 같은 색)
-                Toggle("", isOn: Binding(get: { installed }, set: { onToggle($0) }))
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
-                    .tint(Color.accent)
-                    .labelsHidden()
-                    .hint(installed ? "끄면 연결 해제 (설정 파일 백업 후)" : "켜면 연결 (설정 파일 백업 후)")
+                .buttonStyle(.plain)
+                .hint(needsUpdate ? "작업 중 표시용 항목 추가 (백업 후)"
+                      : installed ? "누르면 연결 해제 (설정 파일 백업 후)" : "누르면 연결 (설정 파일 백업 후)")
             }
         }
         .padding(.horizontal, 8)
