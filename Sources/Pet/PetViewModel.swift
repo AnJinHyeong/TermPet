@@ -12,4 +12,5 @@ final class PetViewModel {
     /// 현재 상태에 들어온 뒤 지난 시간 — 점프 등 상태 시작 기준 애니메이션
     var actionTime: TimeInterval = 0
     var isVisible: Bool = true
+    var layer: PetWindowLayer = .default
 }

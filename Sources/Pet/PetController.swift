@@ -59,6 +59,8 @@ final class PetController: NSObject {
         root.onRightMouseDown = { [weak self] e in self?.showContextMenu(e, in: root) }
 
         window.contentView = root
+        model.layer = PetWindowLayer.load()
+        window.apply(layer: model.layer)
         window.setFrameOrigin(physics.origin)
         window.orderFrontRegardless() // 앱을 활성화하지 않고 앞에 띄움
         self.window = window
@@ -97,6 +99,14 @@ final class PetController: NSObject {
     func setVisible(_ visible: Bool) {
         model.isVisible = visible
         if visible { window?.orderFrontRegardless() } else { window?.orderOut(nil) }
+    }
+
+    /// 표시 층 변경 (프로그램 위 / 바탕화면) + 저장
+    func setLayer(_ layer: PetWindowLayer) {
+        model.layer = layer
+        layer.save()
+        window?.apply(layer: layer)
+        if model.isVisible { window?.orderFrontRegardless() }
     }
 
     /// 디버그용: 화면 위쪽에서 떨어뜨리기
@@ -225,6 +235,20 @@ final class PetController: NSObject {
         sleep.target = self
         menu.addItem(sleep)
 
+        // 표시 위치 하위 메뉴 (현재 선택에 체크 표시)
+        let layerItem = NSMenuItem(title: "표시 위치", action: nil, keyEquivalent: "")
+        let layerMenu = NSMenu()
+        for layer in PetWindowLayer.allCases {
+            let item = NSMenuItem(title: layer.title, action: #selector(menuSelectLayer(_:)),
+                                  keyEquivalent: "")
+            item.target = self
+            item.representedObject = layer.rawValue
+            item.state = layer == model.layer ? .on : .off
+            layerMenu.addItem(item)
+        }
+        layerItem.submenu = layerMenu
+        menu.addItem(layerItem)
+
         let settings = NSMenuItem(title: "설정…", action: nil, keyEquivalent: "")
         settings.isEnabled = false // Phase 3
         menu.addItem(settings)
@@ -239,7 +263,12 @@ final class PetController: NSObject {
     }
 
     @objc private func menuToggleSleep() { toggleSleep() }
-    @objc private func menuQuit() { NSApplication.shared.terminate(nil) }
+    @objc private func menuSelectLayer(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let layer = PetWindowLayer(rawValue: raw) else { return }
+        setLayer(layer)
+    }
+    @objc private func menuQuit(){ NSApplication.shared.terminate(nil) }
 }
 
 /// 펫 창 안의 SwiftUI 루트 뷰. Phase 3에서 캐릭터 팩(스프라이트) 렌더러로 교체 가능하게 분리.

@@ -34,6 +34,17 @@ struct MenuBarContent: View {
             pet.toggleSleep()
         }
 
+        // 메뉴 안의 Picker는 체크 표시가 붙는 하위 메뉴로 렌더링된다.
+        // Binding(get:set:) ≈ React의 제어 컴포넌트 (value + onChange)
+        Picker("표시 위치", selection: Binding(
+            get: { pet.model.layer },
+            set: { pet.setLayer($0) }
+        )) {
+            ForEach(PetWindowLayer.allCases) { layer in
+                Text(layer.title).tag(layer)
+            }
+        }
+
         #if DEBUG
         // 개발용: 상태별 모션 확인 (Release 빌드에는 포함되지 않음)
         Menu("디버그") {

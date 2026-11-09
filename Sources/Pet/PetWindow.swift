@@ -16,15 +16,23 @@ final class PetWindow: NSPanel {
         isOpaque = false
         backgroundColor = .clear
         hasShadow = false
-        level = .floating
-        // 모든 Space(데스크톱)에 나타나고, 전체화면 앱 위에도 뜨며, Mission Control/⌘` 순환에서 제외
-        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        apply(layer: .default)
         isFloatingPanel = true
         hidesOnDeactivate = false   // NSPanel 기본값은 "앱 비활성 시 숨김" → 끈다
         becomesKeyOnlyIfNeeded = true
         isMovable = false           // 창 이동은 코드로만
         animationBehavior = .none
         isReleasedWhenClosed = false
+    }
+
+    /// 표시 층 적용 (프로그램 위 / 바탕화면)
+    func apply(layer: PetWindowLayer) {
+        level = layer.windowLevel
+        // 모든 Space(데스크톱)에 나타나고, Mission Control/⌘` 순환에서 제외.
+        // 전체화면 앱 위에 뜨는 것(.fullScreenAuxiliary)은 "프로그램 위" 모드에서만.
+        var behavior: NSWindow.CollectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
+        if layer == .aboveApps { behavior.insert(.fullScreenAuxiliary) }
+        collectionBehavior = behavior
     }
 
     // 키보드 포커스(key)·메인 창이 되지 않음 → 포커스 절대 안 뺏음
