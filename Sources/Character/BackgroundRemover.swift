@@ -59,21 +59,36 @@ enum BackgroundRemover {
         }
     }
 
-    enum Method: Equatable { case alreadyTransparent, floodFill, vision }
+    enum Method: Equatable { case alreadyTransparent, floodFill, gradientFill, glowFill, vision }
+
+    /// 배경 제거 후 남은 영역이 이미지의 이 비율 이하일 때만 "캐릭터를 분리했다"고 본다
+    static let isolationRatio = 0.8
 
     /// 배경 제거 + 캐릭터 영역으로 자르기. 사용한 방법도 함께 반환.
     static func cutout(_ image: CGImage) throws -> (image: CGImage, method: Method) {
-        guard var pixels = RGBAImage(image) else { throw Failure.unreadableImage }
+        guard let original = RGBAImage(image) else { throw Failure.unreadableImage }
 
-        let method: Method
-        if hasTransparentBorder(pixels) {
+        var pixels = original
+        var method: Method
+        if hasTransparentBorder(original) {
             method = .alreadyTransparent
-        } else if floodFillBackground(&pixels) {
-            method = .floodFill
+        } else if floodFillBackground(&pixels), isIsolated(pixels) {
+            method = .floodFill                       // 단색 배경 (흰 배경 등)
         } else {
-            guard let masked = RGBAImage(try visionForeground(image)) else { throw Failure.unreadableImage }
-            pixels = masked
-            method = .vision
+            pixels = original
+            growBackground(&pixels)
+            if isIsolated(pixels) {
+                method = .gradientFill                // 부드러운 그라데이션 배경
+            } else if peelToOutline(&pixels, original: original), keepMainComponents(&pixels), isIsolated(pixels) {
+                method = .glowFill                    // 빛번짐/반짝이 배경 (게임 도트 이미지 등)
+            } else {
+                guard let masked = RGBAImage(try visionForeground(image)) else { throw Failure.unreadableImage }
+                pixels = masked
+                method = .vision                      // 사진 등 복잡한 배경
+            }
+        }
+        if method != .alreadyTransparent {
+            keepMainComponents(&pixels)               // 반짝이·잡티 같은 떨어진 조각 제거
         }
 
         guard let bounds = alphaBounds(pixels), let full = pixels.makeImage(),
@@ -128,6 +143,139 @@ enum BackgroundRemover {
                     stack.append(q)
                 }
             }
+        }
+        return true
+    }
+
+    /// 남은(불투명) 영역이 이미지 대부분을 덮고 있으면 배경 제거에 실패한 것
+    static func isIsolated(_ img: RGBAImage) -> Bool {
+        guard let b = alphaBounds(img) else { return false }
+        return Double(b.width * b.height) <= Double(img.width * img.height) * isolationRatio
+    }
+
+    /// 그라데이션/빛번짐 배경용 "마술봉(연속)": 테두리에서 시작해, **바로 옆 픽셀과** 색 차이가 작으면
+    /// 계속 배경으로 번져 나간다. 서서히 변하는 배경은 다 지워지고, 색이 뚝 끊기는 캐릭터 외곽선에서 멈춘다.
+    static func growBackground(_ img: inout RGBAImage, localTolerance: Int = 26) {
+        let w = img.width, h = img.height
+        guard w > 0, h > 0 else { return }
+        let tol2 = localTolerance * localTolerance
+        let src = img.data // 원본 색으로 비교 (지우면서 색이 바뀌지 않게)
+        func close(_ p: Int, _ q: Int) -> Bool {
+            let i = p * 4, j = q * 4
+            let dr = Int(src[i]) - Int(src[j]), dg = Int(src[i + 1]) - Int(src[j + 1]), db = Int(src[i + 2]) - Int(src[j + 2])
+            return dr * dr + dg * dg + db * db <= tol2
+        }
+
+        var bg = [Bool](repeating: false, count: w * h)
+        var stack: [Int] = []
+        for (x, y) in borderPoints(img) {
+            let p = y * w + x
+            if !bg[p] { bg[p] = true; stack.append(p) }
+        }
+        while let p = stack.popLast() {
+            let x = p % w, y = p / w
+            for (nx, ny) in [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)]
+            where nx >= 0 && ny >= 0 && nx < w && ny < h {
+                let q = ny * w + nx
+                if !bg[q] && close(p, q) {
+                    bg[q] = true
+                    stack.append(q)
+                }
+            }
+        }
+        for p in 0..<(w * h) where bg[p] {
+            let i = p * 4
+            img.data[i] = 0; img.data[i + 1] = 0; img.data[i + 2] = 0; img.data[i + 3] = 0
+        }
+    }
+
+    /// 빛번짐 배경 제거 2단계: 이미 지운 영역에서 시작해 "진한 외곽선"이 아닌 픽셀로 계속 번져 나간다.
+    /// 도트 캐릭터는 대부분 진한 외곽선으로 둘러싸여 있어서, 밝은 빛번짐/반짝이는 지우고 외곽선 안쪽은 지킨다.
+    /// (CSS로 치면 "테두리 밖은 전부 투명" 처리)
+    @discardableResult
+    static func peelToOutline(_ img: inout RGBAImage, original: RGBAImage, outlineLuminance: Int = 110,
+                              redBias: Int = 12, gapRadius: Int = 0) -> Bool {
+        let w = img.width, h = img.height, n = w * h
+        let src = original.data
+        // 캐릭터 쪽 "벽": 진한 외곽선 또는 붉은 계열(분홍 몸통, 리본). 빛번짐은 흰/연두/노랑이라 r ≈ g.
+        let wall = (0..<n).map { p -> Bool in
+            let i = p * 4
+            let r = Int(src[i]), g = Int(src[i + 1]), b = Int(src[i + 2])
+            return (r * 299 + g * 587 + b * 114) / 1000 < outlineLuminance || r - g > redBias
+        }
+        // JPEG 번짐으로 외곽선에 생긴 작은 틈을 막기 위해 벽을 gapRadius만큼 두껍게 (모폴로지 팽창)
+        var thick = wall
+        if gapRadius > 0 {
+            for p in 0..<n where wall[p] {
+                let x = p % w, y = p / w
+                for dy in -gapRadius...gapRadius { for dx in -gapRadius...gapRadius {
+                    let nx = x + dx, ny = y + dy
+                    if nx >= 0, ny >= 0, nx < w, ny < h { thick[ny * w + nx] = true }
+                } }
+            }
+        }
+        var removed = (0..<n).map { img.data[$0 * 4 + 3] == 0 }
+        func flood(_ blocked: [Bool]) {
+            var stack = (0..<n).filter { removed[$0] }
+            while let p = stack.popLast() {
+                let x = p % w, y = p / w
+                for (nx, ny) in [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)]
+                where nx >= 0 && ny >= 0 && nx < w && ny < h {
+                    let q = ny * w + nx
+                    if !removed[q] && !blocked[q] { removed[q] = true; stack.append(q) }
+                }
+            }
+        }
+        flood(thick)
+        // 두껍게 만든 만큼 바깥에 남은 빛번짐 테두리를 gapRadius 픽셀만 더 벗겨낸다
+        for _ in 0..<gapRadius {
+            let snapshot = removed
+            for p in 0..<n where !snapshot[p] && !wall[p] {
+                let x = p % w, y = p / w
+                if (x > 0 && snapshot[p - 1]) || (x < w - 1 && snapshot[p + 1])
+                    || (y > 0 && snapshot[p - w]) || (y < h - 1 && snapshot[p + w]) {
+                    removed[p] = true
+                }
+            }
+        }
+        for p in 0..<n where removed[p] {
+            let i = p * 4
+            img.data[i] = 0; img.data[i + 1] = 0; img.data[i + 2] = 0; img.data[i + 3] = 0
+        }
+        return true
+    }
+
+    /// 서로 붙어 있는 불투명 픽셀 덩어리 중 큰 것만 남긴다.
+    /// 가장 큰 덩어리의 `minFraction` 미만 크기 덩어리(반짝이, JPEG 잡티)는 지운다.
+    @discardableResult
+    static func keepMainComponents(_ img: inout RGBAImage, minFraction: Double = 0.15) -> Bool {
+        let w = img.width, h = img.height
+        var label = [Int](repeating: -1, count: w * h)
+        var sizes: [Int] = []
+        for start in 0..<(w * h) where label[start] < 0 && img.data[start * 4 + 3] > 16 {
+            let id = sizes.count
+            var count = 0
+            var stack = [start]
+            label[start] = id
+            while let p = stack.popLast() {
+                count += 1
+                let x = p % w, y = p / w
+                for (nx, ny) in [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)]
+                where nx >= 0 && ny >= 0 && nx < w && ny < h {
+                    let q = ny * w + nx
+                    if label[q] < 0 && img.data[q * 4 + 3] > 16 {
+                        label[q] = id
+                        stack.append(q)
+                    }
+                }
+            }
+            sizes.append(count)
+        }
+        guard let largest = sizes.max() else { return false }
+        let minSize = Int(Double(largest) * minFraction)
+        for p in 0..<(w * h) where label[p] >= 0 && sizes[label[p]] < minSize {
+            let i = p * 4
+            img.data[i] = 0; img.data[i + 1] = 0; img.data[i + 2] = 0; img.data[i + 3] = 0
         }
         return true
     }

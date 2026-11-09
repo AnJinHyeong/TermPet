@@ -55,6 +55,49 @@ final class BackgroundRemoverTests: XCTestCase {
         XCTAssertEqual(cut.height, 26)
     }
 
+    /// 40x40: 검은 모서리 + 원형 빛번짐(연한 흰/연두) + 노란 반짝이 + 가운데 진한 외곽선의 분홍/크림 캐릭터
+    private func glowImage() -> RGBAImage {
+        let n = 40
+        var img = RGBAImage(width: n, height: n, data: [UInt8](repeating: 255, count: n * n * 4))
+        func set(_ x: Int, _ y: Int, _ c: (UInt8, UInt8, UInt8)) {
+            let i = img.offset(x, y); img.data[i] = c.0; img.data[i + 1] = c.1; img.data[i + 2] = c.2
+        }
+        for y in 0..<n { for x in 0..<n {
+            let dx = x - 20, dy = y - 20
+            if dx * dx + dy * dy > 18 * 18 { set(x, y, (0, 0, 0)) }                 // 검은 모서리
+            else { set(x, y, x % 2 == 0 ? (240, 252, 230) : (252, 251, 222)) }    // 빛번짐 (자글자글)
+        } }
+        set(6, 20, (120, 118, 110))                         // 빛번짐 가장자리의 어두운 잡티
+        set(10, 10, (255, 240, 120)); set(11, 10, (255, 240, 120)) // 노란 반짝이
+        for y in 14...25 { for x in 14...25 {
+            let edge = x == 14 || y == 14 || x == 25 || y == 25
+            set(x, y, edge ? (60, 40, 30) : (y < 19 ? (255, 228, 212) : (245, 110, 90)))  // 외곽선 / 크림 머리 / 분홍 몸
+        } }
+        return img
+    }
+
+    func testPeelToOutlineRemovesGlowAndSparklesButKeepsCharacter() {
+        let original = glowImage()
+        var img = original
+        BackgroundRemover.growBackground(&img)
+        BackgroundRemover.peelToOutline(&img, original: original)
+        BackgroundRemover.keepMainComponents(&img)
+        XCTAssertEqual(img.alpha(20, 5), 0)        // 빛번짐
+        XCTAssertEqual(img.alpha(10, 10), 0)       // 반짝이
+        XCTAssertEqual(img.alpha(6, 20), 0)        // 떨어진 잡티
+        XCTAssertEqual(img.alpha(14, 14), 255)     // 외곽선
+        XCTAssertEqual(img.alpha(17, 16), 255)     // 크림색 머리 (빛번짐과 비슷하지만 붉은 기)
+        XCTAssertEqual(img.alpha(20, 22), 255)     // 분홍 몸
+        XCTAssertEqual(BackgroundRemover.alphaBounds(img), CGRect(x: 14, y: 14, width: 12, height: 12))
+    }
+
+    func testCutoutUsesGlowFillForGlowBackground() throws {
+        let (cut, method) = try BackgroundRemover.cutout(glowImage().makeImage()!)
+        XCTAssertEqual(method, .glowFill)
+        XCTAssertEqual(cut.width, 12)
+        XCTAssertEqual(cut.height, 12)
+    }
+
     func testAllTransparentHasNoBounds() {
         let img = RGBAImage(width: 4, height: 4, data: [UInt8](repeating: 0, count: 64))
         XCTAssertNil(BackgroundRemover.alphaBounds(img))
