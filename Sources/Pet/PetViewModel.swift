@@ -15,4 +15,6 @@ final class PetViewModel {
     var layer: PetWindowLayer = .default
     /// 확인 안 한 알림이 있고 말풍선은 숨겨진 상태 → 머리 위 "!" 표시
     var hasUnread: Bool = false
+    /// 현재 캐릭터 (기본 도형 캐릭터 또는 스프라이트 팩)
+    var character: LoadedCharacter = .builtIn(.mallang)
 }

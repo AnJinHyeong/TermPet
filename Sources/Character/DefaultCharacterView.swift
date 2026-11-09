@@ -5,6 +5,7 @@ import SwiftUI
 /// SwiftUI `Canvas` ≈ HTML `<canvas>`의 2D context: 클로저 안에서 path를 만들어 fill/stroke 한다.
 /// 매 프레임 `time`이 바뀌면 다시 그려진다 (React에서 props가 바뀌면 재렌더되는 것과 같음).
 struct DefaultCharacterView: View {
+    var style: BuiltInStyle = .mallang
     let action: PetAction
     let facing: Direction
     let time: TimeInterval
@@ -12,7 +13,7 @@ struct DefaultCharacterView: View {
 
     var body: some View {
         Canvas { context, size in
-            DefaultCharacterRenderer(action: action, facing: facing,
+            DefaultCharacterRenderer(style: style, action: action, facing: facing,
                                      t: time, at: actionTime, size: size)
                 .draw(in: &context)
         }
@@ -21,18 +22,19 @@ struct DefaultCharacterView: View {
 
 /// 실제 그리기 로직. 좌표: 좌상단 원점, y 아래로 증가 (SwiftUI/웹과 동일).
 private struct DefaultCharacterRenderer {
+    let style: BuiltInStyle
     let action: PetAction
     let facing: Direction
     let t: Double   // 전역 애니메이션 시간
     let at: Double  // 현재 상태 경과 시간
     let size: CGSize
 
-    // 팔레트
-    private let bodyTop = Color(red: 1.00, green: 0.86, blue: 0.58)
-    private let bodyBase = Color(red: 0.98, green: 0.72, blue: 0.40)
+    // 팔레트 (캐릭터 종류별)
+    private var bodyTop: Color { style.palette.bodyTop }
+    private var bodyBase: Color { style.palette.bodyBase }
     private let angryBase = Color(red: 0.97, green: 0.50, blue: 0.40)
-    private let outline = Color(red: 0.55, green: 0.32, blue: 0.15)
-    private let footColor = Color(red: 0.86, green: 0.55, blue: 0.28)
+    private var outline: Color { style.palette.outline }
+    private var footColor: Color { style.palette.foot }
     private let ink = Color(red: 0.20, green: 0.13, blue: 0.10)
 
     /// 상태별 몸 모양/위치 파라미터
@@ -143,12 +145,107 @@ private struct DefaultCharacterRenderer {
             ? CGRect(x: w - body.maxX, y: body.minY, width: body.width, height: body.height)
             : body
 
+        drawAccessoryBehind(&c, body: bodyRect)
         drawFeet(&c, body: bodyRect, pose: p, h: h)
         drawBody(&c, body: bodyRect)
         drawArms(&c, body: bodyRect, pose: p)
         drawFace(&c, body: bodyRect)
+        drawAccessoryFront(&c, body: bodyRect)
 
         drawOverlays(&ctx, body: body)
+    }
+
+    // MARK: - 캐릭터별 장식
+
+    /// 몸 뒤에 그릴 것: 고양이 귀, 토끼 귀, 꼬리
+    private func drawAccessoryBehind(_ c: inout GraphicsContext, body: CGRect) {
+        let fill = GraphicsContext.Shading.color(action == .angry ? angryBase : bodyBase)
+        let inner = GraphicsContext.Shading.color(style.palette.cheek.opacity(0.5))
+        switch style.accessory {
+        case .none, .sprout:
+            break
+        case .catEars:
+            // 놀라면(dragged/fall) 귀가 쫑긋
+            let perk: CGFloat = (action == .dragged || action == .fall) ? -3 : 0
+            for side in [-1.0, 1.0] {
+                let cx = body.midX + 15 * side
+                var ear = Path()
+                ear.move(to: CGPoint(x: cx - 10, y: body.minY + 8))
+                ear.addLine(to: CGPoint(x: cx + 4 * side, y: body.minY - 9 + perk))
+                ear.addLine(to: CGPoint(x: cx + 10, y: body.minY + 8))
+                ear.closeSubpath()
+                c.fill(ear, with: fill)
+                c.stroke(ear, with: .color(outline), lineWidth: 2)
+                var innerEar = Path()
+                innerEar.move(to: CGPoint(x: cx - 5, y: body.minY + 5))
+                innerEar.addLine(to: CGPoint(x: cx + 3 * side, y: body.minY - 4 + perk))
+                innerEar.addLine(to: CGPoint(x: cx + 5, y: body.minY + 5))
+                innerEar.closeSubpath()
+                c.fill(innerEar, with: inner)
+            }
+            // 꼬리: 진행 방향 반대쪽(=왼쪽, context가 좌우 반전 처리)에서 살랑살랑
+            let sway = CGFloat(sin(t * 3)) * 4
+            var tail = Path()
+            tail.move(to: CGPoint(x: body.minX + 6, y: body.maxY - 8))
+            tail.addQuadCurve(to: CGPoint(x: body.minX - 6 + sway, y: body.midY - 12),
+                              control: CGPoint(x: body.minX - 14, y: body.maxY - 4))
+            c.stroke(tail, with: .color(outline), style: StrokeStyle(lineWidth: 7, lineCap: .round))
+            c.stroke(tail, with: fill, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+        case .bunnyEars:
+            let droop: CGFloat = action == .sleep ? 6 : 0
+            let wiggle = CGFloat(sin(t * 2.5)) * 1.5
+            for side in [-1.0, 1.0] {
+                let cx = body.midX + 10 * side
+                let ear = CGRect(x: cx - 6, y: body.minY - 20 + droop, width: 12, height: 28)
+                let transform = CGAffineTransform(translationX: cx, y: body.minY + 4)
+                    .rotated(by: (side * 0.18) + (side < 0 ? wiggle : -wiggle) * 0.03)
+                    .translatedBy(x: -cx, y: -(body.minY + 4))
+                let outer = Path(roundedRect: ear, cornerRadius: 6).applying(transform)
+                c.fill(outer, with: fill)
+                c.stroke(outer, with: .color(outline), lineWidth: 2)
+                c.fill(Path(roundedRect: ear.insetBy(dx: 3, dy: 5), cornerRadius: 3).applying(transform), with: inner)
+            }
+        }
+    }
+
+    /// 몸 앞에 그릴 것: 새싹, 고양이 수염
+    private func drawAccessoryFront(_ c: inout GraphicsContext, body: CGRect) {
+        switch style.accessory {
+        case .sprout:
+            let leafColor = GraphicsContext.Shading.color(Color(red: 0.36, green: 0.72, blue: 0.3))
+            let sway = CGFloat(sin(t * 2.2)) * 0.12
+            let base = CGPoint(x: body.midX, y: body.minY + 1)
+            var stem = Path()
+            stem.move(to: base)
+            stem.addLine(to: CGPoint(x: base.x, y: base.y - 9))
+            c.stroke(stem, with: .color(style.palette.outline), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+            for side in [-1.0, 1.0] {
+                let tip = CGPoint(x: base.x, y: base.y - 9)
+                var leaf = Path()
+                leaf.move(to: tip)
+                leaf.addQuadCurve(to: CGPoint(x: tip.x + 13 * side, y: tip.y - 5),
+                                  control: CGPoint(x: tip.x + 6 * side, y: tip.y - 10))
+                leaf.addQuadCurve(to: tip, control: CGPoint(x: tip.x + 8 * side, y: tip.y + 3))
+                leaf = leaf.applying(CGAffineTransform(translationX: tip.x, y: tip.y)
+                    .rotated(by: sway * side).translatedBy(x: -tip.x, y: -tip.y))
+                c.fill(leaf, with: leafColor)
+                c.stroke(leaf, with: .color(style.palette.outline), lineWidth: 1.5)
+            }
+        case .catEars:
+            let fy = body.minY + body.height * 0.45 + 8
+            let look: CGFloat = (action == .walk || action == .idle) ? 3 : 0
+            for side in [-1.0, 1.0] {
+                for dy in [-2.0, 2.0] {
+                    var w = Path()
+                    // 손(몸 가장자리)과 겹치지 않게 몸 안쪽에서 끝낸다
+                    w.move(to: CGPoint(x: body.midX + look + 12 * side, y: fy + dy * 0.5))
+                    w.addLine(to: CGPoint(x: body.midX + look + 19 * side, y: fy + dy * 1.5))
+                    c.stroke(w, with: .color(ink.opacity(0.55)), lineWidth: 1)
+                }
+            }
+        case .none, .bunnyEars:
+            break
+        }
     }
 
     private func drawFeet(_ c: inout GraphicsContext, body: CGRect, pose p: Pose, h: CGFloat) {
@@ -212,7 +309,7 @@ private struct DefaultCharacterRenderer {
         if action == .happy || action == .ask {
             for side in [-1.0, 1.0] {
                 c.fill(Path(ellipseIn: CGRect(x: fx + 15 * side - 4, y: fy + 5, width: 8, height: 4)),
-                       with: .color(.pink.opacity(0.55)))
+                       with: .color(style.palette.cheek.opacity(0.55)))
             }
         }
 
@@ -328,7 +425,7 @@ private struct DefaultCharacterRenderer {
     // Xcode 캔버스 미리보기 (Storybook 비슷). 실제 앱 동작과는 무관.
     HStack {
         ForEach(PetAction.allCases, id: \.self) { a in
-            DefaultCharacterView(action: a, facing: .right, time: 1, actionTime: 0.1)
+            DefaultCharacterView(style: .cat, action: a, facing: .right, time: 1, actionTime: 0.1)
                 .frame(width: 80, height: 80)
         }
     }

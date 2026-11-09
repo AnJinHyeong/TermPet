@@ -19,6 +19,10 @@ final class PetController: NSObject {
     private var rng = SystemRandomNumberGenerator()
 
     private var window: PetWindow?
+    /// 캐릭터 팩에 walkSpeed가 있으면 그 값, 없으면 설정값
+    private var walkSpeed: CGFloat
+    /// 캐릭터 목록 (우클릭 메뉴에서 선택용). AppDelegate가 주입.
+    var library: CharacterLibrary?
     private var timer: Timer?
     private var lastTick: CFTimeInterval = 0
 
@@ -31,6 +35,7 @@ final class PetController: NSObject {
         self.config = config
         self.brain = PetBrain(config: config.brain)
         self.physics = PetPhysics(origin: .zero, size: config.size)
+        self.walkSpeed = config.walkSpeed
         super.init()
         bubble.onActivate = { ProjectFocuser.focus($0.event) }
     }
@@ -43,11 +48,11 @@ final class PetController: NSObject {
 
         // 처음엔 메인 화면 바닥 가운데에 세운다
         if let main = NSScreen.main?.visibleFrame ?? layout.frames.first {
-            physics.origin = CGPoint(x: main.midX - config.size.width / 2, y: main.minY)
+            physics.origin = CGPoint(x: main.midX - physics.size.width / 2, y: main.minY)
         }
 
-        let window = PetWindow(size: config.size)
-        let root = PetInteractionView(frame: NSRect(origin: .zero, size: config.size))
+        let window = PetWindow(size: physics.size)
+        let root = PetInteractionView(frame: NSRect(origin: .zero, size: physics.size))
         // NSHostingView: SwiftUI 뷰를 AppKit 뷰 안에 올리는 어댑터
         // (React 비유: 다른 프레임워크 안에 React 루트를 하나 마운트하는 것)
         let host = NSHostingView(rootView: PetView(model: model))
@@ -126,12 +131,43 @@ final class PetController: NSObject {
         if model.isVisible { window?.orderFrontRegardless() }
     }
 
+    /// 캐릭터 교체: 창 크기·걷기 속도·말풍선 문구를 캐릭터에 맞춘다.
+    func setCharacter(_ character: LoadedCharacter) {
+        model.character = character
+        walkSpeed = character.walkSpeed ?? config.walkSpeed
+        bubble.messages = character.messages
+
+        let newSize = character.size
+        guard newSize != physics.size else { return }
+        // 발 위치(바닥)와 가로 중심은 유지한 채 크기만 바꾼다
+        physics.origin.x += (physics.size.width - newSize.width) / 2
+        physics.size = newSize
+        window?.setContentSize(newSize)
+        window?.setFrameOrigin(physics.origin)
+        if !isDragging { beginFall() } // 화면 밖으로 삐져나갔으면 보정
+    }
+
+    /// 라이브러리에서 id로 캐릭터를 골라 적용. 불러오기 실패 시 기본 캐릭터 + 에러 메시지 반환.
+    @discardableResult
+    func selectCharacter(id: String) -> String? {
+        guard let library, let entry = library.entries.first(where: { $0.id == id }) else { return nil }
+        do {
+            setCharacter(try library.load(entry))
+            library.select(id)
+            return nil
+        } catch {
+            setCharacter(.builtIn(.mallang))
+            library.select(CharacterLibrary.defaultId)
+            return "\(entry.name): \(error)"
+        }
+    }
+
     /// 디버그용: 화면 위쪽에서 떨어뜨리기
     func dropFromTop() {
         refreshLayout()
         guard let i = layout.index(containingX: physics.centerX, y: physics.origin.y)
                 ?? layout.nearestIndex(toX: physics.centerX) else { return }
-        physics.origin.y = layout.frames[i].maxY - config.size.height
+        physics.origin.y = layout.frames[i].maxY - physics.size.height
         beginFall()
     }
 
@@ -150,7 +186,7 @@ final class PetController: NSObject {
 
         switch brain.action {
         case .walk:
-            switch physics.walk(direction: brain.direction, speed: config.walkSpeed,
+            switch physics.walk(direction: brain.direction, speed: walkSpeed,
                                 dt: dt, layout: layout) {
             case .moved: break
             case .hitWall: brain.handle(.hitWall, using: &rng)
@@ -167,7 +203,7 @@ final class PetController: NSObject {
         if !isDragging, let window, window.frame.origin != physics.origin {
             window.setFrameOrigin(physics.origin)
         }
-        bubble.follow(petFrame: CGRect(origin: physics.origin, size: config.size))
+        bubble.follow(petFrame: CGRect(origin: physics.origin, size: physics.size))
         let unreadBadge = bubble.hasUnread && !bubble.isShowing
         if model.hasUnread != unreadBadge { model.hasUnread = unreadBadge }
         model.time += dt
@@ -280,6 +316,20 @@ final class PetController: NSObject {
         layerItem.submenu = layerMenu
         menu.addItem(layerItem)
 
+        if let library {
+            let charItem = NSMenuItem(title: "캐릭터", action: nil, keyEquivalent: "")
+            let charMenu = NSMenu()
+            for entry in library.entries {
+                let item = NSMenuItem(title: entry.name, action: #selector(menuSelectCharacter(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = entry.id
+                item.state = entry.id == library.selectedId ? .on : .off
+                charMenu.addItem(item)
+            }
+            charItem.submenu = charMenu
+            menu.addItem(charItem)
+        }
+
         let settings = NSMenuItem(title: "설정…", action: nil, keyEquivalent: "")
         settings.isEnabled = false // Phase 3
         menu.addItem(settings)
@@ -299,6 +349,10 @@ final class PetController: NSObject {
               let layer = PetWindowLayer(rawValue: raw) else { return }
         setLayer(layer)
     }
+    @objc private func menuSelectCharacter(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String else { return }
+        selectCharacter(id: id)
+    }
     @objc private func menuQuit(){ NSApplication.shared.terminate(nil) }
 }
 
@@ -307,12 +361,7 @@ struct PetView: View {
     let model: PetViewModel
 
     var body: some View {
-        DefaultCharacterView(
-            action: model.action,
-            facing: model.facing,
-            time: model.time,
-            actionTime: model.actionTime
-        )
+        characterView
         // 미확인 알림 표시: 머리 위 노란 "!" (overlay ≈ position:absolute 자식)
         .overlay(alignment: .top) {
             if model.hasUnread {
@@ -324,6 +373,19 @@ struct PetView: View {
                     .overlay(Circle().stroke(.white, lineWidth: 1.5))
                     .offset(y: 2 + CGFloat(sin(model.time * 5)) * 2)
             }
+        }
+    }
+
+    /// 선택된 캐릭터 종류에 따라 렌더러 선택 (TS의 switch로 컴포넌트 고르기와 같음)
+    @ViewBuilder
+    private var characterView: some View {
+        switch model.character {
+        case .builtIn(let style):
+            DefaultCharacterView(style: style, action: model.action, facing: model.facing,
+                                 time: model.time, actionTime: model.actionTime)
+        case .sprite(let sprite):
+            SpriteCharacterView(sprite: sprite, action: model.action, facing: model.facing,
+                                actionTime: model.actionTime)
         }
     }
 }

@@ -13,15 +13,17 @@ struct TermPetApp: App {
         // MenuBarExtra: 메뉴바(화면 우상단)에 아이콘 + 드롭다운 메뉴를 만든다.
         // LSUIElement=YES 이므로 Dock 아이콘 없이 이것만 보인다.
         MenuBarExtra("TermPet", systemImage: "pawprint.fill") {
-            MenuBarContent(pet: appDelegate.petController, appState: appDelegate.appState)
+            MenuBarContent(app: appDelegate)
         }
     }
 }
 
 /// 메뉴바 드롭다운 내용. Phase 3에서 확장 예정.
 struct MenuBarContent: View {
-    let pet: PetController
-    let appState: AppState
+    let app: AppDelegate
+    private var pet: PetController { app.petController }
+    private var appState: AppState { app.appState }
+    private var characters: CharacterLibrary { app.characters }
 
     var body: some View {
         Text("TermPet \(AppInfo.version)")
@@ -44,6 +46,28 @@ struct MenuBarContent: View {
         )) {
             ForEach(PetWindowLayer.allCases) { layer in
                 Text(layer.title).tag(layer)
+            }
+        }
+
+        Menu("캐릭터") {
+            Picker("캐릭터 선택", selection: Binding(
+                get: { characters.selectedId },
+                set: { app.selectCharacter($0) }
+            )) {
+                ForEach(characters.entries) { entry in
+                    Text(entry.name).tag(entry.id)
+                }
+            }
+            .pickerStyle(.inline)
+            Divider()
+            Button("캐릭터 팩 가져오기…") { app.importCharacterPack() }
+            Button("캐릭터 폴더 열기") { app.openCharacterFolder() }
+            Button("목록 새로고침") { characters.reload() }
+            Button("샘플 스프라이트 팩 만들기") { app.exportSamplePack() }
+            if !characters.problems.isEmpty {
+                Divider()
+                Text("읽지 못한 팩:")
+                ForEach(characters.problems, id: \.self) { Text($0) }
             }
         }
 

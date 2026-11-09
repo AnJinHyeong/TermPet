@@ -26,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let petController = PetController()
     let appState = AppState()
     let paths = TermPetPaths()
+    let characters = CharacterLibrary()
     private var server: LocalHTTPServer?
 
     var port: UInt16 {
@@ -40,6 +41,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard !isRunningTests else { return }
+        petController.library = characters
+        if let problem = petController.selectCharacter(id: characters.selectedId) {
+            NSLog("[TermPet] character load failed: \(problem)")
+        }
         petController.start()
         paths.installBundledScripts()
         startServer()
@@ -47,6 +52,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         server?.stop()
+    }
+
+    // MARK: - 캐릭터 메뉴 동작
+
+    func selectCharacter(_ id: String) {
+        if let problem = petController.selectCharacter(id: id) {
+            showAlert("캐릭터를 불러오지 못했어요", problem + "\n기본 캐릭터로 돌아갑니다.")
+        }
+    }
+
+    /// 폴더 선택 창 → 검증 → 캐릭터 폴더로 복사 → 바로 적용
+    func importCharacterPack() {
+        NSApp.activate() // 메뉴바 앱은 비활성 상태라 먼저 앞으로 가져와야 창이 보인다
+        let panel = NSOpenPanel()
+        panel.title = "캐릭터 팩 폴더 선택 (character.json이 들어 있는 폴더)"
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let folder = panel.url else { return }
+        do {
+            let id = try characters.importPack(from: folder)
+            selectCharacter(id)
+        } catch {
+            showAlert("캐릭터 팩을 가져오지 못했어요", "\(error)\n\n형식은 docs/CHARACTER_PACK.md 를 참고하세요.")
+        }
+    }
+
+    func openCharacterFolder() {
+        try? FileManager.default.createDirectory(at: characters.directory, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(characters.directory)
+    }
+
+    /// 현재(또는 기본) 도형 캐릭터를 스프라이트 팩으로 내보내 목록에 추가하고 폴더를 연다
+    func exportSamplePack() {
+        let style: BuiltInStyle
+        if case .builtIn(let current) = petController.model.character { style = current } else { style = .mallang }
+        do {
+            let folder = try CharacterPackExporter.export(style, to: characters.directory)
+            characters.reload()
+            NSWorkspace.shared.activateFileViewerSelecting([folder])
+        } catch {
+            showAlert("샘플 팩을 만들지 못했어요", "\(error)")
+        }
+    }
+
+    private func showAlert(_ title: String, _ message: String) {
+        NSApp.activate()
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.runModal()
     }
 
     private func startServer() {

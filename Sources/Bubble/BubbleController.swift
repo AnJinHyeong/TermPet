@@ -27,7 +27,10 @@ final class BubbleController {
 
     // MARK: - API
 
-    func enqueue(_ event: PetEvent, messages: BubbleMessages = .default) {
+    /// 말풍선 기본 문구 (캐릭터 팩의 messages)
+    var messages: BubbleMessages = .default
+
+    func enqueue(_ event: PetEvent) {
         let content = BubbleContent.make(for: event, messages: messages, using: &rng)
         guard queue.push(PetNotification(event: event, content: content)) != .ignored else { return }
         show()
