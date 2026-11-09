@@ -70,6 +70,51 @@ enum ImageCharacterMaker {
         return Result(folder: folder, packId: packId, method: method)
     }
 
+    /// 기존 팩의 일부 상태(예: 잡혔을 때·떨어질 때)만 다른 그림으로 바꾼다.
+    /// 프레임 크기·scale 등 팩 설정은 그대로 두고 해당 상태 시트만 다시 렌더링.
+    /// (React 비유: 같은 컴포넌트에서 특정 state일 때만 다른 이미지 prop을 넘기는 것)
+    @discardableResult
+    static func replaceStates(_ actions: [PetAction], in folder: URL, from imageURL: URL) throws -> BackgroundRemover.Method {
+        guard let source = CGImageSourceCreateWithURL(imageURL as CFURL, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+            throw BackgroundRemover.Failure.unreadableImage
+        }
+        let (cutout, method) = try BackgroundRemover.cutout(image)
+        let jsonURL = folder.appendingPathComponent("character.json")
+        var pack = try JSONDecoder().decode(CharacterPack.self, from: Data(contentsOf: jsonURL))
+
+        let base = PuppetAnimator.Geometry.make(imageSize: CGSize(width: cutout.width, height: cutout.height))
+        let geometry = fitted(base, canvas: CGSize(width: CGFloat(pack.frameWidth) / renderScale,
+                                                   height: CGFloat(pack.frameHeight) / renderScale))
+        for action in actions {
+            guard let (_, count, fps) = PuppetAnimator.plan.first(where: { $0.0 == action }) else { continue }
+            let frames: [CGImage] = (0..<count).compactMap { i in
+                let pose = PuppetAnimator.pose(for: action, frame: i, of: count, geometry: geometry)
+                let renderer = ImageRenderer(content: PuppetFrameView(image: cutout, geometry: geometry, pose: pose))
+                renderer.scale = renderScale
+                return renderer.cgImage
+            }
+            let file = "\(action.rawValue).png"
+            try SpriteSheetWriter.writeSheet(frames, frameWidth: pack.frameWidth, frameHeight: pack.frameHeight,
+                                             to: folder.appendingPathComponent(file))
+            pack.states[action.rawValue] = .init(file: file, frames: frames.count, fps: fps, loop: true)
+        }
+        try SpriteSheetWriter.writePNG(cutout, to: folder.appendingPathComponent("source-\(actions.map(\.rawValue).joined(separator: "-")).png"))
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        try encoder.encode(pack).write(to: jsonURL)
+        return method
+    }
+
+    /// 다른 그림을 기존 캔버스에 넣을 때: 높이는 원래 기준(72pt) 유지, 너무 넓으면 캔버스 85% 폭에 맞춰 축소
+    static func fitted(_ g: PuppetAnimator.Geometry, canvas: CGSize) -> PuppetAnimator.Geometry {
+        let shrink = min(1, canvas.width * 0.85 / max(g.character.width, 1),
+                         (canvas.height - (canvas.height * 0.04).rounded()) * 0.9 / max(g.character.height, 1))
+        return PuppetAnimator.Geometry(canvas: canvas,
+                                       character: CGSize(width: g.character.width * shrink, height: g.character.height * shrink),
+                                       bottomMargin: (canvas.height * 0.04).rounded())
+    }
+
     /// 파일 이름 기반 id (영문/숫자만). 쓸 수 있는 글자가 없으면 시간 기반.
     static func makeId(from url: URL, now: Date = Date()) -> String {
         let stem = url.deletingPathExtension().lastPathComponent.lowercased()

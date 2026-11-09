@@ -186,6 +186,46 @@ final class ImageCharacterMakerTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.folder.appendingPathComponent("source.png").path))
     }
 
+    func testReplaceStatesSwapsOnlyChosenSheetsAndKeepsPackSettings() throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("termpet-img-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        func square(_ name: String, w: Int, h: Int) throws -> URL {
+            var data = [UInt8](repeating: 255, count: w * h * 4)
+            let m = h / 4 // 여백 (배경 제거가 "캐릭터를 분리했다"고 인정할 만큼)
+            for y in m..<(h - m) { for x in m..<(w - m) where x == m || x == w - m - 1 || y == m || y == h - m - 1 {
+                let i = (y * w + x) * 4; data[i] = 0; data[i + 1] = 0; data[i + 2] = 0
+            } }
+            let url = tmp.appendingPathComponent(name)
+            try SpriteSheetWriter.writePNG(RGBAImage(width: w, height: h, data: data).makeImage()!, to: url)
+            return url
+        }
+        let result = try ImageCharacterMaker.make(from: try square("hero.png", w: 40, h: 40), name: "히어로",
+                                                  facing: .left, into: tmp.appendingPathComponent("chars"))
+        let idle = try Data(contentsOf: result.folder.appendingPathComponent("idle.png"))
+        let draggedBefore = try Data(contentsOf: result.folder.appendingPathComponent("dragged.png"))
+        let before = try SpriteCharacter(folder: result.folder).pack
+
+        // 아주 넓은 그림 → 캔버스 폭에 맞게 축소되어야 함
+        try ImageCharacterMaker.replaceStates([.dragged, .fall], in: result.folder, from: try square("wide.png", w: 240, h: 80))
+
+        let after = try SpriteCharacter(folder: result.folder)
+        XCTAssertEqual(after.pack.frameWidth, before.frameWidth)
+        XCTAssertEqual(after.pack.scale, before.scale)
+        XCTAssertEqual(after.pack.facing, "left")
+        XCTAssertEqual(try Data(contentsOf: result.folder.appendingPathComponent("idle.png")), idle)
+        XCTAssertNotEqual(try Data(contentsOf: result.folder.appendingPathComponent("dragged.png")), draggedBefore)
+        XCTAssertGreaterThan(after.animation(for: .fall)?.frames.count ?? 0, 1)
+    }
+
+    func testFittedShrinksWideImageIntoCanvas() {
+        let g = PuppetAnimator.Geometry.make(imageSize: CGSize(width: 500, height: 100))
+        let f = ImageCharacterMaker.fitted(g, canvas: CGSize(width: 150, height: 100))
+        XCTAssertLessThanOrEqual(f.character.width, 150 * 0.85 + 0.001)
+        XCTAssertEqual(f.character.width / f.character.height, 5, accuracy: 0.01) // 비율 유지
+        XCTAssertEqual(f.canvas, CGSize(width: 150, height: 100))
+    }
+
     func testUnreadableImageThrows() {
         XCTAssertThrowsError(try ImageCharacterMaker.make(from: URL(fileURLWithPath: "/nope.png"), name: "x",
                                                           facing: .right, into: FileManager.default.temporaryDirectory))
