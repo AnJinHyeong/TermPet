@@ -4,7 +4,7 @@
 # version / sha256 은 Scripts/release.sh 가 자동으로 갱신한다.
 cask "termpet" do
   version "0.1.0"
-  sha256 "0000000000000000000000000000000000000000000000000000000000000000"
+  sha256 "db605565b583464d35eb551b15b6d26520cc608bcad36a922ebed1ca74b400f4"
 
   url "https://github.com/AnJinHyeong/TermPet/releases/download/v#{version}/TermPet-#{version}.zip"
   name "텀펫"
