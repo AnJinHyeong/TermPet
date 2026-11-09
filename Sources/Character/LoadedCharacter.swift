@@ -116,6 +116,7 @@ final class SpriteCharacter {
         return anim.frames[anim.timing.frameIndex(at: elapsed)]
     }
 
-    var spriteFacesLeft: Bool { pack.facing == "left" }
+    /// 스프라이트 그림이 바라보는 방향: "right"(기본) / "left" / "front"(좌우 반전 안 함)
+    var spriteFacing: String { pack.facing ?? "right" }
     var pixelArt: Bool { pack.pixelArt ?? false }
 }

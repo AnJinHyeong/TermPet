@@ -1,6 +1,5 @@
 import AppKit
 import SwiftUI
-import UniformTypeIdentifiers
 
 /// 기본 캐릭터를 스프라이트 시트 PNG + character.json 으로 내보낸다.
 /// 용도: (1) 커스텀 팩 형식의 견본(템플릿) 제공, (2) 스프라이트 렌더링 경로 확인.
@@ -37,7 +36,7 @@ enum CharacterPackExporter {
                 return renderer.cgImage
             }
             let file = "\(action.rawValue).png"
-            try writeSheet(frames, frameWidth: fw, frameHeight: fh, to: folder.appendingPathComponent(file))
+            try SpriteSheetWriter.writeSheet(frames, frameWidth: fw, frameHeight: fh, to: folder.appendingPathComponent(file))
             states[action.rawValue] = .init(file: file, frames: frames.count, fps: fps, loop: true)
         }
 
@@ -50,23 +49,5 @@ enum CharacterPackExporter {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         try encoder.encode(pack).write(to: folder.appendingPathComponent("character.json"))
         return folder
-    }
-
-    /// 프레임들을 가로 한 줄로 이어 붙여 PNG로 저장
-    private static func writeSheet(_ frames: [CGImage], frameWidth fw: Int, frameHeight fh: Int, to url: URL) throws {
-        guard let ctx = CGContext(data: nil, width: fw * max(frames.count, 1), height: fh, bitsPerComponent: 8,
-                                  bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
-            throw CocoaError(.fileWriteUnknown)
-        }
-        for (i, frame) in frames.enumerated() {
-            ctx.draw(frame, in: CGRect(x: i * fw, y: 0, width: fw, height: fh))
-        }
-        guard let sheet = ctx.makeImage(),
-              let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil) else {
-            throw CocoaError(.fileWriteUnknown)
-        }
-        CGImageDestinationAddImage(dest, sheet, nil)
-        guard CGImageDestinationFinalize(dest) else { throw CocoaError(.fileWriteUnknown) }
     }
 }

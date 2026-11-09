@@ -24,7 +24,7 @@ struct CharacterPack: Codable, Equatable {
     var scale: Double?
     var walkSpeed: Double?
     var pixelArt: Bool?
-    /// 스프라이트가 바라보는 방향 ("right" 기본). 왼쪽을 보고 그렸다면 "left".
+    /// 스프라이트가 바라보는 방향 ("right" 기본, "left", "front" = 좌우 반전 안 함)
     var facing: String?
     var states: [String: StateSpec]
     var messages: Messages?

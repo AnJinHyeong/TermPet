@@ -11,7 +11,7 @@ struct SpriteCharacterView: View {
     var body: some View {
         if let frame = sprite.frame(for: action, elapsed: actionTime) {
             // 스프라이트가 바라보는 방향과 이동 방향이 다르면 좌우 반전
-            let flip = (facing == .left) != sprite.spriteFacesLeft
+            let flip = sprite.spriteFacing == "front" ? false : (facing == .left) != (sprite.spriteFacing == "left")
             Image(decorative: frame, scale: 1)
                 // pixelArt면 확대 시 보간 끔(nearest neighbor) → 도트가 흐려지지 않음
                 .interpolation(sprite.pixelArt ? .none : .high)

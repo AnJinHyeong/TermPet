@@ -60,6 +60,7 @@ struct MenuBarContent: View {
             }
             .pickerStyle(.inline)
             Divider()
+            Button("이미지로 캐릭터 만들기…") { app.makeCharacterFromImage() }
             Button("캐릭터 팩 가져오기…") { app.importCharacterPack() }
             Button("캐릭터 폴더 열기") { app.openCharacterFolder() }
             Button("목록 새로고침") { characters.reload() }
