@@ -12,7 +12,7 @@ struct MenuPanelView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header
+            header.zIndex(1) // 헤더 안내 말풍선이 아래 내용 위에 그려지도록
             PanelDivider()
 
             // 진행 중인 AI 세션이 있을 때만 (누르면 그 프로젝트 창으로 이동)
@@ -52,12 +52,12 @@ struct MenuPanelView: View {
             ChipRow {
                 let quiet = pet.quiet
                 Chip(symbol: "moon.zzz.fill", title: "1시간 조용히", on: quiet.manualOn) { quiet.toggleManual() }
-                    .help("1시간 동안 말풍선을 모아뒀다가 끝나면 보여줘요")
+                    .hint("1시간 동안 알림을 모아뒀다 보여줘요", .topLeading)
                 Chip(symbol: "video.fill", title: "회의 중 조용히", on: quiet.duringMeetings) { quiet.duringMeetings.toggle() }
-                    .help("마이크를 쓰는 동안(화상회의 등) 말풍선을 모아둬요")
+                    .hint("마이크 사용 중(회의)엔 알림을 모아둬요")
                 Chip(symbol: quiet.soundOnAsk ? "speaker.wave.2.fill" : "speaker.slash.fill", title: "권한 소리",
                      on: quiet.soundOnAsk) { quiet.soundOnAsk.toggle() }
-                    .help("Claude가 권한을 물어볼 때 소리로도 알려줘요")
+                    .hint("Claude가 권한을 물으면 소리로 알려줘요", .topTrailing)
             }
             if pet.quiet.isQuiet {
                 Text(pet.quiet.manualOn ? "조용한 시간 · 알림은 펫 머리 위 !에 모여요"
@@ -76,7 +76,6 @@ struct MenuPanelView: View {
             .pickerStyle(.segmented)
             .labelsHidden()
             .padding(.horizontal, 16)
-            .help(pet.model.layer.title)
 
             SectionLabel("놀기")
             ChipRow {
@@ -123,7 +122,7 @@ struct MenuPanelView: View {
                             )
                     }
                     .buttonStyle(.plain)
-                    .help(entry.name)
+                    .hint(entry.name)
                 }
                 if characters.custom == nil {
                     Button { closePanelThen { app.makeCharacterFromImage() } } label: {
@@ -135,7 +134,7 @@ struct MenuPanelView: View {
                         .frame(width: 40, height: 40)
                     }
                     .buttonStyle(.plain)
-                    .help(characters.problem ?? "이미지로 캐릭터 만들기 (그림 한 장이면 움직이는 펫이 돼요)")
+                    .hint(characters.problem ?? "이미지로 캐릭터 만들기")
                 }
             }
             .padding(.top, 3)
@@ -185,7 +184,7 @@ struct MenuPanelView: View {
                 .toggleStyle(.switch)
                 .tint(Color.accent)
                 .labelsHidden()
-                .help(pet.model.isVisible ? "펫 숨기기" : "펫 보이기")
+                .hint(pet.model.isVisible ? "펫 숨기기" : "펫 보이기", .bottomTrailing)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
@@ -348,6 +347,7 @@ private struct IntegrationRow: View {
                 Image(systemName: symbol).font(.system(size: 11, weight: .semibold)).foregroundStyle(.white)
             }
             .frame(width: 24, height: 24)
+            .hint("\(kind.subtitle) 알림", .topLeading)
             Text(kind.title).font(.system(size: 13, weight: .medium))
             Spacer()
             if !available {
@@ -364,20 +364,20 @@ private struct IntegrationRow: View {
                     .background(Capsule().fill(filled ? Color.accent : Color.accent.opacity(0.18)))
                 }
                 .buttonStyle(.plain)
-                .help(help)
+                .hint(help, .topTrailing)
             }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .opacity(available ? 1 : 0.5)
-        .help("\(kind.subtitle) 알림")
+
     }
 
     private var filled: Bool { !installed || needsUpdate }
     private var label: String { needsUpdate ? "업데이트" : installed ? "연결됨" : "연결" }
     private var help: String {
-        if needsUpdate { return "작업 중 표시용 훅이 빠져 있어요. 설정 파일을 백업한 뒤 빠진 항목만 추가해요" }
-        return installed ? "누르면 연결을 해제해요 (설정 파일은 백업 후 수정)" : "설정 파일을 백업한 뒤 텀펫 알림을 추가해요"
+        if needsUpdate { return "작업 중 표시용 항목 추가 (백업 후)" }
+        return installed ? "누르면 연결 해제 (백업 후)" : "설정 파일 백업 후 연결"
     }
 
     private var symbol: String {
@@ -447,7 +447,7 @@ private struct IconButton: View {
                 .modifier(HoverBackground(selected: false))
         }
         .buttonStyle(.plain)
-        .help(help)
+        .hint(help, .topTrailing)
     }
 }
 
@@ -473,13 +473,14 @@ private struct SessionRow: View {
                 Spacer()
                 Image(systemName: "arrow.up.forward.app")
                     .font(.system(size: 11)).foregroundStyle(.tertiary)
+                    .hint("이 프로젝트 창으로 이동", .topTrailing)
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
             .modifier(HoverBackground(selected: false))
         }
         .buttonStyle(.plain)
-        .help("눌러서 이 프로젝트 창으로 이동")
+
     }
 
     private var stateText: String {
@@ -512,5 +513,54 @@ private struct SessionRow: View {
         case .done: return .green
         case .error: return .orange
         }
+    }
+}
+
+// MARK: - 마우스 올리면 뜨는 안내
+
+/// 메뉴바 패널은 앱이 활성 상태가 아니라 macOS 기본 툴팁(.help)이 잘 안 뜬다 → 직접 그리는 작은 안내 말풍선.
+/// CSS로 치면 `:hover` 때 `position:absolute`로 뜨는 tooltip. 0.3초 머물러야 떠서 스쳐 지나갈 땐 안 보인다.
+private struct HoverHint: ViewModifier {
+    let text: String
+    /// 말풍선 위치: .top(위 가운데) / .topLeading(왼쪽 정렬) / .topTrailing / .bottomTrailing 등 — 패널 가장자리에서 잘리지 않게
+    let placement: Alignment
+    @State private var hovering = false
+    @State private var visible = false
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { inside in
+                hovering = inside
+                if inside {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { if hovering { withAnimation(.easeOut(duration: 0.12)) { visible = true } } }
+                } else {
+                    visible = false
+                }
+            }
+            .overlay(alignment: placement) {
+                if visible {
+                    Text(text)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 4)
+                        .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.black.opacity(0.82)))
+                        .fixedSize()
+                        .offset(y: isBelow ? 28 : -28)
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                }
+            }
+            .zIndex(visible ? 10 : 0) // 옆 칸들보다 위에 그리기
+    }
+
+    private var isBelow: Bool {
+        placement == .bottom || placement == .bottomLeading || placement == .bottomTrailing
+    }
+}
+
+private extension View {
+    func hint(_ text: String, _ placement: Alignment = .top) -> some View {
+        modifier(HoverHint(text: text, placement: placement))
     }
 }
