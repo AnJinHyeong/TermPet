@@ -10,6 +10,7 @@ import SwiftUI
 @MainActor
 final class PetController: NSObject {
     let model = PetViewModel()
+    let bubble = BubbleController()
 
     private let config: PetConfig
     private var brain: PetBrain
@@ -31,6 +32,7 @@ final class PetController: NSObject {
         self.brain = PetBrain(config: config.brain)
         self.physics = PetPhysics(origin: .zero, size: config.size)
         super.init()
+        bubble.onActivate = { ProjectFocuser.focus($0.event) }
     }
 
     // MARK: - 시작
@@ -61,6 +63,7 @@ final class PetController: NSObject {
         window.contentView = root
         model.layer = PetWindowLayer.load()
         window.apply(layer: model.layer)
+        bubble.setLayer(model.layer)
         window.setFrameOrigin(physics.origin)
         window.orderFrontRegardless() // 앱을 활성화하지 않고 앞에 띄움
         self.window = window
@@ -98,7 +101,20 @@ final class PetController: NSObject {
 
     func setVisible(_ visible: Bool) {
         model.isVisible = visible
-        if visible { window?.orderFrontRegardless() } else { window?.orderOut(nil) }
+        if visible {
+            window?.orderFrontRegardless()
+        } else {
+            window?.orderOut(nil)
+            bubble.hide() // 미확인 알림은 큐에 남아 있다가 다시 보이면 "!"로 표시
+        }
+    }
+
+    /// 외부 이벤트(Claude 완료, 쉘 명령 실패 등) 수신 → 감정 표현 + 말풍선
+    func receive(_ event: PetEvent) {
+        brain.handle(.react(event.mood, duration: 3), using: &rng)
+        syncModel()
+        bubble.enqueue(event)
+        if !model.isVisible { bubble.hide() }
     }
 
     /// 표시 층 변경 (프로그램 위 / 바탕화면) + 저장
@@ -106,6 +122,7 @@ final class PetController: NSObject {
         model.layer = layer
         layer.save()
         window?.apply(layer: layer)
+        bubble.setLayer(layer)
         if model.isVisible { window?.orderFrontRegardless() }
     }
 
@@ -150,6 +167,9 @@ final class PetController: NSObject {
         if !isDragging, let window, window.frame.origin != physics.origin {
             window.setFrameOrigin(physics.origin)
         }
+        bubble.follow(petFrame: CGRect(origin: physics.origin, size: config.size))
+        let unreadBadge = bubble.hasUnread && !bubble.isShowing
+        if model.hasUnread != unreadBadge { model.hasUnread = unreadBadge }
         model.time += dt
         syncModel()
     }
@@ -210,10 +230,21 @@ final class PetController: NSObject {
         if event.clickCount >= 2 {
             openViewer()
         } else {
-            // TODO(Phase 2): 말풍선이 있으면 말풍선 동작
-            brain.handle(.clicked, using: &rng)
+            handleSingleClick()
         }
         syncModel()
+    }
+
+    /// 단일 클릭: 말풍선이 떠 있으면 말풍선 동작(프로젝트로 이동),
+    /// 숨겨진 미확인 알림이 있으면 다시 보여주기, 아무것도 없으면 짧은 happy 반응
+    private func handleSingleClick() {
+        if bubble.isShowing {
+            bubble.activateCurrent()
+        } else if bubble.hasUnread {
+            bubble.show()
+        } else {
+            brain.handle(.clicked, using: &rng)
+        }
     }
 
     private func openViewer() {
@@ -282,5 +313,17 @@ struct PetView: View {
             time: model.time,
             actionTime: model.actionTime
         )
+        // 미확인 알림 표시: 머리 위 노란 "!" (overlay ≈ position:absolute 자식)
+        .overlay(alignment: .top) {
+            if model.hasUnread {
+                Text("!")
+                    .font(.system(size: 12, weight: .black, design: .rounded))
+                    .foregroundStyle(.white)
+                    .frame(width: 18, height: 18)
+                    .background(Circle().fill(Color(red: 0.98, green: 0.62, blue: 0.1)))
+                    .overlay(Circle().stroke(.white, lineWidth: 1.5))
+                    .offset(y: 2 + CGFloat(sin(model.time * 5)) * 2)
+            }
+        }
     }
 }

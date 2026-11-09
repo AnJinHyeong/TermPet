@@ -22,6 +22,11 @@ targets:
     platform: macOS
     sources:
       - path: Sources
+      # 훅 스크립트를 앱 번들 Resources에 포함 → 실행 시 ~/.termpet/ 으로 설치
+      - path: Scripts/termpet-hook
+        buildPhase: resources
+      - path: Scripts/zsh-integration.zsh
+        buildPhase: resources
     info:
       path: Sources/App/Info.plist
       properties:

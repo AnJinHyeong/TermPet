@@ -13,7 +13,7 @@ struct TermPetApp: App {
         // MenuBarExtra: 메뉴바(화면 우상단)에 아이콘 + 드롭다운 메뉴를 만든다.
         // LSUIElement=YES 이므로 Dock 아이콘 없이 이것만 보인다.
         MenuBarExtra("TermPet", systemImage: "pawprint.fill") {
-            MenuBarContent(pet: appDelegate.petController)
+            MenuBarContent(pet: appDelegate.petController, appState: appDelegate.appState)
         }
     }
 }
@@ -21,9 +21,11 @@ struct TermPetApp: App {
 /// 메뉴바 드롭다운 내용. Phase 3에서 확장 예정.
 struct MenuBarContent: View {
     let pet: PetController
+    let appState: AppState
 
     var body: some View {
         Text("TermPet \(AppInfo.version)")
+        Text(appState.serverStatusText)
         Divider()
 
         // pet.model은 @Observable이라 값이 바뀌면 메뉴 라벨도 자동 갱신된다
@@ -53,6 +55,10 @@ struct MenuBarContent: View {
             Button("확인 요청 (ask)") { pet.react(.ask) }
             Button("말하기 (talk)") { pet.react(.talk) }
             Button("위에서 떨어뜨리기") { pet.dropFromTop() }
+            Divider()
+            Button("테스트 알림: 완료 (Cursor로 이동)") { pet.receive(.debugSample(.done)) }
+            Button("테스트 알림: 에러") { pet.receive(.debugSample(.error)) }
+            Button("테스트 알림: 확인 요청") { pet.receive(.debugSample(.ask)) }
         }
         #endif
 

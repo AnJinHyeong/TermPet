@@ -1,0 +1,163 @@
+import XCTest
+@testable import TermPet
+
+final class EventDecoderTests: XCTestCase {
+    private func data(_ s: String) -> Data { Data(s.utf8) }
+
+    // MARK: 표준 이벤트
+
+    func testStandardFullEvent() throws {
+        let e = try EventDecoder.decodeStandard(data("""
+        {"source":"claude","kind":"done","message":"hi","cwd":"/Users/me/fitin","sessionId":"s",
+         "transcriptPath":"/t.jsonl","exitCode":0,"durationSec":42,"hostBundleId":"b","termProgram":"vscode"}
+        """))
+        XCTAssertEqual(e.source, .claude)
+        XCTAssertEqual(e.kind, .done)
+        XCTAssertEqual(e.message, "hi")
+        XCTAssertEqual(e.projectName, "fitin")
+        XCTAssertEqual(e.durationSec, 42)
+        XCTAssertEqual(e.hostBundleId, "b")
+    }
+
+    func testShellKindInferredFromExitCode() throws {
+        let ok = try EventDecoder.decodeStandard(data(#"{"source":"shell","exitCode":0,"command":"make"}"#))
+        XCTAssertEqual(ok.kind, .done)
+        let fail = try EventDecoder.decodeStandard(data(#"{"source":"shell","exitCode":2,"command":"make\nall"}"#))
+        XCTAssertEqual(fail.kind, .error)
+        XCTAssertEqual(fail.detail, "make")
+    }
+
+    func testStandardMissingOrInvalidFields() {
+        XCTAssertThrowsError(try EventDecoder.decodeStandard(data(#"{"kind":"done"}"#)))
+        XCTAssertThrowsError(try EventDecoder.decodeStandard(data(#"{"source":"shell"}"#)))
+        XCTAssertThrowsError(try EventDecoder.decodeStandard(data(#"{"source":"nope","kind":"done"}"#)))
+        XCTAssertThrowsError(try EventDecoder.decodeStandard(data(#"{"source":"shell","kind":"meh"}"#)))
+        XCTAssertThrowsError(try EventDecoder.decodeStandard(data("[1,2]")))
+    }
+
+    func testWrongFieldTypesAreTolerated() throws {
+        let e = try EventDecoder.decodeStandard(data(#"{"source":"shell","kind":"done","exitCode":"3","durationSec":true,"cwd":5}"#))
+        XCTAssertEqual(e.exitCode, 3)
+        XCTAssertNil(e.durationSec)
+        XCTAssertNil(e.cwd)
+    }
+
+    func testContextFillsHostWhenBodyLacksIt() throws {
+        let e = try EventDecoder.decodeStandard(data(#"{"source":"shell","kind":"done"}"#),
+                                                context: .init(hostBundleId: "h", termProgram: "t"))
+        XCTAssertEqual(e.hostBundleId, "h")
+        XCTAssertEqual(e.termProgram, "t")
+    }
+
+    // MARK: Claude Code 훅
+
+    func testClaudeStop() throws {
+        let e = try EventDecoder.decodeClaudeHook(data("""
+        {"session_id":"abc123","transcript_path":"/Users/me/.claude/projects/x/abc.jsonl","cwd":"/Users/me/fitin",
+         "permission_mode":"default","hook_event_name":"Stop","stop_hook_active":false,
+         "last_assistant_message":"\\n## I've completed the refactoring.\\nHere's a summary...","background_tasks":[]}
+        """))
+        XCTAssertEqual(e.source, .claude)
+        XCTAssertEqual(e.kind, .done)
+        XCTAssertEqual(e.sessionId, "abc123")
+        XCTAssertEqual(e.transcriptPath, "/Users/me/.claude/projects/x/abc.jsonl")
+        XCTAssertEqual(e.detail, "I've completed the refactoring.")
+        XCTAssertNil(e.message)
+        XCTAssertEqual(e.mood, .happy)
+    }
+
+    func testClaudeStopWithMinimalFields() throws {
+        let e = try EventDecoder.decodeClaudeHook(data(#"{"hook_event_name":"Stop"}"#))
+        XCTAssertEqual(e.kind, .done)
+        XCTAssertNil(e.cwd)
+        XCTAssertNil(e.detail)
+    }
+
+    func testClaudeNotificationPermission() throws {
+        let e = try EventDecoder.decodeClaudeHook(data("""
+        {"session_id":"abc123","cwd":"/p","hook_event_name":"Notification","message":"Claude needs your permission",
+         "title":"Permission needed","notification_type":"permission_prompt"}
+        """))
+        XCTAssertEqual(e.kind, .ask)
+        XCTAssertEqual(e.message, "Claude needs your permission")
+        XCTAssertEqual(e.notificationType, "permission_prompt")
+        XCTAssertFalse(e.isIdlePrompt)
+    }
+
+    func testClaudeNotificationWithoutTypeIsAsk() throws {
+        let e = try EventDecoder.decodeClaudeHook(data(#"{"hook_event_name":"Notification","message":"waiting"}"#))
+        XCTAssertEqual(e.kind, .ask)
+    }
+
+    func testClaudeIdlePrompt() throws {
+        let e = try EventDecoder.decodeClaudeHook(data(#"{"hook_event_name":"Notification","notification_type":"idle_prompt"}"#))
+        XCTAssertTrue(e.isIdlePrompt)
+    }
+
+    func testClaudeIgnoredEvents() {
+        for body in [#"{"hook_event_name":"Notification","notification_type":"auth_success"}"#,
+                     #"{"hook_event_name":"PreToolUse"}"#,
+                     #"{}"#] {
+            XCTAssertThrowsError(try EventDecoder.decodeClaudeHook(data(body))) { error in
+                guard case EventDecoder.DecodeError.ignored = error else { return XCTFail("\(error)") }
+            }
+        }
+    }
+
+    // MARK: Codex
+
+    func testCodexTurnComplete() throws {
+        let e = try EventDecoder.decodeCodexNotify(data(#"{"type":"agent-turn-complete","last-assistant-message":"Done.","cwd":"/p/app"}"#))
+        XCTAssertEqual(e.source, .codex)
+        XCTAssertEqual(e.kind, .done)
+        XCTAssertEqual(e.detail, "Done.")
+        XCTAssertThrowsError(try EventDecoder.decodeCodexNotify(data(#"{"type":"other"}"#)))
+    }
+
+    func testOneLineTruncates() {
+        XCTAssertEqual(EventDecoder.oneLine("\n\n  **Hello**  \nworld"), "Hello")
+        XCTAssertEqual(EventDecoder.oneLine(String(repeating: "a", count: 300)).count, 120)
+    }
+}
+
+final class BubbleContentTests: XCTestCase {
+    private var rng = SeededGenerator(seed: 1)
+
+    func testUsesProjectNameAndRandomMessage() {
+        let e = PetEvent(source: .claude, kind: .done, cwd: "/Users/me/fitin")
+        let c = BubbleContent.make(for: e, using: &rng)
+        XCTAssertEqual(c.title, "fitin")
+        XCTAssertTrue(BubbleMessages.default.done.contains(c.body))
+    }
+
+    func testEventMessageWins() {
+        let e = PetEvent(source: .claude, kind: .ask, message: "Claude needs your permission")
+        let c = BubbleContent.make(for: e, using: &rng)
+        XCTAssertEqual(c.body, "Claude needs your permission")
+        XCTAssertEqual(c.title, "Claude Code") // cwd 없으면 소스 이름
+    }
+
+    func testCustomMessagePool() {
+        let messages = BubbleMessages(done: ["야옹"], error: ["캬악"], ask: ["냥?"])
+        let e = PetEvent(source: .shell, kind: .error)
+        XCTAssertEqual(BubbleContent.make(for: e, messages: messages, using: &rng).body, "캬악")
+    }
+
+    func testShellDetailIncludesDuration() {
+        let e = PetEvent(source: .shell, kind: .done, detail: "npm test", durationSec: 125)
+        XCTAssertEqual(BubbleContent.make(for: e, using: &rng).detail, "npm test · 2분 5초")
+    }
+
+    func testFormatDuration() {
+        XCTAssertEqual(BubbleContent.formatDuration(42), "42초")
+        XCTAssertEqual(BubbleContent.formatDuration(120), "2분")
+        XCTAssertEqual(BubbleContent.formatDuration(3600), "1시간")
+        XCTAssertEqual(BubbleContent.formatDuration(3720), "1시간 2분")
+    }
+
+    func testProjectNameEdgeCases() {
+        XCTAssertNil(PetEvent(source: .shell, kind: .done, cwd: "/").projectName)
+        XCTAssertNil(PetEvent(source: .shell, kind: .done, cwd: "").projectName)
+        XCTAssertEqual(PetEvent(source: .shell, kind: .done, cwd: "/a/b/").projectName, "b")
+    }
+}

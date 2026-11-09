@@ -13,4 +13,6 @@ final class PetViewModel {
     var actionTime: TimeInterval = 0
     var isVisible: Bool = true
     var layer: PetWindowLayer = .default
+    /// 확인 안 한 알림이 있고 말풍선은 숨겨진 상태 → 머리 위 "!" 표시
+    var hasUnread: Bool = false
 }

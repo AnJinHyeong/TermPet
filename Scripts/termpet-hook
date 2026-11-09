@@ -1,0 +1,72 @@
+#!/bin/bash
+# termpet-hook — AI CLI / 쉘 이벤트를 TermPet 앱으로 전송한다.
+# TermPet 앱이 실행될 때 ~/.termpet/bin/termpet-hook 으로 설치(갱신)된다.
+#
+# 사용법:
+#   termpet-hook claude                               # stdin: Claude Code 훅 JSON (Stop / Notification)
+#   termpet-hook codex '<json>'                       # Codex notify (JSON이 마지막 인자로 옴)
+#   termpet-hook shell <exitCode> <durationSec> <cwd> <command...>
+#
+# 원칙:
+#   - 앱이 꺼져 있거나 어떤 오류가 나도 항상 즉시 exit 0 (CLI/쉘을 절대 막거나 느리게 하지 않음)
+#     ※ Claude Code의 Stop 훅은 exit 2면 "멈추지 말고 계속 작업"이 되므로 반드시 0으로 끝낸다.
+#   - jq / python 의존 없음: 원본 JSON을 그대로 body로 보내고 해석은 앱이 한다.
+#   - 아무것도 출력하지 않는다 (stdout은 훅 결과로 해석될 수 있음).
+
+exec >/dev/null 2>&1
+
+TERMPET_DIR="${TERMPET_HOME:-$HOME/.termpet}"
+TOKEN="$(cat "$TERMPET_DIR/token" 2>/dev/null)"
+[ -n "$TOKEN" ] || exit 0
+PORT="${TERMPET_PORT:-$(cat "$TERMPET_DIR/port" 2>/dev/null)}"
+case "$PORT" in ''|*[!0-9]*) PORT=47821 ;; esac
+
+SOURCE="$1"
+[ $# -gt 0 ] && shift
+
+# JSON 문자열 이스케이프 (쉘 명령어/경로용)
+json_escape() {
+  local s=$1
+  s=${s//\\/\\\\}
+  s=${s//\"/\\\"}
+  s=${s//$'\n'/\\n}
+  s=${s//$'\r'/\\r}
+  s=${s//$'\t'/\\t}
+  printf '%s' "$s" | LC_ALL=C tr -d '\000-\010\013\014\016-\037'
+}
+
+# body를 stdin으로 받아 백그라운드 전송. curl은 최대 1초, 출력/입력 모두 분리.
+send() {
+  local path=$1
+  curl -s -o /dev/null --max-time 1 -X POST \
+    -H "Content-Type: application/json" \
+    -H "X-TermPet-Token: $TOKEN" \
+    -H "X-TermPet-Host-Bundle: ${__CFBundleIdentifier:-}" \
+    -H "X-TermPet-Term-Program: ${TERM_PROGRAM:-}" \
+    --data-binary @- "http://127.0.0.1:$PORT$path" &
+}
+
+case "$SOURCE" in
+  claude)
+    BODY="$(cat)"   # 훅 입력을 먼저 전부 읽는다 (Claude Code가 stdin을 닫을 때까지)
+    [ -n "$BODY" ] || exit 0
+    printf '%s' "$BODY" | send /hook/claude
+    ;;
+  codex)
+    # Codex는 JSON을 마지막 인자로 넘긴다
+    BODY="${!#}"
+    [ -n "$BODY" ] || exit 0
+    printf '%s' "$BODY" | send /hook/codex
+    ;;
+  shell)
+    EXIT_CODE="${1:-0}"; DURATION="${2:-0}"; CWD="${3:-$PWD}"
+    shift 3 2>/dev/null
+    CMD="$*"
+    case "$EXIT_CODE" in ''|*[!0-9]*) EXIT_CODE=0 ;; esac
+    case "$DURATION" in ''|*[!0-9]*) DURATION=0 ;; esac
+    printf '{"source":"shell","exitCode":%s,"durationSec":%s,"cwd":"%s","command":"%s"}' \
+      "$EXIT_CODE" "$DURATION" "$(json_escape "$CWD")" "$(json_escape "$CMD")" | send /event
+    ;;
+esac
+
+exit 0
