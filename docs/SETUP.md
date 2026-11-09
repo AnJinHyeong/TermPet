@@ -1,6 +1,6 @@
 # TermPet 연동 설정 (수동)
 
-> Phase 3에서 설정 화면의 [설치] 버튼으로 자동화 예정. 지금은 아래를 직접 적용한다.
+> 메뉴바 아이콘 → **AI 연결**의 [연결] 버튼으로 자동 설정할 수 있다 (백업 후 병합). 아래는 직접 설정하는 방법.
 
 TermPet 앱을 한 번 실행하면 다음이 자동 생성된다:
 
@@ -70,7 +70,21 @@ curl http://127.0.0.1:47821/health      # → ok
 
 제거: 추가한 한 줄을 지운다.
 
-## 3. 직접 테스트
+## 3. Codex
+
+`~/.codex/config.toml` 맨 위(첫 `[테이블]` 앞)에:
+
+```toml
+notify = ["/Users/<나>/.termpet/bin/termpet-hook", "codex"]
+```
+
+이미 다른 `notify`가 있으면 Codex는 하나만 받으므로 연결(chain) 형태로 바꾼다. 원래 명령은 그대로 먼저 실행된다.
+
+```toml
+notify = ["/Users/<나>/.termpet/bin/termpet-hook", "codex-chain", "<원래 명령>", "<원래 인자>"]
+```
+
+## 4. 직접 테스트
 
 ```bash
 TOKEN=$(cat ~/.termpet/token)

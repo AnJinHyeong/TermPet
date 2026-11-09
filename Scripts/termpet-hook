@@ -5,6 +5,7 @@
 # 사용법:
 #   termpet-hook claude                               # stdin: Claude Code 훅 JSON (Stop / Notification)
 #   termpet-hook codex '<json>'                       # Codex notify (JSON이 마지막 인자로 옴)
+#   termpet-hook codex-chain <원래 notify 명령...> '<json>'  # 원래 notify를 먼저 실행한 뒤 텀펫에도 알림
 #   termpet-hook shell <exitCode> <durationSec> <cwd> <command...>
 #
 # 원칙:
@@ -14,6 +15,13 @@
 #   - 아무것도 출력하지 않는다 (stdout은 훅 결과로 해석될 수 있음).
 
 exec >/dev/null 2>&1
+
+# Codex notify 연결(chain): 원래 notify 명령을 그대로 먼저 실행 (텀펫이 꺼져 있어도)
+if [ "$1" = "codex-chain" ] && [ $# -ge 3 ]; then
+  shift
+  ( "$@" & )                  # 원래 명령 + 마지막 인자(JSON) — Codex가 직접 부른 것과 똑같이
+  set -- codex "${!#}"
+fi
 
 TERMPET_DIR="${TERMPET_HOME:-$HOME/.termpet}"
 TOKEN="$(cat "$TERMPET_DIR/token" 2>/dev/null)"

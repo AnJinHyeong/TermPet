@@ -28,6 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let appState = AppState()
     let paths = TermPetPaths()
     let characters = CharacterLibrary()
+    let integrations = IntegrationManager()
     private var server: LocalHTTPServer?
 
     var port: UInt16 {
@@ -134,6 +135,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             selectCharacter(characters.selectedId)
         } catch {
             showAlert("캐릭터를 지우지 못했어요", "\(error)")
+        }
+    }
+
+    /// 패널의 AI 연결 버튼: 설정 파일 백업 → 텀펫 항목 추가/삭제
+    func toggleIntegration(_ kind: IntegrationManager.Kind) {
+        let wasOn = integrations.installed[kind] == true
+        do {
+            try integrations.toggle(kind)
+            if kind == .zsh && !wasOn {
+                showAlert("터미널 명령 알림을 연결했어요", "새로 여는 터미널부터 적용돼요.")
+            }
+        } catch {
+            showAlert("\(kind.title) 연결을 바꾸지 못했어요", "\(error)\n\n설정 파일은 바뀌지 않았어요.")
         }
     }
 

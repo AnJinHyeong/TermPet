@@ -34,6 +34,18 @@ struct MenuPanelView: View {
             }
             .padding(.horizontal, 8)
 
+            SectionLabel("AI 연결")
+            VStack(spacing: 2) {
+                ForEach(IntegrationManager.Kind.allCases) { kind in
+                    IntegrationRow(kind: kind,
+                                   installed: app.integrations.installed[kind] == true,
+                                   available: app.integrations.isAvailable(kind)) {
+                        app.toggleIntegration(kind)
+                    }
+                }
+            }
+            .padding(.horizontal, 8)
+
             SectionLabel("표시 위치")
             TileGrid {
                 ForEach(PetWindowLayer.allCases) { layer in
@@ -68,6 +80,7 @@ struct MenuPanelView: View {
         }
         .frame(width: 300)
         .padding(.top, 4)
+        .onAppear { app.integrations.refresh() } // 터미널에서 직접 고쳤을 수도 있으니 열 때마다 다시 확인
     }
 
     // MARK: - 헤더 / 푸터
@@ -370,5 +383,62 @@ private struct Tile: View {
             .modifier(HoverBackground(selected: selected))
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// AI 연결 한 줄: 아이콘 · 이름 · 설명 · [연결] 또는 [연결됨 ✓]
+private struct IntegrationRow: View {
+    let kind: IntegrationManager.Kind
+    let installed: Bool
+    let available: Bool
+    let action: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 9, style: .continuous).fill(color.gradient)
+                Image(systemName: symbol).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
+            }
+            .frame(width: 38, height: 38)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(kind.title).font(.system(size: 14, weight: .semibold))
+                Text(available ? kind.subtitle : "설치되어 있지 않아요")
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if available {
+                Button(action: action) {
+                    HStack(spacing: 3) {
+                        if installed { Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)) }
+                        Text(installed ? "연결됨" : "연결").font(.system(size: 12, weight: .semibold))
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .foregroundStyle(installed ? Color.accent : .white)
+                    .background(Capsule().fill(installed ? Color.accent.opacity(0.18) : Color.accent))
+                }
+                .buttonStyle(.plain)
+                .help(installed ? "누르면 연결을 해제해요 (설정 파일은 백업 후 수정)" : "설정 파일을 백업한 뒤 텀펫 알림을 추가해요")
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .opacity(available ? 1 : 0.5)
+    }
+
+    private var symbol: String {
+        switch kind {
+        case .claude: return "sparkles"
+        case .codex: return "chevron.left.forwardslash.chevron.right"
+        case .zsh: return "terminal.fill"
+        }
+    }
+
+    private var color: Color {
+        switch kind {
+        case .claude: return Color(red: 0.85, green: 0.47, blue: 0.34)
+        case .codex: return Color(red: 0.25, green: 0.25, blue: 0.28)
+        case .zsh: return Color(red: 0.20, green: 0.62, blue: 0.45)
+        }
     }
 }
