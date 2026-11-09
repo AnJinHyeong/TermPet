@@ -68,9 +68,13 @@ struct MenuPanelView: View {
             }
 
             SectionLabel("표시 위치")
-            // 세그먼트 버튼 ≈ <select>를 버튼 묶음으로 보여주는 것 (기본 Picker는 파란색이라 앱 색에 맞춰 직접 그림)
-            LayerSegment(selected: pet.model.layer) { pet.setLayer($0) }
-                .padding(.horizontal, 12)
+            // 라디오 버튼처럼 하나만 선택 (다른 칩과 같은 모양)
+            ChipRow {
+                ForEach(PetWindowLayer.allCases) { layer in
+                    Chip(symbol: layer.symbol, title: layer.shortTitle, on: pet.model.layer == layer) { pet.setLayer(layer) }
+                        .hint(layer.title)
+                }
+            }
 
             SectionLabel("놀기")
             ChipRow {
@@ -114,7 +118,7 @@ struct MenuPanelView: View {
                         CharacterThumbnail(entry: entry, size: 40)
                             .overlay(
                                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .strokeBorder(entry.id == characters.selectedId ? Color.accent : .clear, lineWidth: 2.5)
+                                    .strokeBorder(entry.id == characters.selectedId ? Color.accent : .clear, lineWidth: 2)
                                     .padding(-3)
                             )
                     }
@@ -136,7 +140,7 @@ struct MenuPanelView: View {
             }
             .padding(.top, 3)
 
-            HStack(spacing: 4) {
+            HStack(spacing: 5) {
                 Text(selectedName).font(.system(size: 12, weight: .semibold))
                 if characters.selectedId == CharacterLibrary.customId {
                     Text("· 내 캐릭터").font(.system(size: 11)).foregroundStyle(.secondary)
@@ -158,7 +162,8 @@ struct MenuPanelView: View {
                     }
                     .menuStyle(.borderlessButton)
                     .menuIndicator(.hidden)
-                    .frame(width: 24, height: 22)
+                    .frame(width: 28, height: 24)
+                    .modifier(ControlSurface(radius: 7))
                     .hint("동작별 그림 (여러 장 = 애니메이션)")
                     IconButton(symbol: "arrow.left.and.right", help: "방향 바꾸기") { app.flipCustomCharacter() }
                     IconButton(symbol: "trash", help: "내 캐릭터 지우기") { app.removeCustomCharacter() }
@@ -229,6 +234,7 @@ struct MenuPanelView: View {
                     launchAtLogin = LoginItem.isEnabled // 실패하면 실제 상태로 되돌아감
                 }))
                 .toggleStyle(.checkbox)
+                .tint(Color.accent)
                 .font(.system(size: 12))
                 .frame(maxWidth: .infinity, alignment: .leading)
             footerLine
@@ -384,14 +390,15 @@ private struct IntegrationRow: View {
                 Text("설치 안 됨").font(.system(size: 11)).foregroundStyle(.secondary)
             } else {
                 Button(action: action) {
-                    HStack(spacing: 3) {
+                    let content = HStack(spacing: 3) {
                         if installed && !needsUpdate { Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)) }
                         Text(label).font(.system(size: 11, weight: .semibold))
                     }
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 3)
-                    .foregroundStyle(filled ? .white : Color.accent)
-                    .background(Capsule().fill(filled ? Color.accent : Color.accent.opacity(0.18)))
+                    .frame(minWidth: 52)
+                    .padding(.horizontal, 8)
+                    .frame(height: 24)
+                    // 해야 할 동작(연결/업데이트)은 진한 주황, 이미 켜진 상태(연결됨)는 다른 "켜짐" 버튼과 같은 모양
+                    if filled { content.modifier(PrimarySurface()) } else { content.modifier(ControlSurface(on: true, radius: 7)) }
                 }
                 .buttonStyle(.plain)
                 .hint(help)
@@ -427,44 +434,48 @@ private struct IntegrationRow: View {
     }
 }
 
-/// 표시 위치 선택: 아이콘 + 짧은 이름 3칸, 선택된 칸은 주황
-private struct LayerSegment: View {
-    let selected: PetWindowLayer
-    let onSelect: (PetWindowLayer) -> Void
-
-    var body: some View {
-        HStack(spacing: 2) {
-            ForEach(PetWindowLayer.allCases) { layer in
-                let on = layer == selected
-                Button { onSelect(layer) } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: layer.symbol).font(.system(size: 10, weight: .semibold))
-                        Text(layer.shortTitle).font(.system(size: 11, weight: on ? .semibold : .medium)).lineLimit(1)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 6)
-                    .foregroundStyle(on ? .white : .primary.opacity(0.75))
-                    .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(on ? Color.accent : .clear))
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .hint(layer.title)
-            }
-        }
-        .padding(2)
-        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.06)))
-    }
-}
-
 /// 3칸 균등 칩 줄 (CSS grid-template-columns: repeat(3, 1fr))
 private struct ChipRow<Content: View>: View {
     @ViewBuilder let content: Content
     var body: some View {
-        HStack(spacing: 6) { content }.padding(.horizontal, 12)
+        HStack(spacing: 6) { content }.padding(.horizontal, 16)
     }
 }
 
-/// 작은 버튼/토글 칩: 아이콘 + 짧은 글자. 켜진 상태면 주황 배경
+/// 패널의 모든 버튼이 쓰는 공통 모양 (CSS로 치면 .btn / .btn.is-on 클래스)
+/// - 기본: 회색 둥근 사각, 마우스 올리면 살짝 진하게
+/// - 켜짐/선택: 연한 주황 + 주황 테두리 + 주황 글씨
+private struct ControlSurface: ViewModifier {
+    var on = false
+    var radius: CGFloat = 8
+    @State private var hovering = false
+
+    func body(content: Content) -> some View {
+        content
+            .foregroundStyle(on ? Color.accent : Color.primary.opacity(0.8))
+            .background(RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .fill(on ? Color.accent.opacity(0.18) : Color.primary.opacity(hovering ? 0.11 : 0.06)))
+            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .strokeBorder(on ? Color.accent.opacity(0.85) : .clear, lineWidth: 1.5))
+            .contentShape(Rectangle())
+            .onHover { hovering = $0 }
+    }
+}
+
+/// "해야 할 동작" 버튼 모양 (연결 / 업데이트): 진한 주황 + 흰 글씨
+private struct PrimarySurface: ViewModifier {
+    @State private var hovering = false
+    func body(content: Content) -> some View {
+        content
+            .foregroundStyle(.white)
+            .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(Color.accent.opacity(hovering ? 0.85 : 1)))
+            .contentShape(Rectangle())
+            .onHover { hovering = $0 }
+    }
+}
+
+/// 작은 버튼/토글 칩: 아이콘 + 짧은 글자
 private struct Chip: View {
     let symbol: String
     let title: String
@@ -479,13 +490,8 @@ private struct Chip: View {
                     .minimumScaleFactor(0.85)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 7)
-            .foregroundStyle(on ? Color.accent : .primary.opacity(0.8))
-            .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(on ? Color.accent.opacity(0.18) : Color.primary.opacity(0.06)))
-            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(on ? Color.accent.opacity(0.8) : .clear, lineWidth: 1.5))
-            .contentShape(Rectangle())
+            .frame(height: 30)
+            .modifier(ControlSurface(on: on))
         }
         .buttonStyle(.plain)
     }
@@ -501,9 +507,8 @@ private struct IconButton: View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 11, weight: .medium))
-                .frame(width: 24, height: 22)
-                .foregroundStyle(.primary.opacity(0.7))
-                .modifier(HoverBackground(selected: false))
+                .frame(width: 28, height: 24)
+                .modifier(ControlSurface(radius: 7))
         }
         .buttonStyle(.plain)
         .hint(help)
