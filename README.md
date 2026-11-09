@@ -25,10 +25,7 @@
 ### Homebrew (추천)
 
 ```bash
-brew tap anjinhyeong/termpet https://github.com/AnJinHyeong/TermPet
-brew trust anjinhyeong/termpet          # 처음 한 번: 공식 저장소가 아닌 tap 허용
-brew install --cask termpet
-open /Applications/TermPet.app
+brew install --cask anjinhyeong/tap/termpet
 ```
 
 - 업데이트: `brew upgrade --cask termpet`
@@ -189,3 +186,7 @@ Scripts/release.sh 0.2.0  # 새 버전 배포: 빌드 → GitHub Release → Hom
 
 - 개인용으로 만든 앱입니다. 다른 사람이 만든 캐릭터 그림(게임 캐릭터 등)으로 내 캐릭터를 만들었다면 개인적으로만 쓰고 배포하지 마세요.
 - 이 저장소의 `.claude/skills/ponytail*`은 코드 리뷰용 Claude Code 스킬 [ponytail](https://github.com/DietrichGebert/ponytail) (MIT)입니다.
+
+## 라이선스
+
+[MIT](LICENSE) — 자유롭게 쓰고 고치고 나눌 수 있습니다. 단, 저작권 표시와 라이선스 문구는 함께 남겨 주세요.
