@@ -38,6 +38,7 @@ final class PetController: NSObject {
         self.walkSpeed = config.walkSpeed
         super.init()
         bubble.onActivate = { ProjectFocuser.focus($0.event) }
+        bubble.onVisibilityChange = { [weak self] _ in self?.applyEffectiveLayer() }
     }
 
     // MARK: - 시작
@@ -67,8 +68,7 @@ final class PetController: NSObject {
 
         window.contentView = root
         model.layer = PetWindowLayer.load()
-        window.apply(layer: model.layer)
-        bubble.setLayer(model.layer)
+        applyEffectiveLayer()
         window.setFrameOrigin(physics.origin)
         window.orderFrontRegardless() // 앱을 활성화하지 않고 앞에 띄움
         self.window = window
@@ -126,8 +126,15 @@ final class PetController: NSObject {
     func setLayer(_ layer: PetWindowLayer) {
         model.layer = layer
         layer.save()
-        window?.apply(layer: layer)
-        bubble.setLayer(layer)
+        applyEffectiveLayer()
+    }
+
+    /// 실제로 적용할 층: "바탕화면에만" 모드여도 말풍선(알림)이 떠 있는 동안은
+    /// 펫과 말풍선을 앱 창 위로 올려서 알림을 놓치지 않게 한다.
+    private func applyEffectiveLayer() {
+        let effective: PetWindowLayer = bubble.isShowing ? .aboveApps : model.layer
+        window?.apply(layer: effective)
+        bubble.setLayer(effective)
         if model.isVisible { window?.orderFrontRegardless() }
     }
 

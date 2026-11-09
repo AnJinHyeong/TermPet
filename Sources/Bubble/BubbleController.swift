@@ -9,7 +9,11 @@ import SwiftUI
 final class BubbleController {
     let model = BubbleViewModel()
     private(set) var queue = NotificationQueue()
-    private(set) var isShowing = false
+    private(set) var isShowing = false {
+        didSet { if isShowing != oldValue { onVisibilityChange?(isShowing) } }
+    }
+    /// 말풍선이 나타나거나 사라질 때 (바탕화면 모드에서 잠깐 앞으로 올리기용)
+    var onVisibilityChange: ((Bool) -> Void)?
 
     /// 말풍선 유지 시간 (Phase 3에서 설정과 연결)
     var displayDuration: TimeInterval = 15

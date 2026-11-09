@@ -35,15 +35,17 @@ json_escape() {
   printf '%s' "$s" | LC_ALL=C tr -d '\000-\010\013\014\016-\037'
 }
 
-# body를 stdin으로 받아 백그라운드 전송. curl은 최대 1초, 출력/입력 모두 분리.
+# body를 stdin으로 받아 전송.
+# 백그라운드(&)로 보내지 않는다: 훅 실행기가 훅 종료 시 자식 프로세스를 정리하면 curl이 전송 전에 죽는다.
+# 대신 시간 제한을 짧게: 앱이 꺼져 있으면 연결 거부로 즉시(수 ms) 끝나고, 최악이어도 1초.
 send() {
   local path=$1
-  curl -s -o /dev/null --max-time 1 -X POST \
+  curl -s -o /dev/null --connect-timeout 0.3 --max-time 1 -X POST \
     -H "Content-Type: application/json" \
     -H "X-TermPet-Token: $TOKEN" \
     -H "X-TermPet-Host-Bundle: ${__CFBundleIdentifier:-}" \
     -H "X-TermPet-Term-Program: ${TERM_PROGRAM:-}" \
-    --data-binary @- "http://127.0.0.1:$PORT$path" &
+    --data-binary @- "http://127.0.0.1:$PORT$path"
 }
 
 case "$SOURCE" in

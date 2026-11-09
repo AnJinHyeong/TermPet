@@ -19,6 +19,8 @@ final class LocalHTTPServer {
     /// 이벤트 수신 콜백 (메인 스레드에서 호출됨)
     var onEvent: ((PetEvent) -> Void)?
     var onStateChange: ((State) -> Void)?
+    /// 요청마다 호출 (디버그 로그용): 메서드, 경로, 응답 코드, 응답 본문, 이벤트
+    var onRequest: ((String, String, Int, String, PetEvent?) -> Void)?
 
     init(port: UInt16, token: String) {
         self.port = port
@@ -89,6 +91,10 @@ final class LocalHTTPServer {
                 let outcome = self.router.route(request)
                 if let event = outcome.event {
                     DispatchQueue.main.async { self.onEvent?(event) }
+                }
+                DispatchQueue.main.async {
+                    self.onRequest?(request.method, request.path, outcome.response.status,
+                                    outcome.response.body, outcome.event)
                 }
                 self.respond(outcome.response, on: connection)
             }

@@ -137,3 +137,26 @@ final class TermPetPathsTests: XCTestCase {
         XCTAssertEqual(try paths.loadOrCreateToken(), token)
     }
 }
+
+final class RequestLogTests: XCTestCase {
+    func testLineFormats() {
+        let date = Date(timeIntervalSince1970: 0)
+        let e = PetEvent(source: .claude, kind: .done, cwd: "/a/fitin", hostBundleId: "com.x")
+        let ok = RequestLog.line(date: date, method: "POST", path: "/hook/claude", status: 202, body: "accepted", event: e)
+        XCTAssertTrue(ok.hasSuffix("POST /hook/claude  202  claude/done  fitin  host=com.x"), ok)
+        let bad = RequestLog.line(date: date, method: "POST", path: "/event", status: 401, body: "unauthorized", event: nil)
+        XCTAssertTrue(bad.hasSuffix("401  unauthorized"), bad)
+    }
+
+    func testAppendAndRotate() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("termpet-log-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var log = RequestLog(url: dir.appendingPathComponent("events.log"))
+        log.maxBytes = 10
+        log.append("first line")
+        log.append("second line") // 크기 초과 → 회전
+        XCTAssertEqual(try String(contentsOf: log.url, encoding: .utf8), "second line\n")
+        XCTAssertEqual(try String(contentsOf: log.url.appendingPathExtension("1"), encoding: .utf8), "first line\n")
+    }
+}

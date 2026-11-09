@@ -160,6 +160,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let server = LocalHTTPServer(port: port, token: token)
         server.onEvent = { [weak self] event in self?.petController.receive(event) }
         server.onStateChange = { [weak self] state in self?.appState.serverState = state }
+        let log = RequestLog(url: paths.eventsLog)
+        server.onRequest = { method, path, status, body, event in
+            guard path != "/health" else { return } // 상태 확인은 기록 안 함
+            log.append(RequestLog.line(date: Date(), method: method, path: path, status: status,
+                                       body: body, event: event))
+        }
         server.start()
         self.server = server
     }

@@ -87,6 +87,15 @@ echo '{"hook_event_name":"Stop","cwd":"'"$PWD"'","session_id":"test","last_assis
 ~/.termpet/bin/termpet-hook shell 1 95 "$PWD" "npm run build"
 ```
 
+## 알림이 안 올 때
+
+1. 받은 요청 기록 확인: `tail -f ~/.termpet/events.log`
+   - 아무 줄도 안 생기면 → 훅이 실행되지 않음 (Claude Code에서 `/hooks`로 등록 확인, 새 세션에서 다시 시도)
+   - `401` → 토큰 불일치 (앱 재실행), `202` → 정상 수신 (화면 표시 문제)
+2. 표시 위치가 "바탕화면에만"이어도 말풍선이 떠 있는 동안은 캐릭터가 앱 창 위로 올라온다.
+   15초 후 다시 바탕화면 층으로 내려간다.
+3. 앱 실행 확인: `curl http://127.0.0.1:47821/health` → `ok`
+
 ## 엔드포인트 요약
 
 | 메서드 | 경로 | 인증 | 설명 |

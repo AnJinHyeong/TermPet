@@ -15,6 +15,7 @@ struct TermPetPaths {
 
     var tokenFile: URL { root.appendingPathComponent("token") }
     var portFile: URL { root.appendingPathComponent("port") }
+    var eventsLog: URL { root.appendingPathComponent("events.log") }
     var binDir: URL { root.appendingPathComponent("bin") }
     var hookScript: URL { binDir.appendingPathComponent("termpet-hook") }
     var zshIntegration: URL { root.appendingPathComponent("zsh-integration.zsh") }
