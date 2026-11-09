@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 /// 말풍선 창 + 알림 큐 관리.
-/// - 새 알림 → 큐에 넣고 말풍선 표시, 15초 뒤 숨김 (미확인 알림은 펫 머리 위 "!"로 남음)
+/// - 새 알림 → 큐에 넣고 말풍선 표시, 3초 뒤 숨김 (미확인 알림은 펫 머리 위 "!"로 남음)
 /// - 말풍선 클릭 → 해당 프로젝트로 이동 + 다음 알림
 /// - × 클릭 → 이동 없이 다음 알림
 @MainActor
@@ -16,7 +16,7 @@ final class BubbleController {
     var onVisibilityChange: ((Bool) -> Void)?
 
     /// 말풍선 유지 시간 (Phase 3에서 설정과 연결)
-    var displayDuration: TimeInterval = 15
+    var displayDuration: TimeInterval = 3
     /// 말풍선(본문) 클릭 시 호출 — 프로젝트로 이동
     var onActivate: ((PetNotification) -> Void)?
 
