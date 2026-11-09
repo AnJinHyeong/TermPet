@@ -326,7 +326,7 @@ private struct HoverBackground: ViewModifier {
 private extension Color {
     /// 강조색: 앱 아이콘 말랑이의 주황빛 (상단 스위치와 같은 색)
     static let accent = Color(red: 0.98, green: 0.65, blue: 0.30)
-    /// 버튼 바탕용 진한 주황 (흰 글씨가 잘 읽히도록)
+    /// 켜진 버튼의 아이콘 색 (연한 바탕 위에서 잘 보이는 진한 주황)
     static let accentStrong = Color(red: 0.93, green: 0.50, blue: 0.16)
 }
 
@@ -399,6 +399,7 @@ private struct IntegrationRow: View {
                     HStack(spacing: 3) {
                         Image(systemName: needsUpdate ? "arrow.triangle.2.circlepath" : installed ? "checkmark" : "link")
                             .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(installed ? Color.accentStrong : Color.primary.opacity(0.75))
                         Text(needsUpdate ? "업데이트" : installed ? "연결됨" : "연결")
                             .font(.system(size: 11, weight: .semibold))
                     }
@@ -442,7 +443,7 @@ private struct ChipRow<Content: View>: View {
 
 /// 패널의 모든 버튼이 쓰는 공통 모양 (CSS로 치면 .btn / .btn.is-on 클래스)
 /// - 기본: 회색 둥근 사각, 마우스 올리면 살짝 진하게
-/// - 켜짐/선택: 진한 주황 + 흰 글씨 (상단 스위치처럼 한눈에 보이게)
+/// - 켜짐/선택: 연한 주황으로 채운 바탕 + 진한 글씨, 아이콘만 주황 (눈이 편하면서도 글씨는 또렷하게)
 private struct ControlSurface: ViewModifier {
     var on = false
     var radius: CGFloat = 8
@@ -450,24 +451,10 @@ private struct ControlSurface: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .foregroundStyle(on ? Color.white : Color.primary.opacity(0.8))
+            .foregroundStyle(Color.primary.opacity(on ? 0.9 : 0.75))
             .background(RoundedRectangle(cornerRadius: radius, style: .continuous)
-                .fill(on ? Color.accentStrong.opacity(hovering ? 0.88 : 1)
-                         : Color.primary.opacity(hovering ? 0.11 : 0.06)))
-            .shadow(color: on ? Color.accentStrong.opacity(0.35) : .clear, radius: 2, y: 1)
-            .contentShape(Rectangle())
-            .onHover { hovering = $0 }
-    }
-}
-
-/// "해야 할 동작" 버튼 모양 (연결 / 업데이트): 진한 주황 + 흰 글씨
-private struct PrimarySurface: ViewModifier {
-    @State private var hovering = false
-    func body(content: Content) -> some View {
-        content
-            .foregroundStyle(.white)
-            .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(Color.accentStrong.opacity(hovering ? 0.85 : 1)))
+                .fill(on ? Color.accent.opacity(hovering ? 0.36 : 0.28)
+                         : Color.primary.opacity(hovering ? 0.10 : 0.055)))
             .contentShape(Rectangle())
             .onHover { hovering = $0 }
     }
@@ -484,6 +471,7 @@ private struct Chip: View {
         Button(action: action) {
             HStack(spacing: 4) {
                 Image(systemName: symbol).font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(on ? Color.accentStrong : Color.primary.opacity(0.75)) // 켜지면 아이콘만 주황
                 Text(title).font(.system(size: 11, weight: on ? .semibold : .medium)).lineLimit(1)
                     .minimumScaleFactor(0.85)
             }
