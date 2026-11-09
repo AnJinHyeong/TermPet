@@ -78,7 +78,10 @@ struct MenuPanelView: View {
                 .resizable()
                 .frame(width: 34, height: 34)
             VStack(alignment: .leading, spacing: 1) {
-                Text("텀펫").font(.system(size: 15, weight: .bold))
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    Text("텀펫").font(.system(size: 15, weight: .bold))
+                    Text("v\(AppInfo.version)").font(.system(size: 11)).foregroundStyle(.secondary)
+                }
                 HStack(spacing: 4) {
                     Circle().fill(serverColor).frame(width: 6, height: 6)
                     Text(serverText).font(.system(size: 11)).foregroundStyle(.secondary)
