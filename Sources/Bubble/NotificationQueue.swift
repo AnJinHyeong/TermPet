@@ -53,4 +53,14 @@ struct NotificationQueue {
     }
 
     mutating func removeAll() { items.removeAll() }
+
+    /// 이 세션의 알림을 모두 치운다 (터미널에서 이미 승인했거나 다음 질문을 시작함).
+    /// 반환값: 지금 보이던 알림(`current`)이 지워졌는지
+    @discardableResult
+    mutating func removeSession(of event: PetEvent) -> Bool {
+        guard let sid = event.sessionId else { return false }
+        let currentId = current?.id
+        items.removeAll { $0.event.sessionId == sid && $0.event.source == event.source }
+        return currentId != nil && current?.id != currentId
+    }
 }

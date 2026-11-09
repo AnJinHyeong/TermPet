@@ -17,6 +17,7 @@ struct BubbleMessages: Equatable {
         case .done: return done
         case .error: return error
         case .ask: return ask
+        case .working, .ended: return []
         }
     }
 }

@@ -130,3 +130,49 @@ final class IntegrationManagerTests: XCTestCase {
         XCTAssertTrue(manager.isAvailable(.claude))
     }
 }
+
+final class ClaudeProgressHooksTests: XCTestCase {
+    private func hooks(_ data: Data) -> [String: Any] {
+        (try! JSONSerialization.jsonObject(with: data) as! [String: Any])["hooks"] as! [String: Any]
+    }
+    private func ourEntry(_ hooks: [String: Any], _ event: String) -> [String: Any]? {
+        (hooks[event] as? [[String: Any]])?.flatMap { $0["hooks"] as? [[String: Any]] ?? [] }
+            .first { ($0["command"] as? String)?.contains("termpet-hook") == true }
+    }
+
+    func testInstallAddsProgressHooksAsAsync() throws {
+        let h = hooks(try ClaudeHooksConfig.install(into: nil))
+        for event in ClaudeHooksConfig.progressEvents {
+            XCTAssertEqual(ourEntry(h, event)?["async"] as? Bool, true, event)
+        }
+        XCTAssertNil(ourEntry(h, "Stop")?["async"])
+        XCTAssertEqual(ourEntry(h, "PostToolUse")?["command"] as? String, ClaudeHooksConfig.toolCommand)
+    }
+
+    func testOldInstallNeedsUpdateAndUninstallRemovesAll() throws {
+        // 예전 버전처럼 Stop·Notification만 연결된 상태
+        let old = Data(#"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"$HOME/.termpet/bin/termpet-hook claude"}]}],"Notification":[{"hooks":[{"type":"command","command":"$HOME/.termpet/bin/termpet-hook claude"}]}]}}"#.utf8)
+        XCTAssertTrue(ClaudeHooksConfig.isInstalled(old))
+        XCTAssertEqual(ClaudeHooksConfig.missingEvents(old), ClaudeHooksConfig.progressEvents)
+        let updated = try ClaudeHooksConfig.install(into: old)
+        XCTAssertEqual(ClaudeHooksConfig.missingEvents(updated), [])
+        XCTAssertEqual((hooks(updated)["Stop"] as! [Any]).count, 1) // 중복 추가 없음
+        XCTAssertTrue(hooks(try ClaudeHooksConfig.uninstall(from: updated)).isEmpty)
+    }
+
+    func testManagerUpdatesInsteadOfUninstalling() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("termpet-upd-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = home.appendingPathComponent(".claude/settings.json")
+        try FileManager.default.createDirectory(at: settings.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"termpet-hook claude"}]}],"Notification":[{"hooks":[{"type":"command","command":"termpet-hook claude"}]}]}}"#.utf8).write(to: settings)
+
+        let manager = IntegrationManager(home: home)
+        XCTAssertEqual(manager.needsUpdate[.claude], true)
+        try manager.toggle(.claude)
+        XCTAssertEqual(manager.installed[.claude], true)   // 해제되지 않고
+        XCTAssertEqual(manager.needsUpdate[.claude], false) // 업데이트됨
+        try manager.toggle(.claude)
+        XCTAssertEqual(manager.installed[.claude], false)
+    }
+}

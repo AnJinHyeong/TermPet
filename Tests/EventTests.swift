@@ -96,7 +96,7 @@ final class EventDecoderTests: XCTestCase {
 
     func testClaudeIgnoredEvents() {
         for body in [#"{"hook_event_name":"Notification","notification_type":"auth_success"}"#,
-                     #"{"hook_event_name":"PreToolUse"}"#,
+                     #"{"hook_event_name":"SubagentStart"}"#,
                      #"{}"#] {
             XCTAssertThrowsError(try EventDecoder.decodeClaudeHook(data(body))) { error in
                 guard case EventDecoder.DecodeError.ignored = error else { return XCTFail("\(error)") }

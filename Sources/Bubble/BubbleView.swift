@@ -61,7 +61,7 @@ struct BubbleView: View {
         switch model.kind {
         case .done: return Color(red: 0.16, green: 0.62, blue: 0.36)
         case .error: return Color(red: 0.85, green: 0.25, blue: 0.22)
-        case .ask: return Color(red: 0.22, green: 0.47, blue: 0.92)
+        case .ask, .working, .ended: return Color(red: 0.22, green: 0.47, blue: 0.92)
         }
     }
 
@@ -70,6 +70,7 @@ struct BubbleView: View {
         case .done: return "checkmark.circle.fill"
         case .error: return "exclamationmark.triangle.fill"
         case .ask: return "hand.raised.fill"
+        case .working, .ended: return "ellipsis.circle.fill"
         }
     }
 

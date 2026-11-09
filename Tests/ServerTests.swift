@@ -211,7 +211,7 @@ final class HookScriptTests: XCTestCase {
         try "tok".write(to: home.appendingPathComponent("token"), atomically: true, encoding: .utf8)
         try "1".write(to: home.appendingPathComponent("port"), atomically: true, encoding: .utf8) // 아무도 안 듣는 포트
 
-        for args in [["claude"], ["codex"], ["shell", "1", "40", "/tmp", "make"]] {
+        for args in [["claude"], ["claude-tool"], ["codex"], ["shell", "1", "40", "/tmp", "make"]] {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/bin/bash")
             process.arguments = [script.path] + args

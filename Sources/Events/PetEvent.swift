@@ -4,7 +4,8 @@ import Foundation
 /// TS로 치면 `interface PetEvent { ... }`. `?`가 붙은 타입은 옵셔널(`string | undefined`).
 struct PetEvent: Equatable, Identifiable {
     enum Source: String, Equatable { case claude, codex, shell }
-    enum Kind: String, Equatable { case done, error, ask }
+    /// done/error/ask = 말풍선 알림. working/ended = 진행 상황 신호 (말풍선 없이 펫 머리 위 표시만 바뀜)
+    enum Kind: String, Equatable { case done, error, ask, working, ended }
 
     let id: UUID
     var source: Source
@@ -59,12 +60,16 @@ struct PetEvent: Equatable, Identifiable {
     /// "Claude가 입력을 기다리는 중" 류의 반복성 알림인지
     var isIdlePrompt: Bool { notificationType == "idle_prompt" }
 
+    /// 말풍선으로 알려야 하는 이벤트인지 (작업 시작·도구 실행·세션 종료 신호는 아님)
+    var isNotification: Bool { kind == .done || kind == .error || kind == .ask }
+
     /// 이벤트 → 펫 감정
     var mood: PetAction {
         switch kind {
         case .done: return .happy
         case .error: return .angry
         case .ask: return .ask
+        case .working, .ended: return .idle
         }
     }
 }

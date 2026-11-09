@@ -22,6 +22,9 @@ extension PetEvent {
                             message: "Claude needs your permission to use Bash",
                             cwd: projectRoot, sessionId: "debug-ask",
                             hostBundleId: HostApp.cursor.bundleId, notificationType: "permission_prompt")
+        case .working, .ended:
+            return PetEvent(source: .claude, kind: kind, cwd: projectRoot, sessionId: "debug-ask",
+                            hostBundleId: HostApp.cursor.bundleId)
         }
     }
 }

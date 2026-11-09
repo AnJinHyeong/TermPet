@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 /// 메뉴바 아이콘을 누르면 뜨는 패널 (MenuBarExtra `.window` 스타일).
-/// 구성: 헤더(앱 아이콘·이름·보이기 스위치) → 캐릭터 목록 → 표시 위치 타일 → 동작 타일 → 하단 안내·종료
+/// 구성: 헤더 → 진행 중 세션 → 캐릭터(가로 아이콘) → AI 연결 → 알림·놀기 칩 → 표시 위치 세그먼트 → 하단
 /// React 비유: 작은 컴포넌트(Row, Tile)를 조합한 하나의 화면 컴포넌트.
 struct MenuPanelView: View {
     let app: AppDelegate
@@ -15,31 +15,32 @@ struct MenuPanelView: View {
             header
             PanelDivider()
 
-            SectionLabel("캐릭터")
-            VStack(spacing: 2) {
-                ForEach(characters.entries) { entry in
-                    CharacterRow(entry: entry, selected: entry.id == characters.selectedId) {
-                        app.selectCharacter(entry.id)
+            // 진행 중인 AI 세션이 있을 때만 (누르면 그 프로젝트 창으로 이동)
+            let sessions = pet.sessions.tracker.ordered
+            if !sessions.isEmpty {
+                SectionLabel("진행 중")
+                // TimelineView: 30초마다 다시 그려 "3분" 같은 시간을 갱신 (≈ setInterval로 리렌더)
+                TimelineView(.periodic(from: .now, by: 30)) { context in
+                    VStack(spacing: 0) {
+                        ForEach(sessions) { session in
+                            SessionRow(session: session, now: context.date) {
+                                closePanelThen { ProjectFocuser.focus(session.focusEvent) }
+                            }
+                        }
                     }
                 }
-                if characters.custom == nil {
-                    AddCharacterRow(title: "이미지로 캐릭터 만들기", subtitle: characters.problem ?? "그림 한 장이면 움직이는 펫이 돼요") {
-                        closePanelThen { app.makeCharacterFromImage() }
-                    }
-                } else {
-                    CustomActionsRow(
-                        onReplace: { closePanelThen { app.makeCharacterFromImage() } },
-                        onFlip: { app.flipCustomCharacter() },
-                        onRemove: { app.removeCustomCharacter() })
-                }
+                .padding(.horizontal, 8)
             }
-            .padding(.horizontal, 8)
+
+            SectionLabel("캐릭터")
+            characterPicker
 
             SectionLabel("AI 연결")
-            VStack(spacing: 2) {
+            VStack(spacing: 0) {
                 ForEach(IntegrationManager.Kind.allCases) { kind in
                     IntegrationRow(kind: kind,
                                    installed: app.integrations.installed[kind] == true,
+                                   needsUpdate: app.integrations.needsUpdate[kind] == true,
                                    available: app.integrations.isAvailable(kind)) {
                         app.toggleIntegration(kind)
                     }
@@ -47,44 +48,118 @@ struct MenuPanelView: View {
             }
             .padding(.horizontal, 8)
 
-            SectionLabel("표시 위치")
-            TileGrid {
-                ForEach(PetWindowLayer.allCases) { layer in
-                    Tile(symbol: layer.symbol, color: layerColor(layer), title: layer.shortTitle,
-                         selected: pet.model.layer == layer) { pet.setLayer(layer) }
-                        .help(layer.title)
-                }
+            SectionLabel("알림")
+            ChipRow {
+                let quiet = pet.quiet
+                Chip(symbol: "moon.zzz.fill", title: "1시간 조용히", on: quiet.manualOn) { quiet.toggleManual() }
+                    .help("1시간 동안 말풍선을 모아뒀다가 끝나면 보여줘요")
+                Chip(symbol: "video.fill", title: "회의 중 조용히", on: quiet.duringMeetings) { quiet.duringMeetings.toggle() }
+                    .help("마이크를 쓰는 동안(화상회의 등) 말풍선을 모아둬요")
+                Chip(symbol: quiet.soundOnAsk ? "speaker.wave.2.fill" : "speaker.slash.fill", title: "권한 소리",
+                     on: quiet.soundOnAsk) { quiet.soundOnAsk.toggle() }
+                    .help("Claude가 권한을 물어볼 때 소리로도 알려줘요")
+            }
+            if pet.quiet.isQuiet {
+                Text(pet.quiet.manualOn ? "조용한 시간 · 알림은 펫 머리 위 !에 모여요"
+                                        : "회의 중이라 조용히 · 알림은 펫 머리 위 !에 모여요")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .padding(.horizontal, 16).padding(.top, 5)
             }
 
+            SectionLabel("표시 위치")
+            // 세그먼트 버튼 ≈ <select>를 버튼 묶음으로 보여주는 것
+            Picker("", selection: Binding(get: { pet.model.layer }, set: { pet.setLayer($0) })) {
+                ForEach(PetWindowLayer.allCases) { layer in
+                    Text(layer.shortTitle).tag(layer)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal, 16)
+            .help(pet.model.layer.title)
+
             SectionLabel("놀기")
-            TileGrid {
+            ChipRow {
                 let sleeping = pet.model.action == .sleep
-                Tile(symbol: sleeping ? "sun.max.fill" : "moon.fill", color: .indigo,
-                     title: sleeping ? "깨우기" : "재우기", selected: sleeping) { pet.toggleSleep() }
-                Tile(symbol: "arrow.down.to.line", color: .green, title: "떨어뜨리기") { pet.dropFromTop() }
-                Tile(symbol: "bubble.left.fill", color: .orange, title: "알림 테스트") {
+                Chip(symbol: sleeping ? "sun.max.fill" : "moon.fill", title: sleeping ? "깨우기" : "재우기",
+                     on: sleeping) { pet.toggleSleep() }
+                Chip(symbol: "arrow.down.to.line", title: "떨어뜨리기") { pet.dropFromTop() }
+                Chip(symbol: "bubble.left.fill", title: "알림 테스트") {
                     pet.receive(PetEvent(source: .shell, kind: .done, message: "알림이 잘 보이나요?"))
                 }
             }
 
             #if DEBUG
             SectionLabel("개발용")
-            TileGrid {
-                Tile(symbol: "face.smiling", color: .pink, title: "신남") { pet.react(.happy) }
-                Tile(symbol: "flame.fill", color: .red, title: "화남") { pet.react(.angry) }
-                Tile(symbol: "hand.raised.fill", color: .blue, title: "확인 요청") { pet.receive(.debugSample(.ask)) }
+            ChipRow {
+                Chip(symbol: "face.smiling", title: "신남") { pet.react(.happy) }
+                Chip(symbol: "flame.fill", title: "화남") { pet.react(.angry) }
+                Chip(symbol: "hand.raised.fill", title: "확인 요청") { pet.receive(.debugSample(.ask)) }
             }
             #endif
 
-            PanelDivider().padding(.top, 6)
+            PanelDivider().padding(.top, 12)
             footer
         }
         .frame(width: 300)
-        .padding(.top, 4)
+        .padding(.top, 2)
         .onAppear {
             app.integrations.refresh() // 터미널에서 직접 고쳤을 수도 있으니 열 때마다 다시 확인
             launchAtLogin = LoginItem.isEnabled
         }
+    }
+
+    /// 캐릭터: 가로 한 줄 아이콘 + 아래에 선택된 이름과 (내 캐릭터면) 작은 편집 버튼
+    private var characterPicker: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                ForEach(characters.entries) { entry in
+                    Button { app.selectCharacter(entry.id) } label: {
+                        CharacterThumbnail(entry: entry, size: 40)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .strokeBorder(entry.id == characters.selectedId ? Color.accent : .clear, lineWidth: 2.5)
+                                    .padding(-3)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .help(entry.name)
+                }
+                if characters.custom == nil {
+                    Button { closePanelThen { app.makeCharacterFromImage() } } label: {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                .strokeBorder(Color.accent.opacity(0.7), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                            Image(systemName: "plus").font(.system(size: 14, weight: .bold)).foregroundStyle(Color.accent)
+                        }
+                        .frame(width: 40, height: 40)
+                    }
+                    .buttonStyle(.plain)
+                    .help(characters.problem ?? "이미지로 캐릭터 만들기 (그림 한 장이면 움직이는 펫이 돼요)")
+                }
+            }
+            .padding(.top, 3)
+
+            HStack(spacing: 4) {
+                Text(selectedName).font(.system(size: 12, weight: .semibold))
+                if characters.selectedId == CharacterLibrary.customId {
+                    Text("· 내 캐릭터").font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if characters.custom != nil {
+                    IconButton(symbol: "photo.badge.plus", help: "새 이미지로 바꾸기") {
+                        closePanelThen { app.makeCharacterFromImage() }
+                    }
+                    IconButton(symbol: "arrow.left.and.right", help: "방향 바꾸기") { app.flipCustomCharacter() }
+                    IconButton(symbol: "trash", help: "내 캐릭터 지우기") { app.removeCustomCharacter() }
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+    }
+
+    private var selectedName: String {
+        characters.entries.first { $0.id == characters.selectedId }?.name ?? ""
     }
 
     // MARK: - 헤더 / 푸터
@@ -93,10 +168,10 @@ struct MenuPanelView: View {
         HStack(spacing: 10) {
             Image(nsImage: NSApp.applicationIconImage)
                 .resizable()
-                .frame(width: 34, height: 34)
+                .frame(width: 30, height: 30)
             VStack(alignment: .leading, spacing: 1) {
                 HStack(alignment: .firstTextBaseline, spacing: 5) {
-                    Text("텀펫").font(.system(size: 15, weight: .bold))
+                    Text("텀펫").font(.system(size: 14, weight: .bold))
                     Text("v\(AppInfo.version)").font(.system(size: 11)).foregroundStyle(.secondary)
                 }
                 HStack(spacing: 4) {
@@ -113,11 +188,11 @@ struct MenuPanelView: View {
                 .help(pet.model.isVisible ? "펫 숨기기" : "펫 보이기")
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.vertical, 8)
     }
 
     private var footer: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
             Toggle("로그인할 때 자동으로 실행", isOn: Binding(
                 get: { launchAtLogin },
                 set: { on in
@@ -130,7 +205,7 @@ struct MenuPanelView: View {
             footerLine
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.vertical, 8)
     }
 
     private var footerLine: some View {
@@ -163,14 +238,6 @@ struct MenuPanelView: View {
         }
     }
 
-    private func layerColor(_ layer: PetWindowLayer) -> Color {
-        switch layer {
-        case .aboveApps: return .blue
-        case .desktop: return Color(red: 0.36, green: 0.62, blue: 0.62)
-        case .desktopPopUp: return .orange
-        }
-    }
-
     /// 파일 선택 창을 띄우기 전에 패널을 닫는다 (패널이 떠 있으면 선택 창 뒤로 가려짐)
     private func closePanelThen(_ action: @escaping () -> Void) {
         NSApp.keyWindow?.close()
@@ -191,11 +258,11 @@ private struct SectionLabel: View {
     init(_ text: String) { self.text = text }
     var body: some View {
         Text(text)
-            .font(.system(size: 12, weight: .medium))
+            .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(.secondary)
             .padding(.horizontal, 16)
             .padding(.top, 12)
-            .padding(.bottom, 6)
+            .padding(.bottom, 5)
     }
 }
 
@@ -225,50 +292,10 @@ private extension Color {
     static let accent = Color(red: 0.98, green: 0.65, blue: 0.30)
 }
 
-private struct CharacterRow: View {
-    let entry: CharacterLibrary.Entry
-    let selected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                CharacterThumbnail(entry: entry)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(entry.name).font(.system(size: 14, weight: .semibold))
-                    Text(subtitle).font(.system(size: 12)).foregroundStyle(.secondary)
-                }
-                Spacer()
-                if selected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 20, weight: .bold))
-                        .foregroundStyle(.white, Color.accent)
-                }
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .modifier(HoverBackground(selected: selected))
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var subtitle: String {
-        switch entry.source {
-        case .builtIn(let style):
-            switch style {
-            case .mallang: return "기본 · 말랑말랑 젤리"
-            case .cat: return "기본 · 회색 고양이"
-            case .bunny: return "기본 · 분홍 토끼"
-            case .sprout: return "기본 · 새싹 친구"
-            }
-        case .pack: return "내 캐릭터 · 이미지로 만듦"
-        }
-    }
-}
-
 /// 목록 왼쪽의 둥근 사각 아이콘 (기본 캐릭터는 코드로 그리고, 내 캐릭터는 원본 그림)
 private struct CharacterThumbnail: View {
     let entry: CharacterLibrary.Entry
+    var size: CGFloat = 38
 
     var body: some View {
         ZStack {
@@ -278,7 +305,7 @@ private struct CharacterThumbnail: View {
                 .strokeBorder(Color.black.opacity(0.12), lineWidth: 1)
             content
         }
-        .frame(width: 38, height: 38)
+        .frame(width: size, height: size)
     }
 
     @ViewBuilder private var content: some View {
@@ -287,8 +314,8 @@ private struct CharacterThumbnail: View {
             // 기본 캐릭터는 80pt 펫 창 크기로 그려지므로 그 크기로 그린 뒤 축소 (CSS transform: scale)
             DefaultCharacterView(style: style, action: .idle, facing: .right, time: 1.3, actionTime: 1.3)
                 .frame(width: LoadedCharacter.defaultSize.width, height: LoadedCharacter.defaultSize.height)
-                .scaleEffect(0.46)
-                .frame(width: 38, height: 38)
+                .scaleEffect(0.46 * size / 38)
+                .frame(width: size, height: size)
         case .pack(let folder):
             if let image = NSImage(contentsOf: folder.appendingPathComponent("source.png")) {
                 Image(nsImage: image).resizable().interpolation(.high).scaledToFit().padding(4)
@@ -306,143 +333,51 @@ private struct CharacterThumbnail: View {
     }
 }
 
-private struct AddCharacterRow: View {
-    let title: String
-    let subtitle: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .strokeBorder(Color.accent.opacity(0.7), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
-                    Image(systemName: "plus").font(.system(size: 15, weight: .bold)).foregroundStyle(Color.accent)
-                }
-                .frame(width: 38, height: 38)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title).font(.system(size: 14, weight: .semibold))
-                    Text(subtitle).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
-                }
-                Spacer()
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .modifier(HoverBackground(selected: false))
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-/// 내 캐릭터가 있을 때: 새 이미지로 바꾸기 / 방향 뒤집기 / 지우기
-private struct CustomActionsRow: View {
-    let onReplace: () -> Void
-    let onFlip: () -> Void
-    let onRemove: () -> Void
-
-    var body: some View {
-        HStack(spacing: 6) {
-            pill("photo.badge.plus", "새 이미지로", action: onReplace)
-            pill("arrow.left.and.right", "방향 바꾸기", action: onFlip)
-            pill("trash", "지우기", action: onRemove)
-        }
-        .padding(.horizontal, 4)
-        .padding(.top, 2)
-    }
-
-    private func pill(_ symbol: String, _ title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 4) {
-                Image(systemName: symbol).font(.system(size: 11, weight: .semibold))
-                Text(title).font(.system(size: 11, weight: .medium))
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 6)
-            .foregroundStyle(.primary.opacity(0.8))
-            .modifier(HoverBackground(selected: false))
-            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.05)))
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-/// 3열 타일 그리드 (CSS grid-template-columns: repeat(3, 1fr))
-private struct TileGrid<Content: View>: View {
-    @ViewBuilder let content: Content
-    var body: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 3), spacing: 4) {
-            content
-        }
-        .padding(.horizontal, 8)
-    }
-}
-
-private struct Tile: View {
-    let symbol: String
-    let color: Color
-    let title: String
-    var selected = false
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 6) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 9, style: .continuous).fill(color.gradient)
-                    Image(systemName: symbol)
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.white)
-                }
-                .frame(width: 36, height: 36)
-                .shadow(color: color.opacity(0.3), radius: 2, y: 1)
-                Text(title).font(.system(size: 12, weight: selected ? .bold : .medium)).lineLimit(1)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
-            .modifier(HoverBackground(selected: selected))
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-/// AI 연결 한 줄: 아이콘 · 이름 · 설명 · [연결] 또는 [연결됨 ✓]
+/// AI 연결 한 줄: 작은 아이콘 · 이름 · [연결] / [연결됨 ✓] / [업데이트]
 private struct IntegrationRow: View {
     let kind: IntegrationManager.Kind
     let installed: Bool
+    var needsUpdate = false
     let available: Bool
     let action: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             ZStack {
-                RoundedRectangle(cornerRadius: 9, style: .continuous).fill(color.gradient)
-                Image(systemName: symbol).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
+                RoundedRectangle(cornerRadius: 6, style: .continuous).fill(color.gradient)
+                Image(systemName: symbol).font(.system(size: 11, weight: .semibold)).foregroundStyle(.white)
             }
-            .frame(width: 38, height: 38)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(kind.title).font(.system(size: 14, weight: .semibold))
-                Text(available ? kind.subtitle : "설치되어 있지 않아요")
-                    .font(.system(size: 12)).foregroundStyle(.secondary)
-            }
+            .frame(width: 24, height: 24)
+            Text(kind.title).font(.system(size: 13, weight: .medium))
             Spacer()
-            if available {
+            if !available {
+                Text("설치 안 됨").font(.system(size: 11)).foregroundStyle(.secondary)
+            } else {
                 Button(action: action) {
                     HStack(spacing: 3) {
-                        if installed { Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)) }
-                        Text(installed ? "연결됨" : "연결").font(.system(size: 12, weight: .semibold))
+                        if installed && !needsUpdate { Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)) }
+                        Text(label).font(.system(size: 11, weight: .semibold))
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .foregroundStyle(installed ? Color.accent : .white)
-                    .background(Capsule().fill(installed ? Color.accent.opacity(0.18) : Color.accent))
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 3)
+                    .foregroundStyle(filled ? .white : Color.accent)
+                    .background(Capsule().fill(filled ? Color.accent : Color.accent.opacity(0.18)))
                 }
                 .buttonStyle(.plain)
-                .help(installed ? "누르면 연결을 해제해요 (설정 파일은 백업 후 수정)" : "설정 파일을 백업한 뒤 텀펫 알림을 추가해요")
+                .help(help)
             }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .opacity(available ? 1 : 0.5)
+        .help("\(kind.subtitle) 알림")
+    }
+
+    private var filled: Bool { !installed || needsUpdate }
+    private var label: String { needsUpdate ? "업데이트" : installed ? "연결됨" : "연결" }
+    private var help: String {
+        if needsUpdate { return "작업 중 표시용 훅이 빠져 있어요. 설정 파일을 백업한 뒤 빠진 항목만 추가해요" }
+        return installed ? "누르면 연결을 해제해요 (설정 파일은 백업 후 수정)" : "설정 파일을 백업한 뒤 텀펫 알림을 추가해요"
     }
 
     private var symbol: String {
@@ -458,6 +393,124 @@ private struct IntegrationRow: View {
         case .claude: return Color(red: 0.85, green: 0.47, blue: 0.34)
         case .codex: return Color(red: 0.25, green: 0.25, blue: 0.28)
         case .zsh: return Color(red: 0.20, green: 0.62, blue: 0.45)
+        }
+    }
+}
+
+/// 3칸 균등 칩 줄 (CSS grid-template-columns: repeat(3, 1fr))
+private struct ChipRow<Content: View>: View {
+    @ViewBuilder let content: Content
+    var body: some View {
+        HStack(spacing: 6) { content }.padding(.horizontal, 12)
+    }
+}
+
+/// 작은 버튼/토글 칩: 아이콘 + 짧은 글자. 켜진 상태면 주황 배경
+private struct Chip: View {
+    let symbol: String
+    let title: String
+    var on = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: symbol).font(.system(size: 11, weight: .semibold))
+                Text(title).font(.system(size: 11, weight: on ? .semibold : .medium)).lineLimit(1)
+                    .minimumScaleFactor(0.85)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 7)
+            .foregroundStyle(on ? Color.accent : .primary.opacity(0.8))
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(on ? Color.accent.opacity(0.18) : Color.primary.opacity(0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(on ? Color.accent.opacity(0.8) : .clear, lineWidth: 1.5))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// 글자 없는 작은 아이콘 버튼 (내 캐릭터 편집용)
+private struct IconButton: View {
+    let symbol: String
+    let help: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 11, weight: .medium))
+                .frame(width: 24, height: 22)
+                .foregroundStyle(.primary.opacity(0.7))
+                .modifier(HoverBackground(selected: false))
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+}
+
+/// 진행 중 세션 한 줄: 상태 아이콘 · 프로젝트 · "작업 중 · 3분"
+private struct SessionRow: View {
+    let session: SessionTracker.Session
+    let now: Date
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: symbol)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(color)
+                    .frame(width: 22)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(session.projectName ?? BubbleContent.sourceLabel(session.source))
+                        .font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                    Text("\(BubbleContent.sourceLabel(session.source)) · \(stateText) · \(elapsed)")
+                        .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer()
+                Image(systemName: "arrow.up.forward.app")
+                    .font(.system(size: 11)).foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .modifier(HoverBackground(selected: false))
+        }
+        .buttonStyle(.plain)
+        .help("눌러서 이 프로젝트 창으로 이동")
+    }
+
+    private var stateText: String {
+        switch session.state {
+        case .working: return "작업 중"
+        case .waiting: return "권한 대기"
+        case .done: return "끝남"
+        case .error: return "에러"
+        }
+    }
+
+    private var elapsed: String {
+        let s = max(0, now.timeIntervalSince(session.since))
+        return s < 60 ? "방금" : BubbleContent.formatDuration((s / 60).rounded(.down) * 60)
+    }
+
+    private var symbol: String {
+        switch session.state {
+        case .working: return "ellipsis.circle.fill"
+        case .waiting: return "hand.raised.fill"
+        case .done: return "checkmark.circle.fill"
+        case .error: return "exclamationmark.triangle.fill"
+        }
+    }
+
+    private var color: Color {
+        switch session.state {
+        case .working: return .blue
+        case .waiting: return Color(red: 0.92, green: 0.33, blue: 0.25)
+        case .done: return .green
+        case .error: return .orange
         }
     }
 }

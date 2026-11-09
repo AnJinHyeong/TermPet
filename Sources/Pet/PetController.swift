@@ -11,6 +11,11 @@ import SwiftUI
 final class PetController: NSObject {
     let model = PetViewModel()
     let bubble = BubbleController()
+    /// 진행 중인 AI 세션 목록 (메뉴 패널 "진행 중"에서도 읽음)
+    let sessions = SessionStore()
+    /// 조용한 시간 / 권한 요청 소리 설정
+    let quiet = QuietMode()
+    private var lastPrune: CFTimeInterval = 0
 
     private let config: PetConfig
     private var brain: PetBrain
@@ -39,6 +44,7 @@ final class PetController: NSObject {
         super.init()
         bubble.onActivate = { ProjectFocuser.focus($0.event) }
         bubble.onVisibilityChange = { [weak self] _ in self?.applyEffectiveLayer() }
+        quiet.onChange = { [weak self] isQuiet in self?.bubble.isQuiet = isQuiet }
     }
 
     // MARK: - 시작
@@ -79,6 +85,7 @@ final class PetController: NSObject {
             name: NSApplication.didChangeScreenParametersNotification, object: nil)
 
         startTimer()
+        quiet.start()
     }
 
     private var timerFPS: Double = 0
@@ -135,10 +142,19 @@ final class PetController: NSObject {
 
     /// 외부 이벤트(Claude 완료, 쉘 명령 실패 등) 수신 → 감정 표현 + 말풍선
     func receive(_ event: PetEvent) {
+        sessions.apply(event)
+        guard event.isNotification else {
+            // 작업 시작·도구 실행·세션 종료: 세션이 다시 움직였으면 그 세션의 지난 알림(권한 요청 등)은 해결된 것
+            if sessions.state(of: event) != .waiting { bubble.resolve(sessionOf: event) }
+            return
+        }
         brain.handle(.react(event.mood, duration: 3), using: &rng)
         syncModel()
         bubble.enqueue(event)
         if !model.isVisible { bubble.hide() }
+        if BubbleController.isSticky(event), quiet.soundOnAsk, !quiet.isQuiet, model.isVisible {
+            NSSound(named: "Glass")?.play() // 권한 요청은 작업이 멈춘 상태라 소리로 한 번 더 알림
+        }
     }
 
     /// 표시 층 변경 (프로그램 위 / 바탕화면) + 저장
@@ -230,8 +246,11 @@ final class PetController: NSObject {
             window.setFrameOrigin(physics.origin)
         }
         bubble.follow(petFrame: CGRect(origin: physics.origin, size: physics.size))
-        let unreadBadge = bubble.hasUnread && !bubble.isShowing
-        if model.hasUnread != unreadBadge { model.hasUnread = unreadBadge }
+        // 오래된 세션 정리는 10초에 한 번이면 충분
+        if lastTick - lastPrune > 10 { lastPrune = lastTick; sessions.prune() }
+        let badge = PetBadge.pick(waiting: sessions.tracker.waitingCount, working: sessions.tracker.workingCount,
+                                  hasUnread: bubble.hasUnread && !bubble.isShowing)
+        if model.badge != badge { model.badge = badge }
         model.time += dt
         syncModel()
 
@@ -391,17 +410,9 @@ struct PetView: View {
 
     var body: some View {
         characterView
-        // 미확인 알림 표시: 머리 위 노란 "!" (overlay ≈ position:absolute 자식)
+        // 머리 위 표시 (overlay ≈ position:absolute 자식)
         .overlay(alignment: .top) {
-            if model.hasUnread {
-                Text("!")
-                    .font(.system(size: 12, weight: .black, design: .rounded))
-                    .foregroundStyle(.white)
-                    .frame(width: 18, height: 18)
-                    .background(Circle().fill(Color(red: 0.98, green: 0.62, blue: 0.1)))
-                    .overlay(Circle().stroke(.white, lineWidth: 1.5))
-                    .offset(y: 2 + CGFloat(sin(model.time * 5)) * 2)
-            }
+            PetBadgeView(badge: model.badge, time: model.time)
         }
     }
 
@@ -416,5 +427,79 @@ struct PetView: View {
             SpriteCharacterView(sprite: sprite, action: model.action, facing: model.facing,
                                 actionTime: model.actionTime)
         }
+    }
+}
+
+/// 머리 위 작은 표시: "!" 미확인 알림 / "•••" 작업 중 / ✋ 권한 대기 (여러 세션이면 숫자)
+struct PetBadgeView: View {
+    let badge: PetBadge
+    let time: TimeInterval
+
+    var body: some View {
+        switch badge {
+        case .none:
+            EmptyView()
+        case .unread:
+            Text("!")
+                .font(.system(size: 12, weight: .black, design: .rounded))
+                .foregroundStyle(.white)
+                .frame(width: 18, height: 18)
+                .background(Circle().fill(Color(red: 0.98, green: 0.62, blue: 0.1)))
+                .overlay(Circle().stroke(.white, lineWidth: 1.5))
+                .offset(y: 2 + CGFloat(sin(time * 5)) * 2)
+        case .working(let count):
+            // 메신저의 "입력 중…" 점 세 개
+            HStack(spacing: 2.5) {
+                ForEach(0..<3) { i in
+                    Circle()
+                        .fill(Color.black.opacity(0.55))
+                        .frame(width: 4, height: 4)
+                        .offset(y: -CGFloat(max(0, sin(time * 6 - Double(i) * 0.9))) * 2)
+                }
+                if count > 1 { countText(count, color: .black.opacity(0.6)) }
+            }
+            .padding(.horizontal, 6)
+            .frame(height: 15)
+            .background(Capsule().fill(.white))
+            .overlay(Capsule().stroke(Color.black.opacity(0.15), lineWidth: 1))
+            .offset(y: 3)
+        case .waiting(let count):
+            // 권한 대기: 손 흔들기 + 살짝 커졌다 작아짐
+            HStack(spacing: 2) {
+                Image(systemName: "hand.raised.fill")
+                    .font(.system(size: 10, weight: .bold))
+                    .rotationEffect(.degrees(sin(time * 8) * 15))
+                if count > 1 { countText(count, color: .white) }
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 5)
+            .frame(minWidth: 20, minHeight: 20)
+            .background(Capsule().fill(Color(red: 0.92, green: 0.33, blue: 0.25)))
+            .overlay(Capsule().stroke(.white, lineWidth: 1.5))
+            .scaleEffect(1 + CGFloat(sin(time * 4)) * 0.06)
+            .offset(y: 2)
+        }
+    }
+
+    private func countText(_ n: Int, color: Color) -> some View {
+        Text("\(n)").font(.system(size: 9, weight: .bold, design: .rounded)).foregroundStyle(color)
+    }
+}
+
+/// 세션 추적기를 화면에서 구독할 수 있게 감싼 스토어 (`@Observable` ≈ Zustand)
+@Observable
+final class SessionStore {
+    private(set) var tracker = SessionTracker()
+
+    func apply(_ event: PetEvent) { tracker.apply(event) }
+
+    func state(of event: PetEvent) -> SessionTracker.State? {
+        SessionTracker.key(for: event).flatMap { tracker.sessions[$0]?.state }
+    }
+
+    /// 바뀐 게 있을 때만 대입 → 패널이 쓸데없이 다시 그려지지 않게
+    func prune(now: Date = Date()) {
+        var copy = tracker
+        if copy.prune(now: now) { tracker = copy }
     }
 }

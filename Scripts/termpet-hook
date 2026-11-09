@@ -3,7 +3,8 @@
 # TermPet 앱이 실행될 때 ~/.termpet/bin/termpet-hook 으로 설치(갱신)된다.
 #
 # 사용법:
-#   termpet-hook claude                               # stdin: Claude Code 훅 JSON (Stop / Notification)
+#   termpet-hook claude                               # stdin: Claude Code 훅 JSON (Stop / Notification / UserPromptSubmit / SessionEnd ...)
+#   termpet-hook claude-tool                          # stdin: PostToolUse JSON — 도구 결과는 빼고 세션 정보만 보냄
 #   termpet-hook codex '<json>'                       # Codex notify (JSON이 마지막 인자로 옴)
 #   termpet-hook codex-chain <원래 notify 명령...> '<json>'  # 원래 notify를 먼저 실행한 뒤 텀펫에도 알림
 #   termpet-hook shell <exitCode> <durationSec> <cwd> <command...>
@@ -61,6 +62,16 @@ case "$SOURCE" in
     BODY="$(cat)"   # 훅 입력을 먼저 전부 읽는다 (Claude Code가 stdin을 닫을 때까지)
     [ -n "$BODY" ] || exit 0
     printf '%s' "$BODY" | send /hook/claude
+    ;;
+  claude-tool)
+    # PostToolUse 입력에는 도구 결과(파일 내용 등, 수 MB 가능)가 들어 있다 → jq 없이 필요한 값만 뽑는다.
+    # 공통 필드(session_id, cwd)는 맨 앞쪽에 오므로 첫 번째로 찾은 값을 쓴다.
+    FIELDS="$(head -c 4096 | tr -d '\n' | grep -oE '"(session_id|cwd)" *: *"[^"]*"')"
+    SID="$(printf '%s\n' "$FIELDS" | sed -n 's/^"session_id" *: *"\(.*\)"$/\1/p' | head -1)"
+    CWD="$(printf '%s\n' "$FIELDS" | sed -n 's/^"cwd" *: *"\(.*\)"$/\1/p' | head -1)"
+    [ -n "$SID" ] || exit 0
+    cat >/dev/null   # 나머지 입력은 버린다 (안 읽으면 보내는 쪽이 막힐 수 있음)
+    printf '{"hook_event_name":"PostToolUse","session_id":"%s","cwd":"%s"}' "$SID" "$CWD" | send /hook/claude
     ;;
   codex)
     # Codex는 JSON을 마지막 인자로 넘긴다

@@ -28,6 +28,8 @@ final class IntegrationManager {
 
     let home: URL
     private(set) var installed: [Kind: Bool] = [:]
+    /// 연결은 돼 있지만 새 기능용 항목이 빠진 경우 (예: Claude "작업 중" 표시용 훅) → 패널에 "업데이트" 버튼
+    private(set) var needsUpdate: [Kind: Bool] = [:]
 
     init(home: URL = FileManager.default.homeDirectoryForCurrentUser) {
         self.home = home
@@ -51,25 +53,29 @@ final class IntegrationManager {
 
     func refresh() {
         var state: [Kind: Bool] = [:]
+        var update: [Kind: Bool] = [:]
         for kind in Kind.allCases {
             let data = try? Data(contentsOf: file(for: kind))
             let text = data.flatMap { String(data: $0, encoding: .utf8) }
             switch kind {
-            case .claude: state[kind] = ClaudeHooksConfig.isInstalled(data)
+            case .claude:
+                state[kind] = ClaudeHooksConfig.isInstalled(data)
+                update[kind] = state[kind] == true && !ClaudeHooksConfig.missingEvents(data).isEmpty
             case .codex: state[kind] = CodexNotifyConfig.isInstalled(text)
             case .zsh: state[kind] = ZshrcConfig.isInstalled(text)
             }
         }
         installed = state
+        needsUpdate = update
     }
 
-    /// 연결 ↔ 해제. 성공하면 백업 파일 경로(원본이 있었을 때)를 돌려준다.
+    /// 연결 ↔ 해제 (업데이트가 필요하면 해제 대신 빠진 항목만 추가). 성공하면 백업 파일 경로를 돌려준다.
     @discardableResult
     func toggle(_ kind: Kind) throws -> URL? {
         let url = file(for: kind).resolvingSymlinksInPath() // dotfiles 심볼릭 링크면 실제 파일을 고친다
         let original = try? Data(contentsOf: url)
         let text = original.flatMap { String(data: $0, encoding: .utf8) }
-        let on = installed[kind] == true
+        let on = installed[kind] == true && needsUpdate[kind] != true
 
         let updated: Data
         switch kind {

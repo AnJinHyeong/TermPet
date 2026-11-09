@@ -29,6 +29,19 @@ final class BubbleController {
 
     var hasUnread: Bool { !queue.isEmpty }
 
+    /// 조용한 시간: 새 알림은 쌓기만 하고 말풍선은 띄우지 않는다. 끝나면 쌓인 알림을 보여준다.
+    var isQuiet = false {
+        didSet {
+            guard isQuiet != oldValue else { return }
+            if isQuiet { hide() } else if hasUnread { show() }
+        }
+    }
+
+    /// 권한 요청처럼 사용자가 답해야 끝나는 알림은 자동으로 숨기지 않는다 (터미널에서 승인하면 저절로 사라짐)
+    static func isSticky(_ event: PetEvent) -> Bool {
+        event.kind == .ask && !event.isIdlePrompt && event.sessionId != nil
+    }
+
     /// 테스트용: 실제 말풍선 창과 SwiftUI 호스트 뷰
     var windowForTesting: NSWindow? { window }
     var hostForTesting: NSView? { host }
@@ -41,7 +54,14 @@ final class BubbleController {
     func enqueue(_ event: PetEvent) {
         let content = BubbleContent.make(for: event, messages: messages, using: &rng)
         guard queue.push(PetNotification(event: event, content: content)) != .ignored else { return }
+        if isQuiet { return }
         show()
+    }
+
+    /// 세션이 다시 움직이면(승인됨/새 질문) 그 세션의 지난 알림을 치운다
+    func resolve(sessionOf event: PetEvent) {
+        let wasCurrent = queue.removeSession(of: event)
+        if wasCurrent && isShowing { advance() }
     }
 
     /// 큐 맨 앞 알림을 표시 (숨겨져 있던 미확인 알림 다시 보기 포함)
@@ -57,7 +77,7 @@ final class BubbleController {
         reposition()
         window.orderFrontRegardless()
         isShowing = true
-        scheduleHide()
+        if Self.isSticky(current.event) { hideTask?.cancel() } else { scheduleHide() }
     }
 
     func hide() {
@@ -100,7 +120,7 @@ final class BubbleController {
     // MARK: - private
 
     private func advance() {
-        if queue.isEmpty { hide() } else { show() }
+        if queue.isEmpty || isQuiet { hide() } else { show() }
     }
 
     private func scheduleHide() {

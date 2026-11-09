@@ -61,6 +61,7 @@ enum EventDecoder {
     ///   session_id, transcript_path, cwd, hook_event_name, permission_mode
     /// Stop: last_assistant_message, stop_hook_active
     /// Notification: message, title, notification_type
+    /// UserPromptSubmit: prompt / PostToolUse: tool_name (훅 스크립트가 큰 tool_response는 빼고 보냄) / SessionEnd: reason
     static func decodeClaudeHook(_ data: Data, context: Context = Context()) throws -> PetEvent {
         let obj = try jsonObject(data)
         let eventName = obj.string("hook_event_name") ?? ""
@@ -99,6 +100,16 @@ enum EventDecoder {
         case "StopFailure":
             event.kind = .error
             event.message = obj.string("error").flatMap(nonEmpty)
+
+        // 진행 상황 신호: 말풍선 없이 "작업 중" 표시만 갱신
+        case "UserPromptSubmit":
+            event.kind = .working
+        case "PreToolUse", "PostToolUse":
+            // 도구가 실행됐다 = 권한 대기가 풀렸거나 계속 일하는 중
+            event.kind = .working
+            event.detail = obj.string("tool_name")
+        case "SessionEnd":
+            event.kind = .ended
 
         default:
             // TODO: 다른 훅 이벤트(SubagentStop 등)를 연결하게 되면 여기에 추가

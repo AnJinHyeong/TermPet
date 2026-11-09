@@ -39,17 +39,31 @@ curl http://127.0.0.1:47821/health      # → ok
           { "type": "command", "command": "$HOME/.termpet/bin/termpet-hook claude", "timeout": 5 }
         ]
       }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [ { "type": "command", "command": "$HOME/.termpet/bin/termpet-hook claude", "timeout": 5, "async": true } ] }
+    ],
+    "PostToolUse": [
+      { "hooks": [ { "type": "command", "command": "$HOME/.termpet/bin/termpet-hook claude-tool", "timeout": 5, "async": true } ] }
+    ],
+    "StopFailure": [
+      { "hooks": [ { "type": "command", "command": "$HOME/.termpet/bin/termpet-hook claude", "timeout": 5, "async": true } ] }
+    ],
+    "SessionEnd": [
+      { "hooks": [ { "type": "command", "command": "$HOME/.termpet/bin/termpet-hook claude", "timeout": 5, "async": true } ] }
     ]
   }
 }
 ```
 
 - `Stop`: Claude가 응답을 마칠 때 → 캐릭터 신남 + "끝났어!" (보조 설명: 마지막 답변 첫 줄)
-- `Notification`: 권한 요청 / 입력 대기 → 캐릭터 손 흔들기 + 메시지
+- `Notification`: 권한 요청 / 입력 대기 → 캐릭터 손 흔들기 + 메시지. 권한 요청 말풍선은 승인할 때까지 남는다.
+- `UserPromptSubmit` · `PostToolUse` · `StopFailure` · `SessionEnd` (선택): 펫 머리 위 "작업 중 •••" / "권한 대기 ✋" 표시와 메뉴의 "진행 중" 목록용.
+  `async: true`라 Claude가 기다리지 않는다. `claude-tool` 모드는 큰 도구 결과는 버리고 세션 정보만 보낸다.
 - 설정 파일 변경은 Claude Code가 자동 감지한다. `/hooks` 명령으로 등록 상태를 볼 수 있다.
 - 훅 스크립트는 항상 즉시 `exit 0` 하고 아무것도 출력하지 않으므로 Claude 동작에 영향을 주지 않는다.
 
-제거: 위에서 추가한 두 객체를 지우면 된다.
+제거: 위에서 추가한 객체들을 지우면 된다.
 
 ## 2. zsh (오래 걸린 명령 알림)
 

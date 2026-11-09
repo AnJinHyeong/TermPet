@@ -16,13 +16,40 @@ enum IntegrationError: Error, CustomStringConvertible, Equatable {
 // MARK: - Claude Code (~/.claude/settings.json)
 
 enum ClaudeHooksConfig {
-    static let events = ["Stop", "Notification"]
+    /// 알림(말풍선)용: 끝남 · 권한 요청 · 에러
+    static let coreEvents = ["Stop", "Notification"]
+    /// 진행 상황용: 작업 시작 · 도구 실행 후 · 에러로 멈춤 · 세션 종료 (펫 머리 위 "작업 중" 표시)
+    static let progressEvents = ["UserPromptSubmit", "PostToolUse", "StopFailure", "SessionEnd"]
+    static var events: [String] { coreEvents + progressEvents }
     static let command = "$HOME/.termpet/bin/termpet-hook claude"
+    /// PostToolUse 입력에는 도구 결과(파일 내용 등)가 통째로 들어 있어서, 필요한 값만 뽑아 보내는 모드
+    static let toolCommand = "$HOME/.termpet/bin/termpet-hook claude-tool"
     static let marker = "termpet-hook"
 
+    /// 연결됨 = 알림 훅(Stop·Notification)이 있음. 진행 상황 훅이 빠져 있으면 `missingEvents`로 "업데이트" 표시.
     static func isInstalled(_ data: Data?) -> Bool {
-        guard let data, let root = try? parse(data), let hooks = root["hooks"] as? [String: Any] else { return false }
-        return events.allSatisfy { contains(hooks[$0]) }
+        guard let hooks = hooksObject(data) else { return false }
+        return coreEvents.allSatisfy { contains(hooks[$0]) }
+    }
+
+    /// 아직 우리 훅이 없는 이벤트 (예전 버전으로 연결한 경우)
+    static func missingEvents(_ data: Data?) -> [String] {
+        let hooks = hooksObject(data) ?? [:]
+        return events.filter { !contains(hooks[$0]) }
+    }
+
+    private static func hooksObject(_ data: Data?) -> [String: Any]? {
+        guard let data, let root = try? parse(data) else { return nil }
+        return root["hooks"] as? [String: Any]
+    }
+
+    /// 이벤트별 훅 항목. 진행 상황 훅은 async(백그라운드)라 Claude를 전혀 기다리게 하지 않는다.
+    static func hookEntry(for event: String) -> [String: Any] {
+        var entry: [String: Any] = ["type": "command",
+                                    "command": event == "PostToolUse" ? toolCommand : command,
+                                    "timeout": 5]
+        if progressEvents.contains(event) { entry["async"] = true }
+        return entry
     }
 
     /// 없는 이벤트에만 우리 훅을 추가. 다른 키와 다른 훅은 그대로.
@@ -31,7 +58,7 @@ enum ClaudeHooksConfig {
         var hooks = root["hooks"] as? [String: Any] ?? [:]
         for event in events where !contains(hooks[event]) {
             var groups = hooks[event] as? [Any] ?? []
-            groups.append(["hooks": [["type": "command", "command": command, "timeout": 5]]])
+            groups.append(["hooks": [hookEntry(for: event)]])
             hooks[event] = groups
         }
         root["hooks"] = hooks
