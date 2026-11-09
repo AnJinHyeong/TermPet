@@ -1,0 +1,40 @@
+import CoreGraphics
+
+/// 펫의 현재 행동(=애니메이션 상태).
+/// Swift `enum` ≈ TS의 문자열 유니온 타입(`'idle' | 'walk' | ...`)인데, `switch`에서 모든 케이스를
+/// 처리하지 않으면 컴파일 에러가 나서 빠뜨릴 걱정이 없다.
+/// `: String`을 붙이면 각 케이스가 "idle" 같은 문자열 값을 갖는다(캐릭터 팩 JSON 키와 매칭용).
+enum PetAction: String, CaseIterable {
+    case idle      // 가만히
+    case walk      // 걷기
+    case talk      // 말풍선 표시 중
+    case happy     // 신남 (작업 완료)
+    case angry     // 화남 (에러)
+    case ask       // 확인 요청 / 손 흔들기
+    case sleep     // 졸기
+    case dragged   // 마우스로 잡혀 있음
+    case fall      // 떨어지는 중
+
+    /// 이벤트로 잠깐 표시되고 시간이 지나면 idle로 돌아가는 상태들
+    var isReaction: Bool {
+        switch self {
+        case .talk, .happy, .angry, .ask: return true
+        default: return false
+        }
+    }
+
+    /// 사용자가 잡고 있거나 떨어지는 중 → 다른 입력으로 끊으면 안 되는 상태
+    var isPhysicsControlled: Bool {
+        self == .dragged || self == .fall
+    }
+}
+
+/// 걷는 방향 / 바라보는 방향
+enum Direction: Equatable {
+    case left, right
+
+    /// x 이동에 곱할 부호 (left = -1, right = +1)
+    var sign: CGFloat { self == .left ? -1 : 1 }
+
+    var flipped: Direction { self == .left ? .right : .left }
+}
