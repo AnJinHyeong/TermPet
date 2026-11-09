@@ -26,6 +26,8 @@ struct PetEvent: Equatable, Identifiable {
     var termProgram: String?
     /// Claude Code Notification 훅의 notification_type (permission_prompt, idle_prompt 등)
     var notificationType: String?
+    /// Claude가 실행 중인 터미널 (예: ttys016). 같은 터미널의 세션은 진행 중 목록에서 한 줄로 합친다.
+    var terminal: String?
     var receivedAt: Date
 
     init(id: UUID = UUID(), source: Source, kind: Kind, message: String? = nil, detail: String? = nil,

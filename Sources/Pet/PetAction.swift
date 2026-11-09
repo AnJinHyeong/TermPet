@@ -23,6 +23,21 @@ enum PetAction: String, CaseIterable {
         }
     }
 
+    /// 메뉴에 보일 이름
+    var title: String {
+        switch self {
+        case .idle: return "가만히 있을 때"
+        case .walk: return "걸을 때"
+        case .talk: return "말할 때"
+        case .happy: return "신날 때 (작업 완료)"
+        case .angry: return "화날 때 (에러)"
+        case .ask: return "권한 요청할 때"
+        case .sleep: return "잘 때"
+        case .dragged: return "잡혔을 때"
+        case .fall: return "떨어질 때"
+        }
+    }
+
     /// 사용자가 잡고 있거나 떨어지는 중 → 다른 입력으로 끊으면 안 되는 상태
     var isPhysicsControlled: Bool {
         self == .dragged || self == .fall

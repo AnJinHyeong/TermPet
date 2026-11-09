@@ -129,6 +129,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// 내 캐릭터의 한 동작을 그림 여러 장(프레임)으로 바꾸기
+    func pickStateFrames(_ action: PetAction) {
+        NSApp.activate()
+        let panel = NSOpenPanel()
+        panel.title = "\(action.title) 그림 선택"
+        panel.message = "여러 장을 고르면 파일 이름 순서대로 움직여요 (예: walk1, walk2 …). 한 장이면 그 그림을 살짝 움직여요."
+        panel.prompt = "적용"
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = true
+        guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
+        do {
+            try ImageCharacterMaker.replaceStateFrames(action, in: characters.customFolder, from: panel.urls)
+            selectCharacter(CharacterLibrary.customId)
+        } catch {
+            showAlert("그림을 적용하지 못했어요", "\(error)\n\n배경이 단순한 그림(흰 배경, 투명 PNG 등)일수록 잘 돼요.")
+        }
+    }
+
+    func resetCustomStates() {
+        do {
+            try ImageCharacterMaker.resetAllStates(in: characters.customFolder)
+            selectCharacter(CharacterLibrary.customId)
+        } catch {
+            showAlert("되돌리지 못했어요", "\(error)")
+        }
+    }
+
     func removeCustomCharacter() {
         do {
             try characters.removeCustom()

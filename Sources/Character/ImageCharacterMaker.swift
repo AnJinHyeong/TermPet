@@ -74,12 +74,14 @@ enum ImageCharacterMaker {
     /// 프레임 크기·scale 등 팩 설정은 그대로 두고 해당 상태 시트만 다시 렌더링.
     /// (React 비유: 같은 컴포넌트에서 특정 state일 때만 다른 이미지 prop을 넘기는 것)
     @discardableResult
-    static func replaceStates(_ actions: [PetAction], in folder: URL, from imageURL: URL) throws -> BackgroundRemover.Method {
+    static func replaceStates(_ actions: [PetAction], in folder: URL, from imageURL: URL,
+                              alreadyCutOut: Bool = false) throws -> BackgroundRemover.Method {
         guard let source = CGImageSourceCreateWithURL(imageURL as CFURL, nil),
               let image = loadDownscaled(source) else {
             throw BackgroundRemover.Failure.unreadableImage
         }
-        let (cutout, method) = try BackgroundRemover.cutout(image)
+        // 이미 배경을 지운 원본(source.png)이면 다시 지우지 않는다
+        let (cutout, method) = alreadyCutOut ? (image, .alreadyTransparent) : try BackgroundRemover.cutout(image)
         let jsonURL = folder.appendingPathComponent("character.json")
         var pack = try JSONDecoder().decode(CharacterPack.self, from: Data(contentsOf: jsonURL))
 
@@ -99,11 +101,74 @@ enum ImageCharacterMaker {
                                              to: folder.appendingPathComponent(file))
             pack.states[action.rawValue] = .init(file: file, frames: frames.count, fps: fps, loop: true)
         }
-        try SpriteSheetWriter.writePNG(cutout, to: folder.appendingPathComponent("source-\(actions.map(\.rawValue).joined(separator: "-")).png"))
+        if !alreadyCutOut {
+            try SpriteSheetWriter.writePNG(cutout, to: folder.appendingPathComponent("source-\(actions.map(\.rawValue).joined(separator: "-")).png"))
+        }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         try encoder.encode(pack).write(to: jsonURL)
         return method
+    }
+
+    /// 한 동작을 그림 여러 장으로 만든다 (진짜 프레임 애니메이션). 파일 이름 순서대로 재생.
+    /// 한 장이면 기존처럼 그 그림을 인형극 방식으로 움직인다.
+    /// 모든 프레임에 같은 축척을 써서 크기가 들쭉날쭉하지 않게, 발(아래)을 맞춰 가운데 정렬한다.
+    static func replaceStateFrames(_ action: PetAction, in folder: URL, from imageURLs: [URL]) throws {
+        guard imageURLs.count >= 2 else {
+            guard let only = imageURLs.first else { return }
+            try replaceStates([action], in: folder, from: only)
+            return
+        }
+        let sorted = imageURLs
+            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+            .prefix(maxFrames)
+        let cutouts: [CGImage] = try sorted.map { url in
+            guard let source = CGImageSourceCreateWithURL(url as CFURL, nil), let image = loadDownscaled(source) else {
+                throw BackgroundRemover.Failure.unreadableImage
+            }
+            return try BackgroundRemover.cutout(image).0
+        }
+
+        let jsonURL = folder.appendingPathComponent("character.json")
+        var pack = try JSONDecoder().decode(CharacterPack.self, from: Data(contentsOf: jsonURL))
+        let canvas = CGSize(width: CGFloat(pack.frameWidth) / renderScale, height: CGFloat(pack.frameHeight) / renderScale)
+        let maxW = CGFloat(cutouts.map(\.width).max() ?? 1), maxH = CGFloat(cutouts.map(\.height).max() ?? 1)
+        let fit = fitted(PuppetAnimator.Geometry.make(imageSize: CGSize(width: maxW, height: maxH)), canvas: canvas)
+        let scale = fit.character.height / maxH
+
+        let frames: [CGImage] = cutouts.compactMap { cutout in
+            let g = PuppetAnimator.Geometry(canvas: canvas,
+                                            character: CGSize(width: CGFloat(cutout.width) * scale,
+                                                              height: CGFloat(cutout.height) * scale),
+                                            bottomMargin: fit.bottomMargin)
+            let renderer = ImageRenderer(content: PuppetFrameView(image: cutout, geometry: g, pose: PuppetPose()))
+            renderer.scale = renderScale
+            return renderer.cgImage
+        }
+        let file = "\(action.rawValue).png"
+        try SpriteSheetWriter.writeSheet(frames, frameWidth: pack.frameWidth, frameHeight: pack.frameHeight,
+                                         to: folder.appendingPathComponent(file))
+        pack.states[action.rawValue] = .init(file: file, frames: frames.count, fps: frameFPS(for: action), loop: true)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        try encoder.encode(pack).write(to: jsonURL)
+    }
+
+    static let maxFrames = 24
+
+    /// 여러 장 애니메이션의 기본 속도 (초당 장 수)
+    static func frameFPS(for action: PetAction) -> Double {
+        switch action {
+        case .walk, .fall, .happy, .angry: return 8
+        case .idle, .talk, .ask, .dragged: return 5
+        case .sleep: return 2
+        }
+    }
+
+    /// 모든 동작을 처음 만든 그림(source.png) 기준 기본 움직임으로 되돌린다
+    static func resetAllStates(in folder: URL) throws {
+        let source = folder.appendingPathComponent("source.png")
+        try replaceStates(PuppetAnimator.plan.map(\.0), in: folder, from: source, alreadyCutOut: true)
     }
 
     /// 다른 그림을 기존 캔버스에 넣을 때: 높이는 원래 기준(72pt) 유지, 너무 넓으면 캔버스 85% 폭에 맞춰 축소

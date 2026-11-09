@@ -219,6 +219,37 @@ final class ImageCharacterMakerTests: XCTestCase {
         XCTAssertGreaterThan(after.animation(for: .fall)?.frames.count ?? 0, 1)
     }
 
+    @MainActor
+    func testMultipleImagesBecomeRealFramesInNameOrderAndResetRestores() throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("termpet-img-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        func square(_ name: String, w: Int, h: Int) throws -> URL {
+            var data = [UInt8](repeating: 255, count: w * h * 4)
+            let m = h / 4
+            for y in m..<(h - m) { for x in m..<(w - m) where x == m || x == w - m - 1 || y == m || y == h - m - 1 {
+                let i = (y * w + x) * 4; data[i] = 0; data[i + 1] = 0; data[i + 2] = 0
+            } }
+            let url = tmp.appendingPathComponent(name)
+            try SpriteSheetWriter.writePNG(RGBAImage(width: w, height: h, data: data).makeImage()!, to: url)
+            return url
+        }
+        let result = try ImageCharacterMaker.make(from: try square("hero.png", w: 40, h: 40), name: "히어로",
+                                                  facing: .right, into: tmp.appendingPathComponent("chars"))
+        // 이름 순서가 섞여서 들어와도 walk2 < walk10 (사람이 읽는 순서)로 정렬
+        let urls = [try square("walk10.png", w: 40, h: 48), try square("walk2.png", w: 40, h: 40), try square("walk1.png", w: 48, h: 40)]
+        try ImageCharacterMaker.replaceStateFrames(.walk, in: result.folder, from: urls)
+
+        let sprite = try SpriteCharacter(folder: result.folder)
+        XCTAssertEqual(sprite.pack.states["walk"]?.frames, 3)
+        XCTAssertEqual(sprite.pack.states["walk"]?.fps, ImageCharacterMaker.frameFPS(for: .walk))
+        XCTAssertEqual(sprite.animation(for: .walk)?.frames.count, 3)
+        XCTAssertEqual(sprite.animation(for: .idle)?.frames.count, 8) // 다른 동작은 그대로
+
+        try ImageCharacterMaker.resetAllStates(in: result.folder)
+        XCTAssertEqual(try SpriteCharacter(folder: result.folder).animation(for: .walk)?.frames.count, 8)
+    }
+
     func testFittedShrinksWideImageIntoCanvas() {
         let g = PuppetAnimator.Geometry.make(imageSize: CGSize(width: 500, height: 100))
         let f = ImageCharacterMaker.fitted(g, canvas: CGSize(width: 150, height: 100))

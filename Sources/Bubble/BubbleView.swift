@@ -70,7 +70,7 @@ struct BubbleView: View {
         case .done: return "checkmark.circle.fill"
         case .error: return "exclamationmark.triangle.fill"
         case .ask: return "hand.raised.fill"
-        case .working, .ended: return "ellipsis.circle.fill"
+        case .working, .ended: return "bubble.left.fill" // 알림이 아닌 펫의 말 (BubbleController.say)
         }
     }
 

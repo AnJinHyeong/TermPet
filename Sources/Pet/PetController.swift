@@ -15,6 +15,10 @@ final class PetController: NSObject {
     let sessions = SessionStore()
     /// 조용한 시간 / 권한 요청 소리 설정
     let quiet = QuietMode()
+    /// 오늘 하루 기록
+    let stats = StatsStore()
+    /// 최근 성공/실패 (기분 계산용, 최근 20개만)
+    private var outcomes: [(Date, Bool)] = []
     private var lastPrune: CFTimeInterval = 0
 
     private let config: PetConfig
@@ -141,12 +145,24 @@ final class PetController: NSObject {
     }
 
     /// 외부 이벤트(Claude 완료, 쉘 명령 실패 등) 수신 → 감정 표현 + 말풍선
-    func receive(_ event: PetEvent) {
+    func receive(_ incoming: PetEvent) {
+        var event = incoming
         sessions.apply(event)
         guard event.isNotification else {
             // 작업 시작·도구 실행·세션 종료: 세션이 다시 움직였으면 그 세션의 지난 알림(권한 요청 등)은 해결된 것
             if sessions.state(of: event) != .waiting { bubble.resolve(sessionOf: event) }
             return
+        }
+        stats.record(event)
+        if event.kind == .done || event.kind == .error {
+            let wasGloomy = model.mood == .gloomy
+            outcomes.append((Date(), event.kind == .done))
+            if outcomes.count > 20 { outcomes.removeFirst(outcomes.count - 20) }
+            updateMood()
+            // 계속 실패하다가 드디어 성공하면 한마디
+            if wasGloomy, event.kind == .done, event.message == nil {
+                event.message = ["휴, 이번엔 됐다!", "드디어 성공!", "됐다…! 다행이야"].randomElement(using: &rng)
+            }
         }
         brain.handle(.react(event.mood, duration: 3), using: &rng)
         syncModel()
@@ -155,6 +171,11 @@ final class PetController: NSObject {
         if BubbleController.isSticky(event), quiet.soundOnAsk, !quiet.isQuiet, model.isVisible {
             NSSound(named: "Glass")?.play() // 권한 요청은 작업이 멈춘 상태라 소리로 한 번 더 알림
         }
+    }
+
+    private func updateMood(now: Date = Date()) {
+        let mood = PetMood.from(outcomes, now: now)
+        if model.mood != mood { model.mood = mood }
     }
 
     /// 표시 층 변경 (프로그램 위 / 바탕화면) + 저장
@@ -228,7 +249,7 @@ final class PetController: NSObject {
 
         switch brain.action {
         case .walk:
-            switch physics.walk(direction: brain.direction, speed: walkSpeed,
+            switch physics.walk(direction: brain.direction, speed: walkSpeed * model.mood.walkFactor,
                                 dt: dt, layout: layout) {
             case .moved: break
             case .hitWall: brain.handle(.hitWall, using: &rng)
@@ -246,8 +267,12 @@ final class PetController: NSObject {
             window.setFrameOrigin(physics.origin)
         }
         bubble.follow(petFrame: CGRect(origin: physics.origin, size: physics.size))
-        // 오래된 세션 정리는 10초에 한 번이면 충분
-        if lastTick - lastPrune > 10 { lastPrune = lastTick; sessions.prune() }
+        // 오래된 세션 정리·기분 풀림은 10초에 한 번이면 충분
+        if lastTick - lastPrune > 10 { lastPrune = lastTick; sessions.prune(); updateMood() }
+        // 신날 때는 가만히 있다가 가끔 깡충 (평균 20초에 한 번)
+        if model.mood == .cheerful, brain.action == .idle, Double.random(in: 0..<1, using: &rng) < dt / 20 {
+            brain.handle(.react(.happy, duration: 1.2), using: &rng)
+        }
         let badge = PetBadge.pick(waiting: sessions.tracker.waitingCount, working: sessions.tracker.workingCount,
                                   hasUnread: bubble.hasUnread && !bubble.isShowing)
         if model.badge != badge { model.badge = badge }
@@ -328,6 +353,7 @@ final class PetController: NSObject {
             bubble.show()
         } else {
             brain.handle(.clicked, using: &rng)
+            bubble.say(stats.today.speech) // "오늘 12번 끝냈어요!"
         }
     }
 
@@ -413,6 +439,10 @@ struct PetView: View {
         // 머리 위 표시 (overlay ≈ position:absolute 자식)
         .overlay(alignment: .top) {
             PetBadgeView(badge: model.badge, time: model.time)
+        }
+        // 기분: 신남 ✨ / 시무룩 비구름
+        .overlay(alignment: .topTrailing) {
+            MoodMarkView(mood: model.mood, time: model.time)
         }
     }
 
@@ -501,5 +531,54 @@ final class SessionStore {
     func prune(now: Date = Date()) {
         var copy = tracker
         if copy.prune(now: now) { tracker = copy }
+    }
+}
+
+/// 머리 옆 기분 표시
+struct MoodMarkView: View {
+    let mood: PetMood
+    let time: TimeInterval
+
+    var body: some View {
+        switch mood {
+        case .normal:
+            EmptyView()
+        case .cheerful:
+            Image(systemName: "sparkles")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(Color(red: 1, green: 0.78, blue: 0.2))
+                .shadow(color: .white, radius: 1)
+                .opacity(0.6 + 0.4 * abs(sin(time * 2.5)))
+                .scaleEffect(0.9 + 0.15 * CGFloat(sin(time * 2.5)))
+                .offset(x: -4, y: 6)
+        case .gloomy:
+            Image(systemName: "cloud.drizzle.fill")
+                .font(.system(size: 13))
+                .foregroundStyle(Color(red: 0.45, green: 0.52, blue: 0.62))
+                .shadow(color: .white, radius: 1)
+                .offset(x: -6 + CGFloat(sin(time * 0.8)) * 3, y: 4)
+        }
+    }
+}
+
+/// 오늘 기록 스토어 (UserDefaults에 저장, `@Observable` ≈ Zustand)
+@Observable
+final class StatsStore {
+    private(set) var stats: DailyStats
+    @ObservationIgnored private let defaults: UserDefaults
+    static let key = "dailyStats"
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        let saved = defaults.data(forKey: Self.key).flatMap { try? JSONDecoder().decode(DailyStats.self, from: $0) }
+        stats = saved ?? DailyStats(day: DailyStats.dayKey(Date()))
+    }
+
+    /// 날짜가 바뀌었으면 빈 기록
+    var today: DailyStats { stats.current() }
+
+    func record(_ event: PetEvent) {
+        stats.record(event)
+        if let data = try? JSONEncoder().encode(stats) { defaults.set(data, forKey: Self.key) }
     }
 }

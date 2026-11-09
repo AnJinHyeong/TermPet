@@ -43,7 +43,8 @@ struct EventRouter {
 
         let context = EventDecoder.Context(
             hostBundleId: request.header("x-termpet-host-bundle").flatMap { $0.isEmpty ? nil : $0 },
-            termProgram: request.header("x-termpet-term-program").flatMap { $0.isEmpty ? nil : $0 }
+            termProgram: request.header("x-termpet-term-program").flatMap { $0.isEmpty ? nil : $0 },
+            terminal: request.header("x-termpet-tty").flatMap { $0.isEmpty ? nil : $0 }
         )
 
         do {

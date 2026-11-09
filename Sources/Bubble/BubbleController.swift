@@ -58,6 +58,22 @@ final class BubbleController {
         show()
     }
 
+    /// 알림이 아닌 펫의 혼잣말 (예: 펫을 눌렀을 때 오늘 기록). 큐에 쌓지 않고 잠깐 보여준다.
+    /// 확인 안 한 알림이 있으면 그걸 먼저 보여준다.
+    func say(_ content: BubbleContent) {
+        guard queue.isEmpty else { show(); return }
+        let window = ensureWindow()
+        model.content = content
+        model.kind = .working
+        model.badge = 0
+        model.width = BubbleMetrics.bodyWidth(for: content, badge: 0)
+        resize()
+        reposition()
+        window.orderFrontRegardless()
+        isShowing = true
+        scheduleHide()
+    }
+
     /// 세션이 다시 움직이면(승인됨/새 질문) 그 세션의 지난 알림을 치운다
     func resolve(sessionOf event: PetEvent) {
         let wasCurrent = queue.removeSession(of: event)
@@ -88,7 +104,7 @@ final class BubbleController {
 
     /// 말풍선 본문 클릭: 현재 알림 처리(이동) 후 다음 알림
     func activateCurrent() {
-        guard let n = queue.popCurrent() else { return }
+        guard let n = queue.popCurrent() else { hide(); return } // 혼잣말 말풍선은 누르면 닫기만
         onActivate?(n)
         advance()
     }

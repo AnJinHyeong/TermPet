@@ -17,6 +17,8 @@ enum EventDecoder {
     struct Context: Equatable {
         var hostBundleId: String?
         var termProgram: String?
+        /// Claude가 실행 중인 터미널 (예: ttys016)
+        var terminal: String?
     }
 
     // MARK: - 표준 이벤트 (POST /event)
@@ -75,6 +77,7 @@ enum EventDecoder {
             hostBundleId: context.hostBundleId,
             termProgram: context.termProgram
         )
+        event.terminal = context.terminal
 
         switch eventName {
         case "Stop":

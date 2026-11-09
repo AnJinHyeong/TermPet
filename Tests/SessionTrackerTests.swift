@@ -170,3 +170,77 @@ final class BubbleProgressTests: XCTestCase {
         XCTAssertFalse(bubble.hasUnread)
     }
 }
+
+final class TerminalMergeTests: XCTestCase {
+    private let t0 = Date(timeIntervalSince1970: 1_000_000)
+
+    func testSameTerminalMergesNewConversation() {
+        var t = SessionTracker()
+        var a = PetEvent(source: .claude, kind: .ask, cwd: "/p", sessionId: "old", notificationType: "permission_prompt")
+        a.terminal = "ttys016"
+        t.apply(a, now: t0)
+        var b = PetEvent(source: .claude, kind: .working, cwd: "/p", sessionId: "new")
+        b.terminal = "ttys016"
+        t.apply(b, now: t0 + 10)                 // /clear 후 새 대화 → 같은 줄을 덮어씀
+        XCTAssertEqual(t.sessions.count, 1)
+        XCTAssertEqual(t.ordered.first?.state, .working)
+
+        var end = PetEvent(source: .claude, kind: .ended, sessionId: "old")
+        end.terminal = "ttys016"
+        t.apply(end, now: t0 + 11)                // 늦게 온 옛 대화 종료는 새 대화를 지우지 않음
+        XCTAssertEqual(t.sessions.count, 1)
+
+        var other = b; other.terminal = "ttys020"
+        t.apply(other, now: t0 + 12)              // 다른 터미널은 따로
+        XCTAssertEqual(t.sessions.count, 2)
+    }
+
+    func testTerminalHeaderIsDecoded() throws {
+        let router = EventRouter(token: "t")
+        let req = HTTPRequest(method: "POST", path: "/hook/claude",
+                              headers: ["x-termpet-token": "t", "x-termpet-tty": "ttys016"],
+                              body: Data(#"{"hook_event_name":"UserPromptSubmit","session_id":"s"}"#.utf8))
+        XCTAssertEqual(router.route(req).event?.terminal, "ttys016")
+    }
+}
+
+final class DailyStatsTests: XCTestCase {
+    private let cal: Calendar = { var c = Calendar(identifier: .gregorian); c.timeZone = TimeZone(identifier: "Asia/Seoul")!; return c }()
+    private let morning = Date(timeIntervalSince1970: 1_793_000_000) // 임의의 날
+
+    func testCountsAndLongestCommandAndResetsNextDay() {
+        var s = DailyStats(day: DailyStats.dayKey(morning, calendar: cal))
+        s.record(PetEvent(source: .claude, kind: .done), now: morning, calendar: cal)
+        s.record(PetEvent(source: .codex, kind: .done), now: morning, calendar: cal)
+        s.record(PetEvent(source: .shell, kind: .done, command: "npm run build", durationSec: 125), now: morning, calendar: cal)
+        s.record(PetEvent(source: .shell, kind: .error, command: "make", durationSec: 40), now: morning, calendar: cal)
+        s.record(PetEvent(source: .claude, kind: .ask, notificationType: "permission_prompt"), now: morning, calendar: cal)
+        s.record(PetEvent(source: .claude, kind: .ask, notificationType: "idle_prompt"), now: morning, calendar: cal) // 안 셈
+        s.record(PetEvent(source: .claude, kind: .working), now: morning, calendar: cal)                               // 안 셈
+        XCTAssertEqual(s.aiDone, 2)
+        XCTAssertEqual(s.shellDone, 1)
+        XCTAssertEqual(s.errors, 1)
+        XCTAssertEqual(s.asks, 1)
+        XCTAssertEqual(s.longestCommand, "npm run build")
+        XCTAssertEqual(s.summaryLine, "✓ 3 · ✗ 1 · ✋ 1 · 가장 긴 명령 2분 5초")
+        XCTAssertEqual(s.speech.body, "오늘 3번 끝냈어요!")
+
+        let tomorrow = morning.addingTimeInterval(86_400)
+        XCTAssertEqual(s.current(now: tomorrow, calendar: cal).total, 0)
+        s.record(PetEvent(source: .claude, kind: .done), now: tomorrow, calendar: cal)
+        XCTAssertEqual(s.aiDone, 1)
+        XCTAssertNil(DailyStats(day: "x").summaryLine)
+        XCTAssertEqual(DailyStats(day: "x").speech.body, "오늘은 아직 한가해요")
+    }
+
+    func testMood() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        func at(_ m: Double, _ ok: Bool) -> (Date, Bool) { (now - m * 60, ok) }
+        XCTAssertEqual(PetMood.from([], now: now), .normal)
+        XCTAssertEqual(PetMood.from([at(5, true), at(4, true), at(3, true)], now: now), .cheerful)
+        XCTAssertEqual(PetMood.from([at(5, true), at(4, false), at(3, false)], now: now), .gloomy)
+        XCTAssertEqual(PetMood.from([at(9, false), at(5, true), at(4, true), at(3, true)], now: now), .cheerful) // 회복
+        XCTAssertEqual(PetMood.from([at(5, false), at(4, true)], now: now), .normal)
+        XCTAssertEqual(PetMood.from([at(40, false), at(35, false)], now: now), .normal) // 30분 지나면 풀림
+    }
+}

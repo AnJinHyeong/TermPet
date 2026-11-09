@@ -30,8 +30,10 @@ struct SessionTracker {
 
     private(set) var sessions: [String: Session] = [:]
 
+    /// 같은 터미널이면 대화가 새로 시작돼도(/clear, 재실행) 한 줄로 합친다. 터미널을 모르면 대화 ID로 구분.
     static func key(for event: PetEvent) -> String? {
         guard let sid = event.sessionId, !sid.isEmpty else { return nil }
+        if let tty = event.terminal, !tty.isEmpty { return "\(event.source.rawValue):tty:\(tty)" }
         return "\(event.source.rawValue):\(sid)"
     }
 
@@ -43,6 +45,10 @@ struct SessionTracker {
         let previous = sessions[key]
 
         if event.kind == .ended {
+            // 같은 터미널에서 이미 새 대화가 시작됐다면 그건 지우지 않는다
+            if let old = previous, old.focusEvent.sessionId != event.sessionId, event.terminal != nil {
+                return old.state
+            }
             sessions[key] = nil
             return previous?.state
         }

@@ -54,8 +54,23 @@ send() {
     -H "X-TermPet-Token: $TOKEN" \
     -H "X-TermPet-Host-Bundle: ${__CFBundleIdentifier:-}" \
     -H "X-TermPet-Term-Program: ${TERM_PROGRAM:-}" \
+    -H "X-TermPet-TTY: ${TTY_NAME:-}" \
     --data-binary @- "http://127.0.0.1:$PORT$path"
 }
+
+# Claude가 돌고 있는 터미널 이름 (예: ttys016) — 같은 터미널의 세션을 한 줄로 합치기 위해.
+# 훅은 터미널 없이 실행되므로 부모 프로세스(claude)를 거슬러 올라가며 찾는다 (ps 몇 번, 수 ms).
+find_tty() {
+  local p=$PPID t i
+  for i in 1 2 3; do
+    t="$(ps -o tty= -p "$p" 2>/dev/null | tr -d ' ')"
+    case "$t" in
+      ''|'??') p="$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')"; [ -n "$p" ] && [ "$p" != 1 ] || return ;;
+      *) TTY_NAME="$t"; return ;;
+    esac
+  done
+}
+case "$SOURCE" in claude|claude-tool) find_tty ;; esac
 
 case "$SOURCE" in
   claude)

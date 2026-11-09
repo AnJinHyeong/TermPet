@@ -13,6 +13,7 @@ struct MenuPanelView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header.zIndex(1) // 헤더 안내 말풍선이 아래 내용 위에 그려지도록
+            todayLine
             PanelDivider()
 
             // 진행 중인 AI 세션이 있을 때만 (누르면 그 프로젝트 창으로 이동)
@@ -149,12 +150,45 @@ struct MenuPanelView: View {
                     IconButton(symbol: "photo.badge.plus", help: "새 이미지로 바꾸기") {
                         closePanelThen { app.makeCharacterFromImage() }
                     }
+                    // 동작별 그림: 여러 장을 고르면 진짜 프레임 애니메이션 (Menu ≈ 드롭다운)
+                    Menu {
+                        ForEach(PetAction.allCases, id: \.self) { action in
+                            Button(action.title + "…") { closePanelThen { app.pickStateFrames(action) } }
+                        }
+                        Divider()
+                        Button("모든 동작 원래대로") { app.resetCustomStates() }
+                    } label: {
+                        Image(systemName: "figure.walk").font(.system(size: 11, weight: .medium))
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .frame(width: 24, height: 22)
+                    .hint("동작별 그림 (여러 장 = 애니메이션)", .topTrailing)
                     IconButton(symbol: "arrow.left.and.right", help: "방향 바꾸기") { app.flipCustomCharacter() }
                     IconButton(symbol: "trash", help: "내 캐릭터 지우기") { app.removeCustomCharacter() }
                 }
             }
         }
         .padding(.horizontal, 16)
+    }
+
+    /// 오늘 기록 한 줄 + 기분 (기록이 없으면 숨김)
+    @ViewBuilder private var todayLine: some View {
+        let stats = pet.stats.today
+        if let line = stats.summaryLine {
+            HStack(spacing: 6) {
+                Text("오늘").font(.system(size: 11, weight: .semibold))
+                Text(line).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                Spacer()
+                switch pet.model.mood {
+                case .cheerful: Text("✨ 신남").font(.system(size: 11)).hint("최근 계속 성공했어요", .topTrailing)
+                case .gloomy: Text("🌧 시무룩").font(.system(size: 11)).hint("최근 에러가 많았어요", .topTrailing)
+                case .normal: EmptyView()
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
+        }
     }
 
     private var selectedName: String {

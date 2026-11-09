@@ -15,6 +15,8 @@ final class PetViewModel {
     var layer: PetWindowLayer = .default
     /// 머리 위 표시: 미확인 알림 "!", 작업 중 "…", 권한 대기 ✋
     var badge: PetBadge = .none
+    /// 기분 (최근 성공/실패) → 머리 옆 ✨ / 비구름, 걷는 속도
+    var mood: PetMood = .normal
     /// 현재 캐릭터 (기본 도형 캐릭터 또는 스프라이트 팩)
     var character: LoadedCharacter = .builtIn(.mallang)
 }
