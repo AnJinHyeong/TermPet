@@ -48,6 +48,7 @@ final class BubbleController {
         model.content = current.content
         model.kind = current.event.kind
         model.badge = queue.pendingCount
+        model.width = BubbleMetrics.bodyWidth(for: current.content, badge: model.badge)
         resize()
         reposition()
         window.orderFrontRegardless()
@@ -138,7 +139,10 @@ final class BubbleController {
 
     private func resize() {
         guard let window, let host else { return }
-        let size = host.fittingSize
+        // 너비는 확정값, 높이만 SwiftUI에 물어본다
+        let width = model.width + BubbleMetrics.outerPadding * 2
+        host.frame.size.width = width
+        let size = CGSize(width: width, height: host.fittingSize.height.rounded(.up))
         if window.frame.size != size {
             window.setContentSize(size)
         }

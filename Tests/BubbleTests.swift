@@ -156,3 +156,31 @@ final class BubbleTailClampTests: XCTestCase {
         XCTAssertEqual(r.tailX, 200 - BubblePlacement.tailInset)
     }
 }
+
+final class BubbleWidthTests: XCTestCase {
+    /// 글자당 7pt로 단순 측정 (폰트 무관하게 결정적)
+    private let measure: (String, NSFont) -> CGFloat = { s, _ in CGFloat(s.count) * 7 }
+
+    func testShortTextUsesMinimumWidth() {
+        let c = BubbleContent(title: "a", body: "끝!")
+        XCTAssertEqual(BubbleMetrics.bodyWidth(for: c, badge: 0, measure: measure), BubbleMetrics.minBodyWidth)
+    }
+
+    func testLongTextIsCappedAtMaximumWidth() {
+        let c = BubbleContent(title: "TermPet", body: "끝났어!",
+                              detail: String(repeating: "원인으로 보이는 문제를 두 가지 찾아서 고쳤습니다. ", count: 5))
+        XCTAssertEqual(BubbleMetrics.bodyWidth(for: c, badge: 0, measure: measure), BubbleMetrics.maxBodyWidth)
+    }
+
+    func testMediumTextFitsBetween() {
+        let c = BubbleContent(title: "fitin", body: String(repeating: "가", count: 20))
+        let w = BubbleMetrics.bodyWidth(for: c, badge: 0, measure: measure)
+        XCTAssertEqual(w, 20 * 7 + BubbleMetrics.horizontalPadding * 2 + 2)
+    }
+
+    func testBadgeWidensTitleLine() {
+        let c = BubbleContent(title: String(repeating: "a", count: 16), body: "x")
+        XCTAssertGreaterThan(BubbleMetrics.bodyWidth(for: c, badge: 3, measure: measure),
+                             BubbleMetrics.bodyWidth(for: c, badge: 0, measure: measure))
+    }
+}

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// 말풍선 표시 상태. `@Observable` ≈ Zustand 스토어.
@@ -8,6 +9,8 @@ final class BubbleViewModel {
     var badge = 0
     var tailX: CGFloat = 60
     var tailOnTop = false
+    /// 말풍선 몸통 너비 (BubbleMetrics.bodyWidth로 계산해 고정)
+    var width: CGFloat = 160
 }
 
 /// 말풍선 레이아웃 상수 (클릭 영역 계산에서도 같이 씀)
@@ -15,8 +18,32 @@ enum BubbleMetrics {
     /// 그림자용 바깥 여백
     static let outerPadding: CGFloat = 8
     static let tailHeight: CGFloat = 9
-    static let maxWidth: CGFloat = 240
     static let closeSize: CGFloat = 22
+    /// 말풍선 몸통 너비 범위 (그림자 여백 제외)
+    static let minBodyWidth: CGFloat = 140
+    static let maxBodyWidth: CGFloat = 260
+    static let horizontalPadding: CGFloat = 11
+
+    static let titleFont = NSFont.systemFont(ofSize: 11, weight: .semibold)
+    static let bodyFont = NSFont.systemFont(ofSize: 13, weight: .semibold)
+    static let detailFont = NSFont.systemFont(ofSize: 11, weight: .regular)
+
+    /// 내용 길이에 맞춘 말풍선 너비. 짧으면 좁게, 길면 최대 너비에서 줄바꿈(최대 2줄 후 "…").
+    /// SwiftUI에 "알아서" 맡기면 긴 텍스트의 이상적 너비가 창보다 커져 잘리므로 직접 정한다.
+    static func bodyWidth(for content: BubbleContent, badge: Int,
+                          measure: (String, NSFont) -> CGFloat = textWidth) -> CGFloat {
+        // 제목 줄: 아이콘(10) + 간격 + 제목 + 간격 + [배지] + 닫기(14)
+        let badgeWidth: CGFloat = badge > 0 ? measure("+\(badge)", .systemFont(ofSize: 10, weight: .bold)) + 10 + 4 : 0
+        let titleLine = 12 + 4 + measure(content.title, titleFont) + 8 + badgeWidth + 14
+        let bodyLine = measure(content.body, bodyFont)
+        let detailLine = content.detail.map { measure($0, detailFont) } ?? 0
+        let inner = max(titleLine, bodyLine, detailLine) + horizontalPadding * 2 + 2
+        return min(max(inner.rounded(.up), minBodyWidth), maxBodyWidth)
+    }
+
+    static func textWidth(_ text: String, _ font: NSFont) -> CGFloat {
+        (text as NSString).size(withAttributes: [.font: font]).width
+    }
 }
 
 struct BubbleView: View {
@@ -44,8 +71,9 @@ struct BubbleView: View {
                 Image(systemName: icon)
                     .font(.system(size: 10, weight: .bold))
                 Text(model.content.title)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(Font(BubbleMetrics.titleFont))
                     .lineLimit(1)
+                    .truncationMode(.tail)
                 Spacer(minLength: 4)
                 if model.badge > 0 {
                     Text("+\(model.badge)")
@@ -63,24 +91,27 @@ struct BubbleView: View {
             }
             .foregroundStyle(accent)
 
+            // 길면 최대 2줄까지 보여주고 끝을 "…"로 자른다
             Text(model.content.body)
-                .font(.system(size: 13, weight: .semibold))
+                .font(Font(BubbleMetrics.bodyFont))
                 .foregroundStyle(Color(red: 0.13, green: 0.12, blue: 0.11))
-                .lineLimit(3)
+                .lineLimit(2)
+                .truncationMode(.tail)
                 .fixedSize(horizontal: false, vertical: true)
 
             if let detail = model.content.detail {
                 Text(detail)
-                    .font(.system(size: 11))
+                    .font(Font(BubbleMetrics.detailFont))
                     .foregroundStyle(Color.black.opacity(0.5))
                     .lineLimit(2)
+                    .truncationMode(.tail)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(.horizontal, 11)
+        .padding(.horizontal, BubbleMetrics.horizontalPadding)
         .padding(.vertical, 8)
-        .frame(minWidth: 120, maxWidth: BubbleMetrics.maxWidth - BubbleMetrics.outerPadding * 2,
-               alignment: .leading)
+        // 너비를 고정 → 높이는 그 너비 기준으로 계산되어 창 크기와 내용이 항상 일치
+        .frame(width: model.width, alignment: .leading)
         .padding(.top, model.tailOnTop ? BubbleMetrics.tailHeight : 0)
         .padding(.bottom, model.tailOnTop ? 0 : BubbleMetrics.tailHeight)
         .background(
@@ -95,7 +126,7 @@ struct BubbleView: View {
                 .shadow(color: .black.opacity(0.18), radius: 4, y: 2)
         )
         .padding(BubbleMetrics.outerPadding)
-        .fixedSize()
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 
