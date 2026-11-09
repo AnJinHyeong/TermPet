@@ -13,7 +13,7 @@ enum LoadedCharacter {
     var id: String {
         switch self {
         case .builtIn(let style): return style.id
-        case .sprite(let s): return CharacterLibrary.packEntryId(s.pack.id)
+        case .sprite: return CharacterLibrary.customId
         }
     }
 

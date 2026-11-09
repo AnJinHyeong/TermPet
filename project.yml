@@ -5,6 +5,7 @@ name: TermPet
 
 options:
   bundleIdPrefix: com.termpet
+  developmentLanguage: ko
   deploymentTarget:
     macOS: "14.0"
   createIntermediateGroups: true
@@ -27,10 +28,17 @@ targets:
         buildPhase: resources
       - path: Scripts/zsh-integration.zsh
         buildPhase: resources
+      # 앱 아이콘·메뉴바 아이콘(Assets.xcassets, Scripts/make-icons.swift로 생성) + 한국어 앱 이름(InfoPlist.strings)
+      - path: Resources
     info:
       path: Sources/App/Info.plist
       properties:
+        # 기본 이름은 파일 이름(TermPet.app)과 같아야 macOS가 "이름이 바뀌지 않은 앱"으로 보고
+        # 언어별 이름(Resources/*.lproj/InfoPlist.strings의 "텀펫")을 Finder·Spotlight에 보여준다.
         CFBundleDisplayName: TermPet
+        CFBundleName: TermPet
+        CFBundleDevelopmentRegion: ko
+        LSHasLocalizedDisplayName: true
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSMinimumSystemVersion: "14.0"
@@ -47,6 +55,7 @@ targets:
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_IDENTITY: "-"     # 개인 사용: ad-hoc 서명
         GENERATE_INFOPLIST_FILE: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_USER_SCRIPT_SANDBOXING: YES
     scheme:
       testTargets:

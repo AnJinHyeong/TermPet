@@ -343,7 +343,7 @@ final class PetController: NSObject {
 
         menu.addItem(.separator())
 
-        let quit = NSMenuItem(title: "TermPet 종료", action: #selector(menuQuit), keyEquivalent: "")
+        let quit = NSMenuItem(title: "텀펫 종료", action: #selector(menuQuit), keyEquivalent: "")
         quit.target = self
         menu.addItem(quit)
 

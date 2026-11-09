@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import Observation
 
 /// 앱 전역 상태 (메뉴바 표시용). `@Observable` ≈ Zustand 스토어.
@@ -49,7 +50,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         petController.start()
         paths.installBundledScripts()
         startServer()
+        #if DEBUG
+        // 개발용: 메뉴바 패널을 일반 창으로 띄워 스크린샷 확인 (`TermPet --preview-panel`)
+        if CommandLine.arguments.contains("--preview-panel") { showPanelPreview() }
+        #endif
     }
+
+    #if DEBUG
+    private var previewWindow: NSWindow?
+    private func showPanelPreview() {
+        let effect = NSVisualEffectView()
+        effect.material = .popover
+        effect.state = .active
+        let host = NSHostingView(rootView: MenuPanelView(app: self))
+        host.translatesAutoresizingMaskIntoConstraints = false
+        effect.addSubview(host)
+        NSLayoutConstraint.activate([
+            host.leadingAnchor.constraint(equalTo: effect.leadingAnchor),
+            host.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
+            host.topAnchor.constraint(equalTo: effect.topAnchor),
+            host.bottomAnchor.constraint(equalTo: effect.bottomAnchor),
+        ])
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: host.fittingSize),
+                              styleMask: [.titled, .fullSizeContentView], backing: .buffered, defer: false)
+        window.titlebarAppearsTransparent = true
+        window.title = "panel-preview"
+        window.contentView = effect
+        window.center()
+        window.orderFrontRegardless()
+        previewWindow = window
+    }
+    #endif
 
     func applicationWillTerminate(_ notification: Notification) {
         server?.stop()
@@ -63,77 +94,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// 폴더 선택 창 → 검증 → 캐릭터 폴더로 복사 → 바로 적용
-    func importCharacterPack() {
+    /// 이미지 선택 → 배경 제거 + 움직임 생성 → "내 캐릭터"로 교체하고 바로 적용 (캐릭터는 하나만 보관)
+    func makeCharacterFromImage() {
         NSApp.activate() // 메뉴바 앱은 비활성 상태라 먼저 앞으로 가져와야 창이 보인다
         let panel = NSOpenPanel()
-        panel.title = "캐릭터 팩 폴더 선택 (character.json이 들어 있는 폴더)"
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        guard panel.runModal() == .OK, let folder = panel.url else { return }
-        do {
-            let id = try characters.importPack(from: folder)
-            selectCharacter(id)
-        } catch {
-            showAlert("캐릭터 팩을 가져오지 못했어요", "\(error)\n\n형식은 docs/CHARACTER_PACK.md 를 참고하세요.")
-        }
-    }
-
-    /// 이미지 선택 → 이름/방향 입력 → 배경 제거 + 움직임 생성 → 바로 적용
-    func makeCharacterFromImage() {
-        NSApp.activate()
-        let panel = NSOpenPanel()
         panel.title = "캐릭터로 만들 그림 선택"
+        panel.message = "배경은 자동으로 지워져요. 지금 있는 내 캐릭터는 새 캐릭터로 바뀌어요."
+        panel.prompt = "캐릭터 만들기"
         panel.allowedContentTypes = [.image]
         panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
-        // 이름 + 바라보는 방향 입력 (NSAlert에 입력 칸을 붙이는 간단한 폼)
-        let alert = NSAlert()
-        alert.messageText = "이미지로 캐릭터 만들기"
-        alert.informativeText = "배경을 자동으로 지우고 상태별 움직임을 입힙니다.\n그림 속 캐릭터가 바라보는 방향을 골라 주세요."
-        let nameField = NSTextField(string: url.deletingPathExtension().lastPathComponent)
-        nameField.placeholderString = "캐릭터 이름"
-        let facingPopup = NSPopUpButton()
-        facingPopup.addItems(withTitles: ImageCharacterMaker.Facing.allCases.map(\.title))
-        let stack = NSStackView(views: [nameField, facingPopup])
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.frame = NSRect(x: 0, y: 0, width: 260, height: 56)
-        nameField.frame.size.width = 260
-        alert.accessoryView = stack
-        alert.addButton(withTitle: "만들기")
-        alert.addButton(withTitle: "취소")
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-
-        let name = nameField.stringValue.trimmingCharacters(in: .whitespaces)
-        let facing = ImageCharacterMaker.Facing.allCases[max(0, facingPopup.indexOfSelectedItem)]
+        let staging = characters.directory.appendingPathComponent(".staging", isDirectory: true)
         do {
-            let result = try ImageCharacterMaker.make(from: url, name: name.isEmpty ? "내 캐릭터" : name,
-                                                      facing: facing, into: characters.directory)
-            characters.reload()
-            selectCharacter(CharacterLibrary.packEntryId(result.packId))
+            try? FileManager.default.removeItem(at: staging)
+            let result = try ImageCharacterMaker.make(from: url, name: "내 캐릭터", facing: .right, into: staging)
+            try characters.installCustom(from: result.folder)
+            try? FileManager.default.removeItem(at: staging)
+            selectCharacter(CharacterLibrary.customId)
         } catch {
-            showAlert("캐릭터를 만들지 못했어요", "\(error)")
+            try? FileManager.default.removeItem(at: staging)
+            showAlert("캐릭터를 만들지 못했어요", "\(error)\n\n배경이 단순한 그림(흰 배경, 투명 PNG 등)일수록 잘 돼요.")
         }
     }
 
-    func openCharacterFolder() {
-        try? FileManager.default.createDirectory(at: characters.directory, withIntermediateDirectories: true)
-        NSWorkspace.shared.open(characters.directory)
+    /// 내 캐릭터가 뒤로 걷는 것처럼 보이면 방향 뒤집기
+    func flipCustomCharacter() {
+        do {
+            try characters.flipCustomFacing()
+            if characters.selectedId == CharacterLibrary.customId { selectCharacter(CharacterLibrary.customId) }
+        } catch {
+            showAlert("방향을 바꾸지 못했어요", "\(error)")
+        }
     }
 
-    /// 현재(또는 기본) 도형 캐릭터를 스프라이트 팩으로 내보내 목록에 추가하고 폴더를 연다
-    func exportSamplePack() {
-        let style: BuiltInStyle
-        if case .builtIn(let current) = petController.model.character { style = current } else { style = .mallang }
+    func removeCustomCharacter() {
         do {
-            let folder = try CharacterPackExporter.export(style, to: characters.directory)
-            characters.reload()
-            NSWorkspace.shared.activateFileViewerSelecting([folder])
+            try characters.removeCustom()
+            selectCharacter(characters.selectedId)
         } catch {
-            showAlert("샘플 팩을 만들지 못했어요", "\(error)")
+            showAlert("캐릭터를 지우지 못했어요", "\(error)")
         }
     }
 

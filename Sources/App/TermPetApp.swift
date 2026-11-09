@@ -10,87 +10,14 @@ struct TermPetApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
-        // MenuBarExtra: 메뉴바(화면 우상단)에 아이콘 + 드롭다운 메뉴를 만든다.
+        // MenuBarExtra: 메뉴바(화면 우상단)에 아이콘 + 패널을 만든다.
+        // `.window` 스타일 = 일반 메뉴 대신 SwiftUI 화면을 그대로 띄우는 팝오버 패널.
         // LSUIElement=YES 이므로 Dock 아이콘 없이 이것만 보인다.
-        MenuBarExtra("TermPet", systemImage: "pawprint.fill") {
-            MenuBarContent(app: appDelegate)
+        MenuBarExtra {
+            MenuPanelView(app: appDelegate)
+        } label: {
+            Image("MenuBarIcon") // 템플릿 이미지 → 메뉴바 밝기(라이트/다크)에 맞춰 자동으로 색이 바뀜
         }
-    }
-}
-
-/// 메뉴바 드롭다운 내용. Phase 3에서 확장 예정.
-struct MenuBarContent: View {
-    let app: AppDelegate
-    private var pet: PetController { app.petController }
-    private var appState: AppState { app.appState }
-    private var characters: CharacterLibrary { app.characters }
-
-    var body: some View {
-        Text("TermPet \(AppInfo.version)")
-        Text(appState.serverStatusText)
-        Divider()
-
-        // pet.model은 @Observable이라 값이 바뀌면 메뉴 라벨도 자동 갱신된다
-        Button(pet.model.isVisible ? "캐릭터 숨기기" : "캐릭터 보이기") {
-            pet.setVisible(!pet.model.isVisible)
-        }
-        Button(pet.model.action == .sleep ? "깨우기" : "재우기") {
-            pet.toggleSleep()
-        }
-
-        // 메뉴 안의 Picker는 체크 표시가 붙는 하위 메뉴로 렌더링된다.
-        // Binding(get:set:) ≈ React의 제어 컴포넌트 (value + onChange)
-        Picker("표시 위치", selection: Binding(
-            get: { pet.model.layer },
-            set: { pet.setLayer($0) }
-        )) {
-            ForEach(PetWindowLayer.allCases) { layer in
-                Text(layer.title).tag(layer)
-            }
-        }
-
-        Menu("캐릭터") {
-            Picker("캐릭터 선택", selection: Binding(
-                get: { characters.selectedId },
-                set: { app.selectCharacter($0) }
-            )) {
-                ForEach(characters.entries) { entry in
-                    Text(entry.name).tag(entry.id)
-                }
-            }
-            .pickerStyle(.inline)
-            Divider()
-            Button("이미지로 캐릭터 만들기…") { app.makeCharacterFromImage() }
-            Button("캐릭터 팩 가져오기…") { app.importCharacterPack() }
-            Button("캐릭터 폴더 열기") { app.openCharacterFolder() }
-            Button("목록 새로고침") { characters.reload() }
-            Button("샘플 스프라이트 팩 만들기") { app.exportSamplePack() }
-            if !characters.problems.isEmpty {
-                Divider()
-                Text("읽지 못한 팩:")
-                ForEach(characters.problems, id: \.self) { Text($0) }
-            }
-        }
-
-        #if DEBUG
-        // 개발용: 상태별 모션 확인 (Release 빌드에는 포함되지 않음)
-        Menu("디버그") {
-            Button("신남 (happy)") { pet.react(.happy) }
-            Button("화남 (angry)") { pet.react(.angry) }
-            Button("확인 요청 (ask)") { pet.react(.ask) }
-            Button("말하기 (talk)") { pet.react(.talk) }
-            Button("위에서 떨어뜨리기") { pet.dropFromTop() }
-            Divider()
-            Button("테스트 알림: 완료 (Cursor로 이동)") { pet.receive(.debugSample(.done)) }
-            Button("테스트 알림: 에러") { pet.receive(.debugSample(.error)) }
-            Button("테스트 알림: 확인 요청") { pet.receive(.debugSample(.ask)) }
-        }
-        #endif
-
-        Divider()
-        Button("종료") {
-            NSApplication.shared.terminate(nil)
-        }
-        .keyboardShortcut("q")
+        .menuBarExtraStyle(.window)
     }
 }

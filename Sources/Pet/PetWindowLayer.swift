@@ -23,6 +23,24 @@ enum PetWindowLayer: String, CaseIterable, Identifiable {
         }
     }
 
+    /// 메뉴 패널 타일용 짧은 이름
+    var shortTitle: String {
+        switch self {
+        case .aboveApps: return "항상 위"
+        case .desktop: return "바탕화면"
+        case .desktopPopUp: return "알림 때만 위"
+        }
+    }
+
+    /// SF Symbol 이름 (Apple 기본 아이콘 세트 — 웹의 아이콘 폰트 같은 것)
+    var symbol: String {
+        switch self {
+        case .aboveApps: return "macwindow.on.rectangle"
+        case .desktop: return "menubar.dock.rectangle"
+        case .desktopPopUp: return "bell.badge.fill"
+        }
+    }
+
     var windowLevel: NSWindow.Level {
         switch self {
         case .aboveApps:
