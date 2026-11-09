@@ -12,7 +12,7 @@ struct MenuPanelView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header.zIndex(1) // 헤더 안내 말풍선이 아래 내용 위에 그려지도록
+            header
             todayLine
             PanelDivider()
 
@@ -53,12 +53,12 @@ struct MenuPanelView: View {
             ChipRow {
                 let quiet = pet.quiet
                 Chip(symbol: "moon.zzz.fill", title: "1시간 조용히", on: quiet.manualOn) { quiet.toggleManual() }
-                    .hint("1시간 동안 알림을 모아뒀다 보여줘요", .topLeading)
+                    .hint("1시간 동안 알림을 모아뒀다 보여줘요")
                 Chip(symbol: "video.fill", title: "회의 중 조용히", on: quiet.duringMeetings) { quiet.duringMeetings.toggle() }
                     .hint("마이크 사용 중(회의)엔 알림을 모아둬요")
                 Chip(symbol: quiet.soundOnAsk ? "speaker.wave.2.fill" : "speaker.slash.fill", title: "권한 소리",
                      on: quiet.soundOnAsk) { quiet.soundOnAsk.toggle() }
-                    .hint("Claude가 권한을 물으면 소리로 알려줘요", .topTrailing)
+                    .hint("Claude가 권한을 물으면 소리로 알려줘요")
             }
             if pet.quiet.isQuiet {
                 Text(pet.quiet.manualOn ? "조용한 시간 · 알림은 펫 머리 위 !에 모여요"
@@ -103,6 +103,8 @@ struct MenuPanelView: View {
         }
         .frame(width: 300)
         .padding(.top, 2)
+        // 아이콘 안내 말풍선은 맨 위층에 (다른 영역에 가려지지 않게)
+        .overlayPreferenceValue(HintPreference.self) { HintLayer(info: $0) }
         .onAppear {
             app.integrations.refresh() // 터미널에서 직접 고쳤을 수도 있으니 열 때마다 다시 확인
             launchAtLogin = LoginItem.isEnabled
@@ -163,7 +165,7 @@ struct MenuPanelView: View {
                     .menuStyle(.borderlessButton)
                     .menuIndicator(.hidden)
                     .frame(width: 24, height: 22)
-                    .hint("동작별 그림 (여러 장 = 애니메이션)", .topTrailing)
+                    .hint("동작별 그림 (여러 장 = 애니메이션)")
                     IconButton(symbol: "arrow.left.and.right", help: "방향 바꾸기") { app.flipCustomCharacter() }
                     IconButton(symbol: "trash", help: "내 캐릭터 지우기") { app.removeCustomCharacter() }
                 }
@@ -181,8 +183,8 @@ struct MenuPanelView: View {
                 Text(line).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                 Spacer()
                 switch pet.model.mood {
-                case .cheerful: Text("✨ 신남").font(.system(size: 11)).hint("최근 계속 성공했어요", .topTrailing)
-                case .gloomy: Text("🌧 시무룩").font(.system(size: 11)).hint("최근 에러가 많았어요", .topTrailing)
+                case .cheerful: Text("✨ 신남").font(.system(size: 11)).hint("최근 계속 성공했어요")
+                case .gloomy: Text("🌧 시무룩").font(.system(size: 11)).hint("최근 에러가 많았어요")
                 case .normal: EmptyView()
                 }
             }
@@ -218,7 +220,7 @@ struct MenuPanelView: View {
                 .toggleStyle(.switch)
                 .tint(Color.accent)
                 .labelsHidden()
-                .hint(pet.model.isVisible ? "펫 숨기기" : "펫 보이기", .bottomTrailing)
+                .hint(pet.model.isVisible ? "펫 숨기기" : "펫 보이기")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
@@ -381,7 +383,7 @@ private struct IntegrationRow: View {
                 Image(systemName: symbol).font(.system(size: 11, weight: .semibold)).foregroundStyle(.white)
             }
             .frame(width: 24, height: 24)
-            .hint("\(kind.subtitle) 알림", .topLeading)
+            .hint("\(kind.subtitle) 알림")
             Text(kind.title).font(.system(size: 13, weight: .medium))
             Spacer()
             if !available {
@@ -398,7 +400,7 @@ private struct IntegrationRow: View {
                     .background(Capsule().fill(filled ? Color.accent : Color.accent.opacity(0.18)))
                 }
                 .buttonStyle(.plain)
-                .hint(help, .topTrailing)
+                .hint(help)
             }
         }
         .padding(.horizontal, 8)
@@ -481,7 +483,7 @@ private struct IconButton: View {
                 .modifier(HoverBackground(selected: false))
         }
         .buttonStyle(.plain)
-        .hint(help, .topTrailing)
+        .hint(help)
     }
 }
 
@@ -507,7 +509,7 @@ private struct SessionRow: View {
                 Spacer()
                 Image(systemName: "arrow.up.forward.app")
                     .font(.system(size: 11)).foregroundStyle(.tertiary)
-                    .hint("이 프로젝트 창으로 이동", .topTrailing)
+                    .hint("이 프로젝트 창으로 이동")
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
@@ -553,11 +555,23 @@ private struct SessionRow: View {
 // MARK: - 마우스 올리면 뜨는 안내
 
 /// 메뉴바 패널은 앱이 활성 상태가 아니라 macOS 기본 툴팁(.help)이 잘 안 뜬다 → 직접 그리는 작은 안내 말풍선.
-/// CSS로 치면 `:hover` 때 `position:absolute`로 뜨는 tooltip. 0.3초 머물러야 떠서 스쳐 지나갈 땐 안 보인다.
+/// 각 아이콘은 "지금 안내를 띄워줘(문구 + 내 위치)"만 위로 알리고, 실제 그리기는 패널 맨 위층(HintLayer)에서 한다.
+/// 그래야 다른 영역 밑에 깔리지 않는다. React 비유: 툴팁을 portal로 body 맨 위에 렌더링하는 것.
+/// PreferenceKey ≈ 자식 → 부모로 값을 올려보내는 Context의 반대 방향 통로.
+private struct HintInfo {
+    let text: String
+    let anchor: Anchor<CGRect>   // 아이콘의 위치 (부모 좌표로 변환 가능한 핸들)
+}
+
+private struct HintPreference: PreferenceKey {
+    static var defaultValue: HintInfo? = nil
+    static func reduce(value: inout HintInfo?, nextValue: () -> HintInfo?) {
+        value = value ?? nextValue()
+    }
+}
+
 private struct HoverHint: ViewModifier {
     let text: String
-    /// 말풍선 위치: .top(위 가운데) / .topLeading(왼쪽 정렬) / .topTrailing / .bottomTrailing 등 — 패널 가장자리에서 잘리지 않게
-    let placement: Alignment
     @State private var hovering = false
     @State private var visible = false
 
@@ -566,35 +580,44 @@ private struct HoverHint: ViewModifier {
             .onHover { inside in
                 hovering = inside
                 if inside {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { if hovering { withAnimation(.easeOut(duration: 0.12)) { visible = true } } }
+                    // 0.3초 머물러야 뜬다 (스쳐 지나갈 땐 안 보임)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { if hovering { visible = true } }
                 } else {
                     visible = false
                 }
             }
-            .overlay(alignment: placement) {
-                if visible {
-                    Text(text)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 4)
-                        .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.black.opacity(0.82)))
-                        .fixedSize()
-                        .offset(y: isBelow ? 28 : -28)
-                        .allowsHitTesting(false)
-                        .transition(.opacity)
-                }
-            }
-            .zIndex(visible ? 10 : 0) // 옆 칸들보다 위에 그리기
+            .anchorPreference(key: HintPreference.self, value: .bounds) { visible ? HintInfo(text: text, anchor: $0) : nil }
     }
+}
 
-    private var isBelow: Bool {
-        placement == .bottom || placement == .bottomLeading || placement == .bottomTrailing
+/// 패널 맨 위층에 안내 말풍선을 그린다: 아이콘 위(공간이 없으면 아래), 패널 밖으로 안 나가게 좌우를 맞춤
+private struct HintLayer: View {
+    let info: HintInfo?
+
+    var body: some View {
+        GeometryReader { proxy in
+            if let info {
+                let rect = proxy[info.anchor]
+                let width = BubbleMetrics.textWidth(info.text, .systemFont(ofSize: 11, weight: .medium)).rounded(.up) + 16
+                let height: CGFloat = 22
+                let x = min(max(rect.midX, width / 2 + 6), proxy.size.width - width / 2 - 6)
+                let aboveY = rect.minY - 6 - height / 2
+                let y = aboveY - height / 2 < 2 ? rect.maxY + 6 + height / 2 : aboveY
+                Text(info.text)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .frame(width: width, height: height)
+                    .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.black.opacity(0.85)))
+                    .position(x: x, y: y)
+                    .allowsHitTesting(false)
+            }
+        }
     }
 }
 
 private extension View {
-    func hint(_ text: String, _ placement: Alignment = .top) -> some View {
-        modifier(HoverHint(text: text, placement: placement))
+    func hint(_ text: String) -> some View {
+        modifier(HoverHint(text: text))
     }
 }
