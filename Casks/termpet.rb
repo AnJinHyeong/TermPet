@@ -1,5 +1,6 @@
 # Homebrew cask (이 저장소 자체가 tap)
 #   brew tap anjinhyeong/termpet https://github.com/AnJinHyeong/TermPet
+#   brew trust anjinhyeong/termpet
 #   brew install --cask termpet
 # version / sha256 은 Scripts/release.sh 가 자동으로 갱신한다.
 cask "termpet" do

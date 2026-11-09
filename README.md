@@ -26,7 +26,9 @@
 
 ```bash
 brew tap anjinhyeong/termpet https://github.com/AnJinHyeong/TermPet
+brew trust anjinhyeong/termpet          # 처음 한 번: 공식 저장소가 아닌 tap 허용
 brew install --cask termpet
+open /Applications/TermPet.app
 ```
 
 - 업데이트: `brew upgrade --cask termpet`
