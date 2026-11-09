@@ -1,3 +1,4 @@
+import SwiftUI
 import XCTest
 @testable import TermPet
 
@@ -211,6 +212,29 @@ final class BubbleWindowSizingTests: XCTestCase {
             XCTAssertEqual(host.frame, root.bounds, "host must exactly fill the window")
             XCTAssertEqual(window.frame.width, bubble.model.width + BubbleMetrics.outerPadding * 2)
             XCTAssertLessThanOrEqual(bubble.model.width, BubbleMetrics.maxBodyWidth)
+        }
+    }
+
+    /// 회귀 테스트: 내용이 바뀐 직후 창 높이가 "새 내용"의 실제 높이와 같아야 한다
+    /// (예전 버그: 이전 내용 기준 높이로 창을 맞춰서 2줄 문장일 때 말풍선 위/아래가 잘림)
+    func testWindowHeightMatchesNewContentImmediately() throws {
+        let bubble = BubbleController()
+        bubble.follow(petFrame: CGRect(x: 400, y: 100, width: 80, height: 80))
+        defer { bubble.clearAll() }
+
+        let events = [
+            PetEvent(source: .shell, kind: .error, message: "짧음", cwd: "/a/fitin"),
+            PetEvent(source: .claude, kind: .done, message: "긴 메시지 " + String(repeating: "줄바꿈 확인 ", count: 12),
+                     detail: String(repeating: "상세 설명 ", count: 15), cwd: "/a/TermPet"),
+            PetEvent(source: .shell, kind: .done, message: "다시 짧음", cwd: "/a/b"),
+        ]
+        for event in events {
+            bubble.enqueue(event)
+            while bubble.queue.current?.event.id != event.id { bubble.dismissCurrent() }
+            bubble.show()
+            let window = try XCTUnwrap(bubble.windowForTesting)
+            let expected = NSHostingView(rootView: BubbleView(model: bubble.model)).fittingSize.height.rounded(.up)
+            XCTAssertEqual(window.frame.height, expected, "\(event.message ?? "")")
         }
     }
 }

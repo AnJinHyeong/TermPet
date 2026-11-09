@@ -142,19 +142,28 @@ final class BubbleController {
     }
 
     private func resize() {
-        guard let window, let host else { return }
+        guard let window else { return }
         // 너비는 확정값(뷰에 frame(width:)로 고정돼 있어 fittingSize도 이 너비), 높이만 SwiftUI에 물어본다
         let width = model.width + BubbleMetrics.outerPadding * 2
-        let size = CGSize(width: width, height: host.fittingSize.height.rounded(.up))
+        let size = CGSize(width: width, height: Self.measureHeight(of: model))
         if window.frame.size != size {
             window.setContentSize(size)
         }
         // host 크기는 직접 건드리지 않고 항상 창 내용 영역에 정확히 맞춘다.
         // (주의: host.frame을 먼저 바꾼 뒤 창을 키우면 autoresizing이 차이만큼 또 더해서
         //  host가 창보다 넓어지고 내용이 밀려 잘린다 — 실제로 겪은 버그)
-        if let root = window.contentView, host.frame != root.bounds {
+        if let host, let root = window.contentView, host.frame != root.bounds {
             host.frame = root.bounds
         }
+    }
+
+    /// 새 내용의 실제 높이를 측정한다.
+    /// 화면에 붙어 있는 host에게 물어보면 SwiftUI가 아직 새 내용으로 다시 그리기 전이라 **이전 내용 기준 높이**가
+    /// 나올 때가 있다 (짧은 알림 다음 긴 알림 → 창이 낮아서 말풍선 위가 잘림 — 실제로 겪은 버그).
+    /// 그래서 모델 복사본으로 임시 뷰를 만들어 잰다. (React 비유: 화면 밖에서 렌더링해 높이만 재는 measure 패턴)
+    static func measureHeight(of model: BubbleViewModel) -> CGFloat {
+        let probe = NSHostingView(rootView: BubbleView(model: model.snapshot()))
+        return probe.fittingSize.height.rounded(.up)
     }
 
     private func reposition() {

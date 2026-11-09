@@ -11,6 +11,14 @@ final class BubbleViewModel {
     var tailOnTop = false
     /// 말풍선 몸통 너비 (BubbleMetrics.bodyWidth로 계산해 고정)
     var width: CGFloat = 160
+
+    /// 같은 값을 가진 독립 복사본 (높이 측정용)
+    func snapshot() -> BubbleViewModel {
+        let copy = BubbleViewModel()
+        copy.content = content; copy.kind = kind; copy.badge = badge
+        copy.tailX = tailX; copy.tailOnTop = tailOnTop; copy.width = width
+        return copy
+    }
 }
 
 /// 말풍선 레이아웃 상수 (클릭 영역 계산에서도 같이 씀)
