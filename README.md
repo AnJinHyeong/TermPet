@@ -54,7 +54,7 @@ macOS 14 이상
 ```bash
 Scripts/run.sh          # 빌드 + 실행
 Scripts/install.sh      # /Applications 에 설치
-Scripts/release.sh 1.0.0
+Scripts/release.sh <버전>   # GitHub Release + Homebrew 갱신
 ```
 
 ## 라이선스
