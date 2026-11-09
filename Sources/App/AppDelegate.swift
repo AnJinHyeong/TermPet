@@ -166,11 +166,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// 패널의 AI 연결 버튼: 설정 파일 백업 → 텀펫 항목 추가/삭제
-    func toggleIntegration(_ kind: IntegrationManager.Kind) {
+    /// remove: 스위치를 끈 경우 (업데이트가 필요한 상태여도 해제)
+    func toggleIntegration(_ kind: IntegrationManager.Kind, remove: Bool = false) {
         let wasOn = integrations.installed[kind] == true
-        let updating = integrations.needsUpdate[kind] == true
+        let updating = integrations.needsUpdate[kind] == true && !remove
         do {
-            try integrations.toggle(kind)
+            try integrations.toggle(kind, remove: remove)
             if kind == .zsh && !wasOn {
                 showAlert("터미널 명령 알림을 연결했어요", "새로 여는 터미널부터 적용돼요.")
             } else if kind == .claude && (updating || !wasOn) {

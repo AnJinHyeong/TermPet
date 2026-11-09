@@ -42,8 +42,9 @@ struct MenuPanelView: View {
                     IntegrationRow(kind: kind,
                                    installed: app.integrations.installed[kind] == true,
                                    needsUpdate: app.integrations.needsUpdate[kind] == true,
-                                   available: app.integrations.isAvailable(kind)) {
-                        app.toggleIntegration(kind)
+                                   available: app.integrations.isAvailable(kind),
+                                   onUpdate: { app.toggleIntegration(kind) }) { on in
+                        app.toggleIntegration(kind, remove: !on)
                     }
                 }
             }
@@ -325,6 +326,8 @@ private struct HoverBackground: ViewModifier {
 private extension Color {
     /// 강조색: 앱 아이콘 말랑이의 주황빛 (상단 스위치와 같은 색)
     static let accent = Color(red: 0.98, green: 0.65, blue: 0.30)
+    /// 버튼 바탕용 진한 주황 (흰 글씨가 잘 읽히도록)
+    static let accentStrong = Color(red: 0.93, green: 0.50, blue: 0.16)
 }
 
 /// 목록 왼쪽의 둥근 사각 아이콘 (기본 캐릭터는 코드로 그리고, 내 캐릭터는 원본 그림)
@@ -374,7 +377,9 @@ private struct IntegrationRow: View {
     let installed: Bool
     var needsUpdate = false
     let available: Bool
-    let action: () -> Void
+    let onUpdate: () -> Void
+    /// 스위치를 켜거나 끔 (true = 연결)
+    let onToggle: (Bool) -> Void
 
     var body: some View {
         HStack(spacing: 10) {
@@ -389,32 +394,28 @@ private struct IntegrationRow: View {
             if !available {
                 Text("설치 안 됨").font(.system(size: 11)).foregroundStyle(.secondary)
             } else {
-                Button(action: action) {
-                    let content = HStack(spacing: 3) {
-                        if installed && !needsUpdate { Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)) }
-                        Text(label).font(.system(size: 11, weight: .semibold))
+                if needsUpdate {
+                    Button(action: onUpdate) {
+                        Text("업데이트").font(.system(size: 11, weight: .semibold))
+                            .padding(.horizontal, 8)
+                            .frame(height: 22)
+                            .modifier(PrimarySurface())
                     }
-                    .frame(minWidth: 52)
-                    .padding(.horizontal, 8)
-                    .frame(height: 24)
-                    // 해야 할 동작(연결/업데이트)은 진한 주황, 이미 켜진 상태(연결됨)는 다른 "켜짐" 버튼과 같은 모양
-                    if filled { content.modifier(PrimarySurface()) } else { content.modifier(ControlSurface(on: true, radius: 7)) }
+                    .buttonStyle(.plain)
+                    .hint("작업 중 표시용 항목 추가 (백업 후)")
                 }
-                .buttonStyle(.plain)
-                .hint(help)
+                // 켜짐/꺼짐이 한눈에 보이는 스위치 (macOS 설정 앱과 같은 방식, 상단 스위치와 같은 색)
+                Toggle("", isOn: Binding(get: { installed }, set: { onToggle($0) }))
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .tint(Color.accent)
+                    .labelsHidden()
+                    .hint(installed ? "끄면 연결 해제 (설정 파일 백업 후)" : "켜면 연결 (설정 파일 백업 후)")
             }
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, 4)
+        .padding(.vertical, 3)
         .opacity(available ? 1 : 0.5)
-
-    }
-
-    private var filled: Bool { !installed || needsUpdate }
-    private var label: String { needsUpdate ? "업데이트" : installed ? "연결됨" : "연결" }
-    private var help: String {
-        if needsUpdate { return "작업 중 표시용 항목 추가 (백업 후)" }
-        return installed ? "누르면 연결 해제 (백업 후)" : "설정 파일 백업 후 연결"
     }
 
     private var symbol: String {
@@ -444,7 +445,7 @@ private struct ChipRow<Content: View>: View {
 
 /// 패널의 모든 버튼이 쓰는 공통 모양 (CSS로 치면 .btn / .btn.is-on 클래스)
 /// - 기본: 회색 둥근 사각, 마우스 올리면 살짝 진하게
-/// - 켜짐/선택: 연한 주황 + 주황 테두리 + 주황 글씨
+/// - 켜짐/선택: 진한 주황 + 흰 글씨 (상단 스위치처럼 한눈에 보이게)
 private struct ControlSurface: ViewModifier {
     var on = false
     var radius: CGFloat = 8
@@ -452,11 +453,11 @@ private struct ControlSurface: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .foregroundStyle(on ? Color.accent : Color.primary.opacity(0.8))
+            .foregroundStyle(on ? Color.white : Color.primary.opacity(0.8))
             .background(RoundedRectangle(cornerRadius: radius, style: .continuous)
-                .fill(on ? Color.accent.opacity(0.18) : Color.primary.opacity(hovering ? 0.11 : 0.06)))
-            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous)
-                .strokeBorder(on ? Color.accent.opacity(0.85) : .clear, lineWidth: 1.5))
+                .fill(on ? Color.accentStrong.opacity(hovering ? 0.88 : 1)
+                         : Color.primary.opacity(hovering ? 0.11 : 0.06)))
+            .shadow(color: on ? Color.accentStrong.opacity(0.35) : .clear, radius: 2, y: 1)
             .contentShape(Rectangle())
             .onHover { hovering = $0 }
     }
@@ -469,7 +470,7 @@ private struct PrimarySurface: ViewModifier {
         content
             .foregroundStyle(.white)
             .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(Color.accent.opacity(hovering ? 0.85 : 1)))
+                .fill(Color.accentStrong.opacity(hovering ? 0.85 : 1)))
             .contentShape(Rectangle())
             .onHover { hovering = $0 }
     }

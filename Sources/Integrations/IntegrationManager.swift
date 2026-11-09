@@ -71,11 +71,12 @@ final class IntegrationManager {
 
     /// 연결 ↔ 해제 (업데이트가 필요하면 해제 대신 빠진 항목만 추가). 성공하면 백업 파일 경로를 돌려준다.
     @discardableResult
-    func toggle(_ kind: Kind) throws -> URL? {
+    func toggle(_ kind: Kind, remove: Bool = false) throws -> URL? {
         let url = file(for: kind).resolvingSymlinksInPath() // dotfiles 심볼릭 링크면 실제 파일을 고친다
         let original = try? Data(contentsOf: url)
         let text = original.flatMap { String(data: $0, encoding: .utf8) }
-        let on = installed[kind] == true && needsUpdate[kind] != true
+        // remove: 업데이트가 필요한 상태에서도 스위치를 끄면 해제
+        let on = installed[kind] == true && (remove || needsUpdate[kind] != true)
 
         let updated: Data
         switch kind {
