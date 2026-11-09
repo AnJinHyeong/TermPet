@@ -88,7 +88,7 @@ struct MenuPanelView: View {
             // Toggle ≈ <input type="checkbox">, isOn은 제어 컴포넌트처럼 Binding으로 연결
             Toggle("", isOn: Binding(get: { pet.model.isVisible }, set: { pet.setVisible($0) }))
                 .toggleStyle(.switch)
-                .tint(Color(red: 0.30, green: 0.72, blue: 0.70))
+                .tint(Color.accent)
                 .labelsHidden()
                 .help(pet.model.isVisible ? "펫 숨기기" : "펫 보이기")
         }
@@ -172,8 +172,13 @@ private struct HoverBackground: ViewModifier {
         content
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(selected ? Color.accentTeal.opacity(0.18)
+                    .fill(selected ? Color.accent.opacity(0.22)
                           : hovering ? Color.primary.opacity(0.07) : .clear)
+            )
+            // 선택된 항목은 주황 테두리까지 둘러서 한눈에 보이게
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(selected ? Color.accent : .clear, lineWidth: 2)
             )
             .contentShape(Rectangle())
             .onHover { hovering = $0 }
@@ -181,7 +186,8 @@ private struct HoverBackground: ViewModifier {
 }
 
 private extension Color {
-    static let accentTeal = Color(red: 0.30, green: 0.72, blue: 0.70)
+    /// 강조색: 앱 아이콘 말랑이의 주황빛 (상단 스위치와 같은 색)
+    static let accent = Color(red: 0.98, green: 0.65, blue: 0.30)
 }
 
 private struct CharacterRow: View {
@@ -199,9 +205,9 @@ private struct CharacterRow: View {
                 }
                 Spacer()
                 if selected {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(Color.accentTeal)
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundStyle(.white, Color.accent)
                 }
             }
             .padding(.horizontal, 8)
@@ -275,8 +281,8 @@ private struct AddCharacterRow: View {
             HStack(spacing: 12) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .strokeBorder(Color.accentTeal.opacity(0.7), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
-                    Image(systemName: "plus").font(.system(size: 15, weight: .bold)).foregroundStyle(Color.accentTeal)
+                        .strokeBorder(Color.accent.opacity(0.7), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                    Image(systemName: "plus").font(.system(size: 15, weight: .bold)).foregroundStyle(Color.accent)
                 }
                 .frame(width: 38, height: 38)
                 VStack(alignment: .leading, spacing: 1) {
@@ -354,7 +360,7 @@ private struct Tile: View {
                 }
                 .frame(width: 36, height: 36)
                 .shadow(color: color.opacity(0.3), radius: 2, y: 1)
-                Text(title).font(.system(size: 12, weight: .medium)).lineLimit(1)
+                Text(title).font(.system(size: 12, weight: selected ? .bold : .medium)).lineLimit(1)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 8)

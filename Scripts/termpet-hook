@@ -56,6 +56,7 @@ case "$SOURCE" in
     ;;
   codex)
     # Codex는 JSON을 마지막 인자로 넘긴다
+    [ $# -gt 0 ] || exit 0   # 인자가 없으면 ${!#}가 스크립트 경로($0)가 되므로 그냥 종료
     BODY="${!#}"
     [ -n "$BODY" ] || exit 0
     printf '%s' "$BODY" | send /hook/codex

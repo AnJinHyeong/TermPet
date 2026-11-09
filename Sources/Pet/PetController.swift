@@ -81,9 +81,22 @@ final class PetController: NSObject {
         startTimer()
     }
 
-    private func startTimer() {
+    private var timerFPS: Double = 0
+
+    /// 움직일 때만 60fps, 가만히 있을 땐 낮춰서 CPU/배터리 절약 (스프라이트는 6~12fps라 눈으로 차이 없음)
+    static func loopFPS(for action: PetAction, maxFPS: Double) -> Double {
+        switch action {
+        case .walk, .fall, .dragged: return maxFPS
+        case .sleep: return min(maxFPS, 10)
+        default: return min(maxFPS, 20)
+        }
+    }
+
+    private func startTimer(fps: Double? = nil) {
+        timer?.invalidate()
+        timerFPS = fps ?? config.fps
         lastTick = CACurrentMediaTime()
-        let timer = Timer(timeInterval: 1.0 / config.fps, target: self,
+        let timer = Timer(timeInterval: 1.0 / timerFPS, target: self,
                           selector: #selector(timerFired), userInfo: nil, repeats: true)
         // .common 모드: 메뉴가 열려 있거나 드래그 중에도 루프가 멈추지 않게
         RunLoop.main.add(timer, forMode: .common)
@@ -108,9 +121,13 @@ final class PetController: NSObject {
         model.isVisible = visible
         if visible {
             window?.orderFrontRegardless()
+            if timer == nil { startTimer() }
         } else {
             window?.orderOut(nil)
             bubble.hide() // 미확인 알림은 큐에 남아 있다가 다시 보이면 "!"로 표시
+            timer?.invalidate() // 숨긴 동안은 루프를 멈춰 CPU 0
+            timer = nil
+            timerFPS = 0
         }
     }
 
@@ -183,7 +200,7 @@ final class PetController: NSObject {
     @objc private func timerFired() {
         let now = CACurrentMediaTime()
         // 슬립에서 깨어났거나 렉이 걸렸을 때 한 번에 순간이동하지 않도록 dt 상한
-        let dt = min(now - lastTick, 1.0 / 15)
+        let dt = min(now - lastTick, 0.15)
         lastTick = now
         step(dt)
     }
@@ -215,6 +232,9 @@ final class PetController: NSObject {
         if model.hasUnread != unreadBadge { model.hasUnread = unreadBadge }
         model.time += dt
         syncModel()
+
+        let wanted = Self.loopFPS(for: brain.action, maxFPS: config.fps)
+        if wanted != timerFPS { startTimer(fps: wanted) }
     }
 
     /// 두뇌 상태 → 뷰 모델 복사 (SwiftUI 재렌더 트리거)

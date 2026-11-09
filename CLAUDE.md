@@ -15,6 +15,7 @@
 - 개발 실행: `Scripts/run.sh` (로그 보기: `--logs`, 프로젝트 재생성: `--gen`)
 - 설치/업데이트: `Scripts/install.sh` (Release 빌드 → /Applications)
 - 아이콘 재생성: `swift Scripts/make-icons.swift`
+- 배포(Homebrew): `Scripts/release.sh <버전>` → GitHub Release + `Casks/termpet.rb` 갱신
 - 테스트: `xcodebuild -project TermPet.xcodeproj -scheme TermPet test`
 
 ## 코드 원칙

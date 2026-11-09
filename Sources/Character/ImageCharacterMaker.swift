@@ -32,7 +32,7 @@ enum ImageCharacterMaker {
     ///   - directory: 캐릭터 폴더 (보통 CharacterLibrary.directory)
     static func make(from imageURL: URL, name: String, facing: Facing, into directory: URL) throws -> Result {
         guard let source = CGImageSourceCreateWithURL(imageURL as CFURL, nil),
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+              let image = loadDownscaled(source) else {
             throw BackgroundRemover.Failure.unreadableImage
         }
         let (cutout, method) = try BackgroundRemover.cutout(image)
@@ -76,7 +76,7 @@ enum ImageCharacterMaker {
     @discardableResult
     static func replaceStates(_ actions: [PetAction], in folder: URL, from imageURL: URL) throws -> BackgroundRemover.Method {
         guard let source = CGImageSourceCreateWithURL(imageURL as CFURL, nil),
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+              let image = loadDownscaled(source) else {
             throw BackgroundRemover.Failure.unreadableImage
         }
         let (cutout, method) = try BackgroundRemover.cutout(image)
@@ -113,6 +113,15 @@ enum ImageCharacterMaker {
         return PuppetAnimator.Geometry(canvas: canvas,
                                        character: CGSize(width: g.character.width * shrink, height: g.character.height * shrink),
                                        bottomMargin: (canvas.height * 0.04).rounded())
+    }
+
+    /// 큰 사진도 긴 변 1024px로 줄여서 읽는다 (펫은 화면에 100px 남짓이라 충분, 48MP 사진의 수백 MB 버퍼 방지)
+    static func loadDownscaled(_ source: CGImageSource, maxPixelSize: Int = 1024) -> CGImage? {
+        CGImageSourceCreateThumbnailAtIndex(source, 0, [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+        ] as CFDictionary)
     }
 
     /// 파일 이름 기반 id (영문/숫자만). 쓸 수 있는 글자가 없으면 시간 기반.

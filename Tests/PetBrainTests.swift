@@ -152,3 +152,15 @@ final class PetBrainTests: XCTestCase {
         XCTAssertEqual(directions.count, 2)
     }
 }
+
+@MainActor
+final class LoopFPSTests: XCTestCase {
+    func testFullSpeedOnlyWhileMoving() {
+        for action in [PetAction.walk, .fall, .dragged] {
+            XCTAssertEqual(PetController.loopFPS(for: action, maxFPS: 60), 60, "\(action)")
+        }
+        XCTAssertEqual(PetController.loopFPS(for: .idle, maxFPS: 60), 20)
+        XCTAssertEqual(PetController.loopFPS(for: .sleep, maxFPS: 60), 10)
+        XCTAssertEqual(PetController.loopFPS(for: .idle, maxFPS: 12), 12) // 설정값보다 높이지 않음
+    }
+}

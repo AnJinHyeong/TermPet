@@ -1,4 +1,5 @@
 import XCTest
+import ImageIO
 @testable import TermPet
 
 final class BackgroundRemoverTests: XCTestCase {
@@ -224,6 +225,17 @@ final class ImageCharacterMakerTests: XCTestCase {
         XCTAssertLessThanOrEqual(f.character.width, 150 * 0.85 + 0.001)
         XCTAssertEqual(f.character.width / f.character.height, 5, accuracy: 0.01) // 비율 유지
         XCTAssertEqual(f.canvas, CGSize(width: 150, height: 100))
+    }
+
+    func testLoadDownscaledShrinksOnlyBigImages() throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("termpet-big-\(UUID().uuidString).png")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        for (w, h, expectedMax) in [(3000, 600, 1024), (200, 100, 200)] {
+            try SpriteSheetWriter.writePNG(RGBAImage(width: w, height: h, data: [UInt8](repeating: 200, count: w * h * 4)).makeImage()!, to: tmp)
+            let source = try XCTUnwrap(CGImageSourceCreateWithURL(tmp as CFURL, nil))
+            let image = try XCTUnwrap(ImageCharacterMaker.loadDownscaled(source))
+            XCTAssertEqual(max(image.width, image.height), expectedMax)
+        }
     }
 
     func testUnreadableImageThrows() {
