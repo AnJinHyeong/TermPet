@@ -140,7 +140,12 @@ enum EventDecoder {
         let line = text.split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .first { !$0.isEmpty } ?? ""
-        let cleaned = line.trimmingCharacters(in: CharacterSet(charactersIn: "#*` "))
+        // 마크다운 강조 기호 제거 (**굵게**, `코드`, __밑줄__) + 앞쪽 제목/목록 기호 제거
+        let cleaned = line
+            .replacingOccurrences(of: "**", with: "")
+            .replacingOccurrences(of: "__", with: "")
+            .replacingOccurrences(of: "`", with: "")
+            .trimmingCharacters(in: CharacterSet(charactersIn: "#*-> "))
         return cleaned.count > 120 ? String(cleaned.prefix(119)) + "…" : cleaned
     }
 

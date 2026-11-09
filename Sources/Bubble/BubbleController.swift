@@ -29,6 +29,10 @@ final class BubbleController {
 
     var hasUnread: Bool { !queue.isEmpty }
 
+    /// 테스트용: 실제 말풍선 창과 SwiftUI 호스트 뷰
+    var windowForTesting: NSWindow? { window }
+    var hostForTesting: NSView? { host }
+
     // MARK: - API
 
     /// 말풍선 기본 문구 (캐릭터 팩의 messages)
@@ -139,12 +143,17 @@ final class BubbleController {
 
     private func resize() {
         guard let window, let host else { return }
-        // 너비는 확정값, 높이만 SwiftUI에 물어본다
+        // 너비는 확정값(뷰에 frame(width:)로 고정돼 있어 fittingSize도 이 너비), 높이만 SwiftUI에 물어본다
         let width = model.width + BubbleMetrics.outerPadding * 2
-        host.frame.size.width = width
         let size = CGSize(width: width, height: host.fittingSize.height.rounded(.up))
         if window.frame.size != size {
             window.setContentSize(size)
+        }
+        // host 크기는 직접 건드리지 않고 항상 창 내용 영역에 정확히 맞춘다.
+        // (주의: host.frame을 먼저 바꾼 뒤 창을 키우면 autoresizing이 차이만큼 또 더해서
+        //  host가 창보다 넓어지고 내용이 밀려 잘린다 — 실제로 겪은 버그)
+        if let root = window.contentView, host.frame != root.bounds {
+            host.frame = root.bounds
         }
     }
 

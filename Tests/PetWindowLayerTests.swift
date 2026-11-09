@@ -35,3 +35,24 @@ final class PetWindowLayerTests: XCTestCase {
         XCTAssertGreaterThan(PetWindowLayer.aboveApps.windowLevel.rawValue, NSWindow.Level.normal.rawValue)
     }
 }
+
+final class PetWindowLayerEffectiveTests: XCTestCase {
+    func testPopUpModeRaisesOnlyWhileBubbleShowing() {
+        XCTAssertEqual(PetWindowLayer.effective(.desktopPopUp, bubbleShowing: true), .aboveApps)
+        XCTAssertEqual(PetWindowLayer.effective(.desktopPopUp, bubbleShowing: false), .desktopPopUp)
+    }
+
+    func testPlainDesktopNeverRaises() {
+        XCTAssertEqual(PetWindowLayer.effective(.desktop, bubbleShowing: true), .desktop)
+    }
+
+    func testAboveAppsUnchanged() {
+        XCTAssertEqual(PetWindowLayer.effective(.aboveApps, bubbleShowing: true), .aboveApps)
+        XCTAssertEqual(PetWindowLayer.effective(.aboveApps, bubbleShowing: false), .aboveApps)
+    }
+
+    func testPopUpUsesDesktopLevelAtRest() {
+        XCTAssertEqual(PetWindowLayer.desktopPopUp.windowLevel, PetWindowLayer.desktop.windowLevel)
+        XCTAssertEqual(PetWindowLayer(rawValue: "desktopPopUp"), .desktopPopUp)
+    }
+}

@@ -129,10 +129,10 @@ final class PetController: NSObject {
         applyEffectiveLayer()
     }
 
-    /// 실제로 적용할 층: "바탕화면에만" 모드여도 말풍선(알림)이 떠 있는 동안은
-    /// 펫과 말풍선을 앱 창 위로 올려서 알림을 놓치지 않게 한다.
+    /// 실제로 적용할 층: "바탕화면에만 + 알림 시 앞으로" 모드면 말풍선(알림)이 떠 있는 동안만
+    /// 펫과 말풍선을 앱 창 위로 올렸다가, 말풍선이 사라지면 다시 바탕화면 층으로 내린다.
     private func applyEffectiveLayer() {
-        let effective: PetWindowLayer = bubble.isShowing ? .aboveApps : model.layer
+        let effective = PetWindowLayer.effective(model.layer, bubbleShowing: bubble.isShowing)
         window?.apply(layer: effective)
         bubble.setLayer(effective)
         if model.isVisible { window?.orderFrontRegardless() }

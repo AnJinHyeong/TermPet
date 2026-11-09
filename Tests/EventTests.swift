@@ -161,3 +161,12 @@ final class BubbleContentTests: XCTestCase {
         XCTAssertEqual(PetEvent(source: .shell, kind: .done, cwd: "/a/b/").projectName, "b")
     }
 }
+
+final class OneLineMarkdownTests: XCTestCase {
+    func testStripsMarkdownEmphasis() {
+        XCTAssertEqual(EventDecoder.oneLine("스크린샷 덕분에 **알림이 도착한 것**도 `확인`했습니다."),
+                       "스크린샷 덕분에 알림이 도착한 것도 확인했습니다.")
+        XCTAssertEqual(EventDecoder.oneLine("- 목록 항목"), "목록 항목")
+        XCTAssertEqual(EventDecoder.oneLine("> 인용"), "인용")
+    }
+}

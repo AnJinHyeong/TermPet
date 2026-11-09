@@ -184,3 +184,33 @@ final class BubbleWidthTests: XCTestCase {
                              BubbleMetrics.bodyWidth(for: c, badge: 0, measure: measure))
     }
 }
+
+@MainActor
+final class BubbleWindowSizingTests: XCTestCase {
+    /// 회귀 테스트: 짧은 알림 → 긴 알림으로 창 크기가 바뀌어도 SwiftUI 뷰가 창에 정확히 맞아야 한다
+    /// (예전 버그: host가 창보다 넓어져 말풍선 오른쪽/양쪽이 잘림)
+    func testHostAlwaysMatchesWindowWhenContentChanges() throws {
+        let bubble = BubbleController()
+        bubble.follow(petFrame: CGRect(x: 400, y: 100, width: 80, height: 80))
+        defer { bubble.clearAll() }
+
+        let events = [
+            PetEvent(source: .shell, kind: .error, message: "짧음", cwd: "/a/fitin"),
+            PetEvent(source: .claude, kind: .done, detail: String(repeating: "아주 긴 답변 문장입니다. ", count: 20),
+                     cwd: "/a/TermPet"),
+            PetEvent(source: .claude, kind: .ask, message: "중간 길이의 확인 요청 메시지예요", cwd: "/a/x"),
+        ]
+        for event in events {
+            bubble.enqueue(event)
+            // 현재 표시 중인 알림을 바꿔가며 확인
+            while bubble.queue.current?.event.id != event.id { bubble.dismissCurrent() }
+            bubble.show()
+            let window = try XCTUnwrap(bubble.windowForTesting)
+            let host = try XCTUnwrap(bubble.hostForTesting)
+            let root = try XCTUnwrap(window.contentView)
+            XCTAssertEqual(host.frame, root.bounds, "host must exactly fill the window")
+            XCTAssertEqual(window.frame.width, bubble.model.width + BubbleMetrics.outerPadding * 2)
+            XCTAssertLessThanOrEqual(bubble.model.width, BubbleMetrics.maxBodyWidth)
+        }
+    }
+}
