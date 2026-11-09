@@ -1,0 +1,8 @@
+.DS_Store
+build/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcworkspace/xcuserdata/
+# XcodeGen이 생성하므로 커밋하지 않음 (project.yml이 원본)
+TermPet.xcodeproj/

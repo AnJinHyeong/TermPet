@@ -1,0 +1,62 @@
+# XcodeGen 프로젝트 정의.
+# React 비유: package.json + vite.config 같은 역할. 여기서 .xcodeproj를 "생성"한다.
+# 수정 후에는 항상 `xcodegen generate` 실행.
+name: TermPet
+
+options:
+  bundleIdPrefix: com.termpet
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+targets:
+  TermPet:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources
+    info:
+      path: Sources/App/Info.plist
+      properties:
+        CFBundleDisplayName: TermPet
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSMinimumSystemVersion: "14.0"
+        LSUIElement: true          # Dock 아이콘 없음 (메뉴바 전용 앱)
+        NSHumanReadableCopyright: ""
+    entitlements:
+      path: Sources/App/TermPet.entitlements
+      properties:
+        com.apple.security.app-sandbox: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.termpet.TermPet
+        ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "-"     # 개인 사용: ad-hoc 서명
+        GENERATE_INFOPLIST_FILE: NO
+        ENABLE_USER_SCRIPT_SANDBOXING: YES
+    scheme:
+      testTargets:
+        - TermPetTests
+
+  TermPetTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: TermPet
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.termpet.TermPetTests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/TermPet.app/Contents/MacOS/TermPet
+        BUNDLE_LOADER: $(TEST_HOST)
