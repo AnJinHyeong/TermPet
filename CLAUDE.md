@@ -12,6 +12,7 @@
   ```
   xcodebuild -project TermPet.xcodeproj -scheme TermPet -configuration Debug build
   ```
+- 개발 실행: `Scripts/run.sh` (로그 보기: `--logs`, 프로젝트 재생성: `--gen`)
 - 테스트: `xcodebuild -project TermPet.xcodeproj -scheme TermPet test`
 
 ## 코드 원칙
