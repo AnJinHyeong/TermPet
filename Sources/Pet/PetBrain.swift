@@ -17,6 +17,12 @@ struct PetBrain {
         var clickReactionDuration: TimeInterval = 1.5
         /// 이 시간 동안 아무 일도 없으면 잠든다 (기본 10분)
         var sleepAfter: TimeInterval = 600
+        /// 창 옆면에 막혔을 때 기어오를 확률 (나머지는 돌아선다)
+        var climbWindowChance: Double = 0.75
+        /// 화면 끝 벽을 기어오를 확률 (조금 오르다 뛰어내린다)
+        var climbScreenChance: Double = 0.3
+        /// 창 위에서 끝에 닿았을 때 뛰어내릴 확률 (나머지는 돌아선다)
+        var edgeJumpChance: Double = 0.4
     }
 
     /// 외부에서 들어오는 입력. TS의 판별 유니온(`{ type: 'react', action, duration }`)과 같다.
@@ -25,7 +31,10 @@ struct PetBrain {
         case dragStarted
         case startFall            // 드롭했거나 발밑에 바닥이 없어짐
         case landed               // 바닥에 닿음
-        case hitWall              // 화면 끝에 닿음 → 방향 전환
+        case hitWall(window: Bool = false) // 벽에 막힘 → 기어오르거나 돌아선다
+        case reachedEdge          // 창 위에서 끝에 닿음 → 뛰어내리거나 돌아선다
+        case climbedUp            // 벽을 다 올라 창 위에 올라섬 → 계속 걷기
+        case letGo                // 벽에서 손을 놓음 → 반대쪽으로 뛰어내림
         case react(PetAction, duration: TimeInterval? = nil)
         case sleep
         case wake
@@ -41,6 +50,8 @@ struct PetBrain {
     private(set) var duration: TimeInterval
     /// 마지막 활동(이벤트/클릭/드래그) 이후 지난 시간
     private(set) var inactivity: TimeInterval = 0
+    /// 상태에 들어올 때마다 새로 뽑는 난수 → 같은 동작이라도 그림(포즈)을 골라 쓴다 (캐릭터 팩의 idle.2 등)
+    private(set) var variant: Int = 0
 
     init(config: Config = Config()) {
         self.config = config
@@ -56,13 +67,13 @@ struct PetBrain {
         case .idle, .walk:
             inactivity += dt
             if inactivity >= config.sleepAfter {
-                enter(.sleep, for: .infinity)
+                enter(.sleep, for: .infinity, using: &rng)
                 return
             }
             guard elapsed >= duration else { return }
             if action == .idle {
                 direction = Bool.random(using: &rng) ? .left : .right
-                enter(.walk, for: .random(in: config.walkDuration, using: &rng))
+                enter(.walk, for: .random(in: config.walkDuration, using: &rng), using: &rng)
             } else {
                 enterIdle(using: &rng)
             }
@@ -70,8 +81,8 @@ struct PetBrain {
         case .talk, .happy, .angry, .ask:
             if elapsed >= duration { enterIdle(using: &rng) }
 
-        case .sleep, .dragged, .fall:
-            break // 외부 입력(깨우기/드롭/착지)으로만 바뀜
+        case .sleep, .dragged, .fall, .climb:
+            break // 외부 입력(깨우기/드롭/착지/다 오름)으로만 바뀜
         }
     }
 
@@ -81,32 +92,54 @@ struct PetBrain {
             inactivity = 0
             switch action {
             case .sleep: enterIdle(using: &rng)          // 자고 있으면 깨어나기만
-            case .dragged, .fall: break
-            default: enter(.happy, for: config.clickReactionDuration)
+            case .dragged, .fall, .climb: break
+            default: enter(.happy, for: config.clickReactionDuration, using: &rng)
             }
 
         case .dragStarted:
             inactivity = 0
-            enter(.dragged, for: .infinity)
+            enter(.dragged, for: .infinity, using: &rng)
 
         case .startFall:
-            enter(.fall, for: .infinity)
+            enter(.fall, for: .infinity, using: &rng)
 
         case .landed:
             guard action == .fall else { return }
             enterIdle(using: &rng)
 
-        case .hitWall:
-            direction = direction.flipped
+        case let .hitWall(window):
+            guard action == .walk else { direction = direction.flipped; return }
+            let chance = window ? config.climbWindowChance : config.climbScreenChance
+            if Double.random(in: 0..<1, using: &rng) < chance {
+                enter(.climb, for: .infinity, using: &rng)
+            } else {
+                direction = direction.flipped
+            }
+
+        case .reachedEdge:
+            if Double.random(in: 0..<1, using: &rng) < config.edgeJumpChance {
+                enter(.fall, for: .infinity, using: &rng) // 뛰어내리기
+            } else {
+                direction = direction.flipped
+            }
+
+        case .climbedUp:
+            guard action == .climb else { return }
+            enter(.walk, for: .random(in: config.walkDuration, using: &rng), using: &rng)
+
+        case .letGo:
+            guard action == .climb else { return }
+            direction = direction.flipped // 벽 반대쪽으로 뛴다
+            enter(.fall, for: .infinity, using: &rng)
 
         case let .react(reaction, customDuration):
             inactivity = 0
             guard !action.isPhysicsControlled else { return }
-            enter(reaction, for: customDuration ?? config.reactionDuration)
+            enter(reaction, for: customDuration ?? config.reactionDuration, using: &rng)
 
         case .sleep:
             guard !action.isPhysicsControlled else { return }
-            enter(.sleep, for: .infinity)
+            enter(.sleep, for: .infinity, using: &rng)
 
         case .wake:
             inactivity = 0
@@ -116,13 +149,15 @@ struct PetBrain {
 
     // MARK: - private
 
-    private mutating func enter(_ newAction: PetAction, for newDuration: TimeInterval) {
+    private mutating func enter(_ newAction: PetAction, for newDuration: TimeInterval,
+                                using rng: inout some RandomNumberGenerator) {
+        if newAction != action { variant = Int.random(in: 0..<1000, using: &rng) }
         action = newAction
         duration = newDuration
         elapsed = 0
     }
 
     private mutating func enterIdle(using rng: inout some RandomNumberGenerator) {
-        enter(.idle, for: .random(in: config.idleDuration, using: &rng))
+        enter(.idle, for: .random(in: config.idleDuration, using: &rng), using: &rng)
     }
 }

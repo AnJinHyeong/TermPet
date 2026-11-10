@@ -2,8 +2,9 @@ import AppKit
 import SwiftUI
 
 /// 메뉴바 아이콘을 누르면 뜨는 패널 (MenuBarExtra `.window` 스타일).
-/// 구성: 헤더 → 진행 중 세션 → 캐릭터(가로 아이콘) → AI 연결 → 알림·놀기 칩 → 표시 위치 세그먼트 → 하단
-/// React 비유: 작은 컴포넌트(Row, Tile)를 조합한 하나의 화면 컴포넌트.
+/// 테마: 크림 바탕 + 버터 노랑·볼터치 분홍 (우사기·치이카와 친구들 느낌의 말랑한 파스텔)
+/// 구성: 무대(지금 캐릭터 + 상태) → 진행 중 세션 → 친구 고르기 → 놀기 → AI 연결 → 알림 → 표시 위치 → 하단
+/// React 비유: 작은 컴포넌트(Card, Chip, Tile)를 조합한 하나의 화면 컴포넌트.
 struct MenuPanelView: View {
     let app: AppDelegate
     @State private var launchAtLogin = LoginItem.isEnabled  // @State ≈ useState
@@ -12,50 +13,75 @@ struct MenuPanelView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header
-            todayLine
-            PanelDivider()
+            stage
+                .padding(.horizontal, 12)
+                .padding(.top, 12)
 
             // 진행 중인 AI 세션이 있을 때만 (누르면 그 프로젝트 창으로 이동)
             let sessions = pet.sessions.tracker.ordered
             if !sessions.isEmpty {
-                SectionLabel("진행 중")
+                SectionLabel("진행 중", symbol: "sparkle")
                 // TimelineView: 30초마다 다시 그려 "3분" 같은 시간을 갱신 (≈ setInterval로 리렌더)
                 TimelineView(.periodic(from: .now, by: 30)) { context in
-                    VStack(spacing: 0) {
-                        ForEach(sessions) { session in
-                            SessionRow(session: session, now: context.date) {
-                                closePanelThen { ProjectFocuser.focus(session.focusEvent) }
+                    Card {
+                        VStack(spacing: 0) {
+                            ForEach(sessions) { session in
+                                SessionRow(session: session, now: context.date) {
+                                    closePanelThen { ProjectFocuser.focus(session.focusEvent) }
+                                }
                             }
                         }
                     }
                 }
-                .padding(.horizontal, 8)
             }
 
-            SectionLabel("캐릭터")
-            characterPicker
+            SectionLabel("친구 고르기", symbol: "heart.fill")
+            Card { characterPicker }
 
-            SectionLabel("AI 연결")
-            VStack(spacing: 0) {
-                ForEach(IntegrationManager.Kind.allCases) { kind in
-                    IntegrationRow(kind: kind,
-                                   installed: app.integrations.installed[kind] == true,
-                                   needsUpdate: app.integrations.needsUpdate[kind] == true,
-                                   available: app.integrations.isAvailable(kind),
-                                   onUpdate: { app.toggleIntegration(kind) }) { on in
-                        app.toggleIntegration(kind, remove: !on)
+            SectionLabel("놀기", symbol: "carrot.fill")
+            ChipGrid {
+                let sleeping = pet.model.action == .sleep
+                Chip(symbol: sleeping ? "sun.max.fill" : "moon.fill", title: sleeping ? "깨우기" : "재우기",
+                     on: sleeping) { pet.toggleSleep() }
+                    .hint(sleeping ? "깨워서 다시 놀게 해요" : "쿨쿨 재워요")
+                Chip(symbol: "figure.climbing", title: "창 위 산책", on: pet.model.walkOnWindows) {
+                    pet.walkOnWindows.toggle()
+                }
+                .hint(pet.model.layer == .aboveApps ? "창 위를 걷고, 창을 기어올라요"
+                                                     : "'항상 위' 표시일 때만 창 위로 다녀요")
+                Chip(symbol: "cloud.fill", title: "떨어뜨리기") { pet.dropFromTop() }
+                    .hint("하늘에서 뚝! 창 위에 떨어지면 거기서 놀아요")
+                Chip(symbol: "bubble.left.fill", title: "알림 테스트") {
+                    pet.receive(PetEvent(source: .shell, kind: .done, message: "알림이 잘 보이나요?"))
+                }
+                .hint("말풍선을 한 번 띄워 봐요")
+            }
+            Text("펫을 잡아서 휙 던져 보세요")
+                .font(.system(size: 10.5, design: .rounded))
+                .foregroundStyle(Theme.cocoa.opacity(0.55))
+                .padding(.horizontal, 18).padding(.top, 5)
+
+            SectionLabel("AI 연결", symbol: "link")
+            Card {
+                VStack(spacing: 2) {
+                    ForEach(IntegrationManager.Kind.allCases) { kind in
+                        IntegrationRow(kind: kind,
+                                       installed: app.integrations.installed[kind] == true,
+                                       needsUpdate: app.integrations.needsUpdate[kind] == true,
+                                       available: app.integrations.isAvailable(kind),
+                                       onUpdate: { app.toggleIntegration(kind) }) { on in
+                            app.toggleIntegration(kind, remove: !on)
+                        }
                     }
                 }
             }
-            .padding(.horizontal, 8)
 
-            SectionLabel("알림")
+            SectionLabel("알림", symbol: "bell.fill")
             ChipRow {
                 let quiet = pet.quiet
                 Chip(symbol: "moon.zzz.fill", title: "1시간 조용히", on: quiet.manualOn) { quiet.toggleManual() }
                     .hint("1시간 동안 알림을 모아뒀다 보여줘요")
-                Chip(symbol: "video.fill", title: "회의 중 조용히", on: quiet.duringMeetings) { quiet.duringMeetings.toggle() }
+                Chip(symbol: "video.fill", title: "회의 중", on: quiet.duringMeetings) { quiet.duringMeetings.toggle() }
                     .hint("마이크 사용 중(회의)엔 알림을 모아둬요")
                 Chip(symbol: quiet.soundOnAsk ? "speaker.wave.2.fill" : "speaker.slash.fill", title: "권한 소리",
                      on: quiet.soundOnAsk) { quiet.soundOnAsk.toggle() }
@@ -64,11 +90,11 @@ struct MenuPanelView: View {
             if pet.quiet.isQuiet {
                 Text(pet.quiet.manualOn ? "조용한 시간 · 알림은 펫 머리 위 !에 모여요"
                                         : "회의 중이라 조용히 · 알림은 펫 머리 위 !에 모여요")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
-                    .padding(.horizontal, 16).padding(.top, 5)
+                    .font(.system(size: 11, design: .rounded)).foregroundStyle(Theme.cocoa.opacity(0.6))
+                    .padding(.horizontal, 18).padding(.top, 5)
             }
 
-            SectionLabel("표시 위치")
+            SectionLabel("표시 위치", symbol: "macwindow")
             // 라디오 버튼처럼 하나만 선택 (다른 칩과 같은 모양)
             ChipRow {
                 ForEach(PetWindowLayer.allCases) { layer in
@@ -77,19 +103,8 @@ struct MenuPanelView: View {
                 }
             }
 
-            SectionLabel("놀기")
-            ChipRow {
-                let sleeping = pet.model.action == .sleep
-                Chip(symbol: sleeping ? "sun.max.fill" : "moon.fill", title: sleeping ? "깨우기" : "재우기",
-                     on: sleeping) { pet.toggleSleep() }
-                Chip(symbol: "arrow.down.to.line", title: "떨어뜨리기") { pet.dropFromTop() }
-                Chip(symbol: "bubble.left.fill", title: "알림 테스트") {
-                    pet.receive(PetEvent(source: .shell, kind: .done, message: "알림이 잘 보이나요?"))
-                }
-            }
-
             #if DEBUG
-            SectionLabel("개발용")
+            SectionLabel("개발용", symbol: "hammer.fill")
             ChipRow {
                 Chip(symbol: "face.smiling", title: "신남") { pet.react(.happy) }
                 Chip(symbol: "flame.fill", title: "화남") { pet.react(.angry) }
@@ -97,11 +112,14 @@ struct MenuPanelView: View {
             }
             #endif
 
-            PanelDivider().padding(.top, 12)
             footer
+                .padding(.top, 12)
         }
-        .frame(width: 300)
-        .padding(.top, 2)
+        .frame(width: 312)
+        .background(Theme.panelBackground)
+        // 파스텔 테마는 다크 모드에서도 그대로 (크림 바탕 + 코코아 글씨)
+        .environment(\.colorScheme, .light)
+        .tint(Theme.blush)
         // 아이콘 안내 말풍선은 맨 위층에 (다른 영역에 가려지지 않게)
         .overlayPreferenceValue(HintPreference.self) { HintLayer(info: $0) }
         .onAppear {
@@ -110,45 +128,109 @@ struct MenuPanelView: View {
         }
     }
 
-    /// 캐릭터: 가로 한 줄 아이콘 + 아래에 선택된 이름과 (내 캐릭터면) 작은 편집 버튼
-    private var characterPicker: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                ForEach(characters.entries) { entry in
-                    Button { app.selectCharacter(entry.id) } label: {
-                        CharacterThumbnail(entry: entry, size: 40)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .strokeBorder(entry.id == characters.selectedId ? Color.accent : .clear, lineWidth: 2)
-                                    .padding(-3)
-                            )
+    // MARK: - 무대 (지금 캐릭터)
+
+    /// 지금 캐릭터가 통통 움직이는 작은 무대 + 이름·상태·오늘 기록 + 보이기 스위치
+    private var stage: some View {
+        HStack(alignment: .center, spacing: 12) {
+            ZStack {
+                Circle().fill(Theme.butter.opacity(0.55))
+                Circle().strokeBorder(.white, lineWidth: 3)
+                StagePetView(model: pet.model)
+                    .frame(width: 58, height: 58)
+                    .offset(y: 4)
+                    .clipShape(Circle())
+            }
+            .frame(width: 66, height: 66)
+            .shadow(color: Theme.cocoa.opacity(0.15), radius: 4, y: 2)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    Text(selectedName.isEmpty ? "텀펫" : selectedName)
+                        .font(.system(size: 17, weight: .heavy, design: .rounded))
+                        .foregroundStyle(Theme.cocoa)
+                    Text("텀펫 v\(AppInfo.version)")
+                        .font(.system(size: 10, weight: .medium, design: .rounded))
+                        .foregroundStyle(Theme.cocoa.opacity(0.45))
+                }
+                HStack(spacing: 4) {
+                    Circle().fill(serverColor).frame(width: 6, height: 6)
+                    Text(serverText).font(.system(size: 11, design: .rounded)).foregroundStyle(Theme.cocoa.opacity(0.65))
+                    switch pet.model.mood {
+                    case .cheerful: Text("· ✨ 신남").font(.system(size: 11, design: .rounded)).hint("최근 계속 성공했어요")
+                    case .gloomy: Text("· 🌧 시무룩").font(.system(size: 11, design: .rounded)).hint("최근 에러가 많았어요")
+                    case .normal: EmptyView()
                     }
-                    .buttonStyle(.plain)
+                }
+                if let line = pet.stats.today.summaryLine {
+                    Text("오늘 " + line)
+                        .font(.system(size: 10.5, weight: .medium, design: .rounded))
+                        .foregroundStyle(Theme.cocoa.opacity(0.75))
+                        .lineLimit(1)
+                        .padding(.horizontal, 7).padding(.vertical, 2)
+                        .background(Capsule().fill(.white.opacity(0.75)))
+                }
+            }
+            Spacer(minLength: 0)
+            // Toggle ≈ <input type="checkbox">, isOn은 제어 컴포넌트처럼 Binding으로 연결
+            Toggle("", isOn: Binding(get: { pet.model.isVisible }, set: { pet.setVisible($0) }))
+                .toggleStyle(BunnySwitchStyle())
+                .hint(pet.model.isVisible ? "펫 숨기기" : "펫 보이기")
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(LinearGradient(colors: [Theme.butter, Theme.peach], startPoint: .topLeading, endPoint: .bottomTrailing))
+        )
+        .overlay(alignment: .topTrailing) {
+            // 장식: 작은 하트·별 (패널이 덜 딱딱해 보이게)
+            HStack(spacing: 3) {
+                Image(systemName: "heart.fill").font(.system(size: 7)).foregroundStyle(Theme.blush)
+                Image(systemName: "sparkle").font(.system(size: 9)).foregroundStyle(.white)
+            }
+            .padding(.top, 7).padding(.trailing, 58)
+            .allowsHitTesting(false)
+        }
+    }
+
+    // MARK: - 친구 고르기
+
+    /// 친구들·기본 캐릭터·내 캐릭터를 동그란 타일 격자로. 선택된 타일은 분홍 테두리 + 이름
+    private var characterPicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // LazyVGrid ≈ CSS grid (5칸)
+            LazyVGrid(columns: Array(repeating: GridItem(.fixed(48), spacing: 8), count: 5), alignment: .leading, spacing: 8) {
+                ForEach(characters.entries) { entry in
+                    let selected = entry.id == characters.selectedId
+                    Button { app.selectCharacter(entry.id) } label: {
+                        CharacterThumbnail(entry: entry, selected: selected)
+                    }
+                    .buttonStyle(PressableStyle())
                     .hint(entry.name)
                 }
                 if characters.custom == nil {
                     Button { closePanelThen { app.makeCharacterFromImage() } } label: {
                         ZStack {
-                            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                .strokeBorder(Color.accent.opacity(0.7), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
-                            Image(systemName: "plus").font(.system(size: 14, weight: .bold)).foregroundStyle(Color.accent)
+                            Circle().fill(.white.opacity(0.6))
+                            Circle().strokeBorder(Theme.blush.opacity(0.8), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                            Image(systemName: "plus").font(.system(size: 15, weight: .bold)).foregroundStyle(Theme.blush)
                         }
-                        .frame(width: 40, height: 40)
+                        .frame(width: 46, height: 46)
                     }
-                    .buttonStyle(.plain)
-                    .hint(characters.problem ?? "이미지로 캐릭터 만들기")
+                    .buttonStyle(PressableStyle())
+                    .hint(characters.problem ?? "이미지로 내 캐릭터 만들기")
                 }
             }
-            .padding(.top, 3)
 
             HStack(spacing: 5) {
-                Text(selectedName).font(.system(size: 12, weight: .semibold))
+                Image(systemName: "heart.fill").font(.system(size: 9)).foregroundStyle(Theme.blush)
+                Text(selectedName).font(.system(size: 12.5, weight: .bold, design: .rounded)).foregroundStyle(Theme.cocoa)
                 if characters.selectedId == CharacterLibrary.customId {
-                    Text("· 내 캐릭터").font(.system(size: 11)).foregroundStyle(.secondary)
+                    Text("· 내 캐릭터").font(.system(size: 11, design: .rounded)).foregroundStyle(Theme.cocoa.opacity(0.55))
                 }
                 Spacer()
                 if characters.custom != nil {
-                    IconButton(symbol: "photo.badge.plus", help: "새 이미지로 바꾸기") {
+                    IconButton(symbol: "photo.badge.plus", help: "내 캐릭터를 새 이미지로") {
                         closePanelThen { app.makeCharacterFromImage() }
                     }
                     // 동작별 그림: 여러 장을 고르면 진짜 프레임 애니메이션 (Menu ≈ 드롭다운)
@@ -164,32 +246,12 @@ struct MenuPanelView: View {
                     .menuStyle(.borderlessButton)
                     .menuIndicator(.hidden)
                     .frame(width: 28, height: 24)
-                    .modifier(ControlSurface(radius: 7))
-                    .hint("동작별 그림 (여러 장 = 애니메이션)")
-                    IconButton(symbol: "arrow.left.and.right", help: "방향 바꾸기") { app.flipCustomCharacter() }
+                    .modifier(ControlSurface(radius: 12))
+                    .hint("내 캐릭터 동작별 그림")
+                    IconButton(symbol: "arrow.left.and.right", help: "내 캐릭터 방향 바꾸기") { app.flipCustomCharacter() }
                     IconButton(symbol: "trash", help: "내 캐릭터 지우기") { app.removeCustomCharacter() }
                 }
             }
-        }
-        .padding(.horizontal, 16)
-    }
-
-    /// 오늘 기록 한 줄 + 기분 (기록이 없으면 숨김)
-    @ViewBuilder private var todayLine: some View {
-        let stats = pet.stats.today
-        if let line = stats.summaryLine {
-            HStack(spacing: 6) {
-                Text("오늘").font(.system(size: 11, weight: .semibold))
-                Text(line).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
-                Spacer()
-                switch pet.model.mood {
-                case .cheerful: Text("✨ 신남").font(.system(size: 11)).hint("최근 계속 성공했어요")
-                case .gloomy: Text("🌧 시무룩").font(.system(size: 11)).hint("최근 에러가 많았어요")
-                case .normal: EmptyView()
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 8)
         }
     }
 
@@ -197,70 +259,40 @@ struct MenuPanelView: View {
         characters.entries.first { $0.id == characters.selectedId }?.name ?? ""
     }
 
-    // MARK: - 헤더 / 푸터
-
-    private var header: some View {
-        HStack(spacing: 10) {
-            Image(nsImage: NSApp.applicationIconImage)
-                .resizable()
-                .frame(width: 30, height: 30)
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(alignment: .firstTextBaseline, spacing: 5) {
-                    Text("텀펫").font(.system(size: 14, weight: .bold))
-                    Text("v\(AppInfo.version)").font(.system(size: 11)).foregroundStyle(.secondary)
-                }
-                HStack(spacing: 4) {
-                    Circle().fill(serverColor).frame(width: 6, height: 6)
-                    Text(serverText).font(.system(size: 11)).foregroundStyle(.secondary)
-                }
-            }
-            Spacer()
-            // Toggle ≈ <input type="checkbox">, isOn은 제어 컴포넌트처럼 Binding으로 연결
-            Toggle("", isOn: Binding(get: { pet.model.isVisible }, set: { pet.setVisible($0) }))
-                .toggleStyle(.switch)
-                .tint(Color.accent)
-                .labelsHidden()
-                .hint(pet.model.isVisible ? "펫 숨기기" : "펫 보이기")
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-    }
+    // MARK: - 푸터
 
     private var footer: some View {
-        VStack(spacing: 6) {
-            Toggle("로그인할 때 자동으로 실행", isOn: Binding(
+        HStack(spacing: 8) {
+            Toggle(isOn: Binding(
                 get: { launchAtLogin },
                 set: { on in
                     do { try LoginItem.set(on) } catch { NSLog("[TermPet] login item: \(error)") }
                     launchAtLogin = LoginItem.isEnabled // 실패하면 실제 상태로 되돌아감
-                }))
-                .toggleStyle(.checkbox)
-                .tint(Color.accent)
-                .font(.system(size: 12))
-                .frame(maxWidth: .infinity, alignment: .leading)
-            footerLine
+                })) {
+                Text("로그인 시 실행").font(.system(size: 11.5, design: .rounded)).foregroundStyle(Theme.cocoa.opacity(0.8))
+            }
+            .toggleStyle(.checkbox)
+            Spacer()
+            Button { NSApplication.shared.terminate(nil) } label: {
+                HStack(spacing: 3) {
+                    Image(systemName: "power").font(.system(size: 9, weight: .bold))
+                    Text("종료").font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                }
+                .padding(.horizontal, 10).frame(height: 24)
+                .modifier(ControlSurface(radius: 12))
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("q")
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-    }
-
-    private var footerLine: some View {
-        HStack {
-            Text("펫을 누르면 놓친 알림을 다시 보여줘요")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-            Spacer()
-            Button("종료") { NSApplication.shared.terminate(nil) }
-                .buttonStyle(.plain)
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .keyboardShortcut("q")
-        }
+        .padding(.vertical, 10)
+        .background(Theme.cream.opacity(0.9))
+        .overlay(alignment: .top) { Rectangle().fill(Theme.cocoa.opacity(0.08)).frame(height: 1) }
     }
 
     private var serverColor: Color {
         switch app.appState.serverState {
-        case .listening: return .green
+        case .listening: return Color(red: 0.45, green: 0.78, blue: 0.5)
         case .stopped: return .gray
         case .failed: return .red
         }
@@ -281,28 +313,106 @@ struct MenuPanelView: View {
     }
 }
 
+// MARK: - 테마
+
+/// 패널 색 모음 (CSS 변수 :root { --butter: ... } 같은 역할)
+enum Theme {
+    static let cream = Color(red: 1.00, green: 0.975, blue: 0.93)
+    static let butter = Color(red: 1.00, green: 0.91, blue: 0.66)     // 우사기 몸 색
+    static let peach = Color(red: 1.00, green: 0.84, blue: 0.80)
+    static let blush = Color(red: 0.96, green: 0.56, blue: 0.66)      // 볼터치 분홍 (강조색)
+    static let blushStrong = Color(red: 0.88, green: 0.38, blue: 0.52)
+    static let sky = Color(red: 0.70, green: 0.85, blue: 0.95)        // 하치와레·모몬가 하늘색
+    static let cocoa = Color(red: 0.36, green: 0.25, blue: 0.20)      // 글씨·테두리
+
+    static var panelBackground: some View {
+        LinearGradient(colors: [cream, Color(red: 1.0, green: 0.95, blue: 0.94)], startPoint: .top, endPoint: .bottom)
+    }
+}
+
+/// 말랑한 분홍 스위치 (macOS 기본 스위치는 색을 바꿔도 잘 안 보여서 직접 그림)
+/// ToggleStyle ≈ 체크박스 input의 모양만 CSS로 바꾸는 것
+private struct BunnySwitchStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Button { configuration.isOn.toggle() } label: {
+            ZStack(alignment: configuration.isOn ? .trailing : .leading) {
+                Capsule().fill(configuration.isOn ? Theme.blush : Theme.cocoa.opacity(0.18))
+                Circle().fill(.white).padding(2.5)
+                    .shadow(color: Theme.cocoa.opacity(0.25), radius: 1.5, y: 1)
+                    .overlay(
+                        Image(systemName: configuration.isOn ? "eye.fill" : "eye.slash.fill")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(configuration.isOn ? Theme.blushStrong : Theme.cocoa.opacity(0.4))
+                    )
+            }
+            .frame(width: 44, height: 26)
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: configuration.isOn)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// 누르면 살짝 작아지는 버튼 (CSS :active { transform: scale(.94) })
+private struct PressableStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.92 : 1)
+            .animation(.spring(response: 0.25, dampingFraction: 0.6), value: configuration.isPressed)
+    }
+}
+
+/// 무대 위 미니 펫: 실제 펫과 같은 상태를 작게 그린다 (말풍선·배지 없이)
+private struct StagePetView: View {
+    let model: PetViewModel
+
+    var body: some View {
+        switch model.character {
+        case .builtIn(let style):
+            DefaultCharacterView(style: style, action: model.action, facing: .right,
+                                 time: model.time, actionTime: model.actionTime)
+                .frame(width: LoadedCharacter.defaultSize.width, height: LoadedCharacter.defaultSize.height)
+                .scaleEffect(0.72)
+        case .sprite(let sprite):
+            // 무대에선 늘 정면/오른쪽, 잡히거나 떨어지는 중이어도 가만히 있는 모습
+            let action: PetAction = model.action.isPhysicsControlled ? .idle : model.action
+            SpriteCharacterView(sprite: sprite, action: action, variant: model.variant,
+                                facing: .right, actionTime: model.time)
+        }
+    }
+}
+
 // MARK: - 작은 구성 요소들
 
-private struct PanelDivider: View {
+/// 흰 카드 (둥근 모서리 + 아주 옅은 그림자)
+private struct Card<Content: View>: View {
+    @ViewBuilder let content: Content
     var body: some View {
-        Rectangle().fill(Color.primary.opacity(0.1)).frame(height: 1).padding(.horizontal, 12)
+        content
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(.white.opacity(0.85)))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.cocoa.opacity(0.06)))
+            .shadow(color: Theme.cocoa.opacity(0.06), radius: 3, y: 1)
+            .padding(.horizontal, 12)
     }
 }
 
 private struct SectionLabel: View {
     let text: String
-    init(_ text: String) { self.text = text }
+    let symbol: String
+    init(_ text: String, symbol: String) { self.text = text; self.symbol = symbol }
     var body: some View {
-        Text(text)
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 16)
-            .padding(.top, 12)
-            .padding(.bottom, 5)
+        HStack(spacing: 5) {
+            Image(systemName: symbol).font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.blush)
+            Text(text).font(.system(size: 11.5, weight: .bold, design: .rounded)).foregroundStyle(Theme.cocoa.opacity(0.7))
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 13)
+        .padding(.bottom, 6)
     }
 }
 
-/// 마우스를 올리면 살짝 밝아지는 버튼 배경 (CSS :hover)
+/// 마우스를 올리면 살짝 밝아지는 줄 배경 (CSS :hover)
 private struct HoverBackground: ViewModifier {
     var selected: Bool
     @State private var hovering = false
@@ -310,40 +420,39 @@ private struct HoverBackground: ViewModifier {
         content
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(selected ? Color.accent.opacity(0.22)
-                          : hovering ? Color.primary.opacity(0.07) : .clear)
-            )
-            // 선택된 항목은 주황 테두리까지 둘러서 한눈에 보이게
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(selected ? Color.accent : .clear, lineWidth: 2)
+                    .fill(selected ? Theme.butter.opacity(0.6)
+                          : hovering ? Theme.butter.opacity(0.35) : .clear)
             )
             .contentShape(Rectangle())
             .onHover { hovering = $0 }
     }
 }
 
-private extension Color {
-    /// 강조색: 앱 아이콘 말랑이의 주황빛 (상단 스위치와 같은 색)
-    static let accent = Color(red: 0.98, green: 0.65, blue: 0.30)
-    /// 켜진 버튼의 아이콘 색 (연한 바탕 위에서 잘 보이는 진한 주황)
-    static let accentStrong = Color(red: 0.93, green: 0.50, blue: 0.16)
-}
-
-/// 목록 왼쪽의 둥근 사각 아이콘 (기본 캐릭터는 코드로 그리고, 내 캐릭터는 원본 그림)
+/// 동그란 캐릭터 타일 (기본 캐릭터는 코드로 그리고, 그림 팩은 대표 그림)
 private struct CharacterThumbnail: View {
     let entry: CharacterLibrary.Entry
-    var size: CGFloat = 38
+    var selected = false
+    @State private var hovering = false
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(background)
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .strokeBorder(Color.black.opacity(0.12), lineWidth: 1)
-            content
+            Circle().fill(background)
+            content.clipShape(Circle())
+            Circle().strokeBorder(selected ? Theme.blush : Theme.cocoa.opacity(hovering ? 0.25 : 0.1),
+                                  lineWidth: selected ? 3 : 1)
         }
-        .frame(width: size, height: size)
+        .frame(width: 46, height: 46)
+        .overlay(alignment: .topTrailing) {
+            if selected {
+                Image(systemName: "heart.fill")
+                    .font(.system(size: 9)).foregroundStyle(.white)
+                    .padding(3).background(Circle().fill(Theme.blush))
+                    .offset(x: 3, y: -3)
+            }
+        }
+        .scaleEffect(hovering && !selected ? 1.06 : 1)
+        .animation(.spring(response: 0.25, dampingFraction: 0.6), value: hovering)
+        .onHover { hovering = $0 }
     }
 
     @ViewBuilder private var content: some View {
@@ -352,11 +461,12 @@ private struct CharacterThumbnail: View {
             // 기본 캐릭터는 80pt 펫 창 크기로 그려지므로 그 크기로 그린 뒤 축소 (CSS transform: scale)
             DefaultCharacterView(style: style, action: .idle, facing: .right, time: 1.3, actionTime: 1.3)
                 .frame(width: LoadedCharacter.defaultSize.width, height: LoadedCharacter.defaultSize.height)
-                .scaleEffect(0.46 * size / 38)
-                .frame(width: size, height: size)
+                .scaleEffect(0.52)
+                .frame(width: 46, height: 46)
+                .offset(y: 2)
         case .pack(let folder):
             if let image = NSImage(contentsOf: folder.appendingPathComponent("source.png")) {
-                Image(nsImage: image).resizable().interpolation(.high).scaledToFit().padding(4)
+                Image(nsImage: image).resizable().interpolation(.high).scaledToFit().padding(5).offset(y: 2)
             } else {
                 Image(systemName: "photo").foregroundStyle(.secondary)
             }
@@ -365,8 +475,8 @@ private struct CharacterThumbnail: View {
 
     private var background: Color {
         switch entry.source {
-        case .builtIn(let style): return style.palette.bodyTop.opacity(0.35)
-        case .pack: return Color.white.opacity(0.7)
+        case .builtIn(let style): return style.palette.bodyTop.opacity(0.4)
+        case .pack: return entry.id.hasPrefix(CharacterLibrary.friendPrefix) ? Theme.butter.opacity(0.45) : Theme.sky.opacity(0.35)
         }
     }
 }
@@ -384,35 +494,35 @@ private struct IntegrationRow: View {
     var body: some View {
         HStack(spacing: 10) {
             ZStack {
-                RoundedRectangle(cornerRadius: 6, style: .continuous).fill(color.gradient)
+                Circle().fill(color.gradient)
                 Image(systemName: symbol).font(.system(size: 11, weight: .semibold)).foregroundStyle(.white)
             }
             .frame(width: 24, height: 24)
             .hint("\(kind.subtitle) 알림")
-            Text(kind.title).font(.system(size: 13, weight: .medium))
+            Text(kind.title).font(.system(size: 13, weight: .semibold, design: .rounded)).foregroundStyle(Theme.cocoa)
             Spacer()
             if !available {
-                Text("설치 안 됨").font(.system(size: 11)).foregroundStyle(.secondary)
+                Text("설치 안 됨").font(.system(size: 11, design: .rounded)).foregroundStyle(Theme.cocoa.opacity(0.5))
             } else {
                 // 상태가 글자로 바로 보이는 버튼: 켜짐(✓ 연결됨) = 진한 주황, 꺼짐(연결) = 회색 — 다른 칩과 같은 규칙
                 Button { needsUpdate ? onUpdate() : onToggle(!installed) } label: {
                     HStack(spacing: 3) {
                         Image(systemName: needsUpdate ? "arrow.triangle.2.circlepath" : installed ? "checkmark" : "link")
                             .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(installed ? Color.accentStrong : Color.primary.opacity(0.75))
+                            .foregroundStyle(installed ? Theme.blushStrong : Theme.cocoa.opacity(0.6))
                         Text(needsUpdate ? "업데이트" : installed ? "연결됨" : "연결")
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
                     }
                     .frame(width: 74, height: 24)
-                    .modifier(ControlSurface(on: installed, radius: 7))
+                    .modifier(ControlSurface(on: installed, radius: 12))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PressableStyle())
                 .hint(needsUpdate ? "작업 중 표시용 항목 추가 (백업 후)"
                       : installed ? "누르면 연결 해제 (설정 파일 백업 후)" : "누르면 연결 (설정 파일 백업 후)")
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 3)
+        .padding(.horizontal, 2)
+        .padding(.vertical, 2)
         .opacity(available ? 1 : 0.5)
     }
 
@@ -426,9 +536,9 @@ private struct IntegrationRow: View {
 
     private var color: Color {
         switch kind {
-        case .claude: return Color(red: 0.85, green: 0.47, blue: 0.34)
-        case .codex: return Color(red: 0.25, green: 0.25, blue: 0.28)
-        case .zsh: return Color(red: 0.20, green: 0.62, blue: 0.45)
+        case .claude: return Color(red: 0.93, green: 0.58, blue: 0.45)
+        case .codex: return Color(red: 0.50, green: 0.62, blue: 0.80)
+        case .zsh: return Color(red: 0.50, green: 0.78, blue: 0.62)
         }
     }
 }
@@ -437,24 +547,35 @@ private struct IntegrationRow: View {
 private struct ChipRow<Content: View>: View {
     @ViewBuilder let content: Content
     var body: some View {
-        HStack(spacing: 6) { content }.padding(.horizontal, 16)
+        HStack(spacing: 6) { content }.padding(.horizontal, 12)
+    }
+}
+
+/// 2칸 칩 격자 (놀기 버튼 4개)
+private struct ChipGrid<Content: View>: View {
+    @ViewBuilder let content: Content
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)], spacing: 6) { content }
+            .padding(.horizontal, 12)
     }
 }
 
 /// 패널의 모든 버튼이 쓰는 공통 모양 (CSS로 치면 .btn / .btn.is-on 클래스)
-/// - 기본: 회색 둥근 사각, 마우스 올리면 살짝 진하게
-/// - 켜짐/선택: 연한 주황으로 채운 바탕 + 진한 글씨, 아이콘만 주황 (눈이 편하면서도 글씨는 또렷하게)
+/// - 기본: 흰 말랑 버튼 + 옅은 테두리, 마우스 올리면 버터색
+/// - 켜짐/선택: 버터 노랑 바탕 + 분홍 테두리 + 진한 코코아 글씨
 private struct ControlSurface: ViewModifier {
     var on = false
-    var radius: CGFloat = 8
+    var radius: CGFloat = 12
     @State private var hovering = false
 
     func body(content: Content) -> some View {
         content
-            .foregroundStyle(Color.primary.opacity(on ? 0.9 : 0.75))
+            .foregroundStyle(Theme.cocoa.opacity(on ? 1 : 0.8))
             .background(RoundedRectangle(cornerRadius: radius, style: .continuous)
-                .fill(on ? Color.accent.opacity(hovering ? 0.36 : 0.28)
-                         : Color.primary.opacity(hovering ? 0.10 : 0.055)))
+                .fill(on ? Theme.butter.opacity(hovering ? 1 : 0.85)
+                         : hovering ? Theme.butter.opacity(0.35) : Color.white.opacity(0.85)))
+            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .strokeBorder(on ? Theme.blush.opacity(0.9) : Theme.cocoa.opacity(0.1), lineWidth: on ? 1.5 : 1))
             .contentShape(Rectangle())
             .onHover { hovering = $0 }
     }
@@ -471,15 +592,15 @@ private struct Chip: View {
         Button(action: action) {
             HStack(spacing: 4) {
                 Image(systemName: symbol).font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(on ? Color.accentStrong : Color.primary.opacity(0.75)) // 켜지면 아이콘만 주황
-                Text(title).font(.system(size: 11, weight: on ? .semibold : .medium)).lineLimit(1)
+                    .foregroundStyle(on ? Theme.blushStrong : Theme.cocoa.opacity(0.6)) // 켜지면 아이콘만 분홍
+                Text(title).font(.system(size: 11.5, weight: on ? .bold : .medium, design: .rounded)).lineLimit(1)
                     .minimumScaleFactor(0.85)
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 30)
+            .frame(height: 32)
             .modifier(ControlSurface(on: on))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressableStyle())
     }
 }
 
@@ -494,9 +615,9 @@ private struct IconButton: View {
             Image(systemName: symbol)
                 .font(.system(size: 11, weight: .medium))
                 .frame(width: 28, height: 24)
-                .modifier(ControlSurface(radius: 7))
+                .modifier(ControlSurface(radius: 12))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressableStyle())
         .hint(help)
     }
 }
@@ -516,7 +637,7 @@ private struct SessionRow: View {
                     .frame(width: 22)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(session.projectName ?? BubbleContent.sourceLabel(session.source))
-                        .font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                        .font(.system(size: 13, weight: .bold, design: .rounded)).foregroundStyle(Theme.cocoa).lineLimit(1)
                     Text("\(BubbleContent.sourceLabel(session.source)) · \(stateText) · \(elapsed)")
                         .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                 }
@@ -558,10 +679,10 @@ private struct SessionRow: View {
 
     private var color: Color {
         switch session.state {
-        case .working: return .blue
-        case .waiting: return Color(red: 0.92, green: 0.33, blue: 0.25)
-        case .done: return .green
-        case .error: return .orange
+        case .working: return Color(red: 0.45, green: 0.65, blue: 0.88)
+        case .waiting: return Theme.blushStrong
+        case .done: return Color(red: 0.45, green: 0.75, blue: 0.5)
+        case .error: return Color(red: 0.95, green: 0.6, blue: 0.3)
         }
     }
 }
@@ -622,7 +743,7 @@ private struct HintLayer: View {
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .frame(width: width, height: height)
-                    .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.black.opacity(0.85)))
+                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.cocoa.opacity(0.92)))
                     .position(x: x, y: y)
                     .allowsHitTesting(false)
             }

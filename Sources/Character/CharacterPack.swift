@@ -9,6 +9,8 @@ struct CharacterPack: Codable, Equatable {
         var frames: Int?
         var fps: Double?
         var loop: Bool?
+        /// 이 동작 그림만 바라보는 방향이 다를 때 ("right"/"left"/"front"). 없으면 팩 전체 facing
+        var facing: String?
     }
 
     struct Messages: Codable, Equatable {
@@ -26,8 +28,21 @@ struct CharacterPack: Codable, Equatable {
     var pixelArt: Bool?
     /// 스프라이트가 바라보는 방향 ("right" 기본, "left", "front" = 좌우 반전 안 함)
     var facing: String?
+    /// 상태별 그림. 키는 동작 이름(`idle`), 같은 동작의 다른 포즈는 `idle.2`, `idle.3` …
+    /// (상태에 들어갈 때마다 하나를 골라 보여준다 → 같은 걷기라도 가끔 다른 모습)
     var states: [String: StateSpec]
     var messages: Messages?
+    /// 캐릭터 목록 순서 (작을수록 앞)
+    var order: Int?
+
+    /// 상태 키 → (동작, 변형 번호). `idle` → (.idle, 1), `walk.2` → (.walk, 2). 모르는 이름은 nil
+    static func parseStateKey(_ key: String) -> (PetAction, Int)? {
+        let parts = key.split(separator: ".", maxSplits: 1).map(String.init)
+        guard let action = PetAction(rawValue: parts[0]) else { return nil }
+        guard parts.count == 2 else { return (action, 1) }
+        guard let n = Int(parts[1]), n >= 1 else { return nil }
+        return (action, n)
+    }
 
     enum ValidationError: Error, Equatable, CustomStringConvertible {
         case invalidId

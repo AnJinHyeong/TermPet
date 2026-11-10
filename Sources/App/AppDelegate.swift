@@ -72,7 +72,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             host.topAnchor.constraint(equalTo: effect.topAnchor),
             host.bottomAnchor.constraint(equalTo: effect.bottomAnchor),
         ])
-        let window = NSWindow(contentRect: NSRect(origin: .zero, size: host.fittingSize),
+        var size = host.fittingSize
+        if size.height < 100 { size = NSSize(width: 312, height: 760) } // LazyVGrid는 fittingSize가 0일 수 있음
+        NSLog("[TermPet] preview panel size \(size)")
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
                               styleMask: [.titled, .fullSizeContentView], backing: .buffered, defer: false)
         window.titlebarAppearsTransparent = true
         window.title = "panel-preview"

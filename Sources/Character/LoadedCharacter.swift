@@ -13,7 +13,7 @@ enum LoadedCharacter {
     var id: String {
         switch self {
         case .builtIn(let style): return style.id
-        case .sprite: return CharacterLibrary.customId
+        case .sprite(let s): return s.libraryId
         }
     }
 
@@ -45,11 +45,16 @@ final class SpriteCharacter {
     struct Animation {
         let frames: [CGImage]
         let timing: SpriteTiming
+        /// 이 그림이 바라보는 방향 ("right"/"left"/"front")
+        let facing: String
     }
 
     let pack: CharacterPack
     let folder: URL
-    private let animations: [PetAction: Animation]
+    /// 캐릭터 목록에서의 id (내 캐릭터 = custom, 기본 친구들 = friend.<id>)
+    var libraryId: String = CharacterLibrary.customId
+    /// 동작별 포즈 목록 (변형 번호 순)
+    private let animations: [PetAction: [Animation]]
 
     enum LoadError: Error, CustomStringConvertible {
         case missingJSON
@@ -79,9 +84,9 @@ final class SpriteCharacter {
             throw LoadError.invalidJSON("\(error)")
         }
 
-        var animations: [PetAction: Animation] = [:]
+        var numbered: [PetAction: [(Int, Animation)]] = [:]
         for (key, spec) in pack.states {
-            guard let action = PetAction(rawValue: key) else { continue } // 모르는 상태 이름은 무시
+            guard let (action, number) = CharacterPack.parseStateKey(key) else { continue } // 모르는 상태 이름은 무시
             let url = folder.appendingPathComponent(spec.file)
             guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
                   let sheet = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
@@ -96,23 +101,43 @@ final class SpriteCharacter {
                 sheet.cropping(to: CGRect(x: i * pack.frameWidth, y: 0,
                                           width: pack.frameWidth, height: pack.frameHeight))
             }
-            animations[action] = Animation(
+            let anim = Animation(
                 frames: frames,
-                timing: SpriteTiming(frameCount: frames.count, fps: spec.fps ?? 8, loop: spec.loop ?? true))
+                timing: SpriteTiming(frameCount: frames.count, fps: spec.fps ?? 8, loop: spec.loop ?? true),
+                facing: spec.facing ?? pack.facing ?? "right")
+            numbered[action, default: []].append((number, anim))
         }
+        let animations = numbered.mapValues { $0.sorted { $0.0 < $1.0 }.map(\.1) }
 
         self.pack = pack
         self.folder = folder
         self.animations = animations
     }
 
-    /// 상태별 애니메이션. 정의되지 않은 상태는 idle로 대체.
-    func animation(for action: PetAction) -> Animation? {
-        animations[action] ?? animations[.idle]
+    /// 상태별 애니메이션. 정의되지 않은 상태는 비슷한 동작 → idle 순으로 대체.
+    /// `variant`: 두뇌가 상태에 들어갈 때 뽑은 난수 → 포즈가 여러 개면 그중 하나
+    func animation(for action: PetAction, variant: Int = 0) -> Animation? {
+        guard let list = Self.fallbacks(for: action).lazy.compactMap({ self.animations[$0] }).first,
+              !list.isEmpty else { return nil }
+        return list[abs(variant) % list.count]
     }
 
-    func frame(for action: PetAction, elapsed: TimeInterval) -> CGImage? {
-        guard let anim = animation(for: action), !anim.frames.isEmpty else { return nil }
+    /// 이 동작의 포즈 개수 (대체 동작 포함)
+    func variantCount(for action: PetAction) -> Int {
+        Self.fallbacks(for: action).lazy.compactMap { self.animations[$0]?.count }.first ?? 0
+    }
+
+    /// 없는 동작을 무엇으로 대신할지 (벽 오르기 그림이 없으면 잡힌 그림 → 가만히)
+    static func fallbacks(for action: PetAction) -> [PetAction] {
+        switch action {
+        case .climb: return [.climb, .dragged, .idle]
+        case .idle: return [.idle]
+        default: return [action, .idle]
+        }
+    }
+
+    func frame(for action: PetAction, variant: Int = 0, elapsed: TimeInterval) -> CGImage? {
+        guard let anim = animation(for: action, variant: variant), !anim.frames.isEmpty else { return nil }
         return anim.frames[anim.timing.frameIndex(at: elapsed)]
     }
 

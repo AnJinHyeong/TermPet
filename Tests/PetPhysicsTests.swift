@@ -4,6 +4,11 @@ import XCTest
 final class PetPhysicsTests: XCTestCase {
     private let size = CGSize(width: 80, height: 80)
 
+    private func isHitWall(_ r: PetPhysics.WalkResult) -> Bool {
+        if case .hitWall = r { return true }
+        return false
+    }
+
     private func physics(x: CGFloat, y: CGFloat) -> PetPhysics {
         PetPhysics(origin: CGPoint(x: x, y: y), size: size)
     }
@@ -28,11 +33,11 @@ final class PetPhysicsTests: XCTestCase {
     func testWalkHitsWallAtScreenEdge() {
         let layout = ScreenLayout(frames: [CGRect(x: 0, y: 0, width: 1000, height: 800)])
         var p = physics(x: 900, y: 0)
-        XCTAssertEqual(p.walk(direction: .right, speed: 100, dt: 0.5, layout: layout), .hitWall)
+        XCTAssertTrue(isHitWall(p.walk(direction: .right, speed: 100, dt: 0.5, layout: layout)))
         XCTAssertEqual(p.origin.x, 920)
 
         var q = physics(x: 10, y: 0)
-        XCTAssertEqual(q.walk(direction: .left, speed: 100, dt: 0.5, layout: layout), .hitWall)
+        XCTAssertTrue(isHitWall(q.walk(direction: .left, speed: 100, dt: 0.5, layout: layout)))
         XCTAssertEqual(q.origin.x, 0)
     }
 
@@ -52,7 +57,7 @@ final class PetPhysicsTests: XCTestCase {
             CGRect(x: 1000, y: 80, width: 1000, height: 720), // Dock 때문에 바닥이 더 높음
         ])
         var p = physics(x: 930, y: 0)
-        XCTAssertEqual(p.walk(direction: .right, speed: 100, dt: 0.5, layout: layout), .hitWall)
+        XCTAssertTrue(isHitWall(p.walk(direction: .right, speed: 100, dt: 0.5, layout: layout)))
     }
 
     func testWalkingOntoLowerAdjacentScreenStartsFalling() {

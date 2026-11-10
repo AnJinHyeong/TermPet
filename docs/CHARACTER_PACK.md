@@ -66,7 +66,20 @@ PNG를 원하는 그림으로 바꾸고 `character.json`의 `id`/`name`을 고�
 | `states.*.fps` | | 초당 프레임 (기본 8) |
 | `states.*.loop` | | 반복 여부 (기본 true, false면 마지막 프레임에서 멈춤) |
 | `messages` | | 말풍선 기본 문구. 비어 있으면 앱 기본 문구 |
+| `order` | | 캐릭터 목록 순서 (작을수록 앞, 친구 팩용) |
+| `states.*.facing` | | 이 동작 그림만 방향이 다를 때 (`right`/`left`/`front`) |
 
-상태 이름: `idle` `walk` `talk` `happy`(작업 완료) `angry`(에러) `ask`(확인 요청) `sleep` `dragged`(잡힘) `fall`(떨어짐)
+상태 이름: `idle` `walk` `talk` `happy`(작업 완료) `angry`(에러) `ask`(확인 요청) `sleep` `dragged`(잡힘) `fall`(떨어짐·점프·던져짐) `climb`(창/화면 벽 오르기)
+
+- **포즈 여러 개**: `idle.2`, `walk.2`, `happy.3` …처럼 번호를 붙이면 그 동작에 들어갈 때마다 하나를 골라 보여준다.
+  `walk.2`가 있으면 그 포즈가 뽑혔을 때 더 빨리 달린다.
+- **대체 규칙**: 없는 동작은 `idle`로, `climb`가 없으면 `dragged` → `idle` 순으로 대신한다.
+- `sleep`일 때는 앱이 머리 위에 z z z 를 그려 준다.
+
+## 친구 팩 (여러 개)
+
+`~/Library/Application Support/TermPet/Friends/<id>/` 에 팩 폴더를 두면 캐릭터 목록 맨 앞에 나오고,
+선택 기록이 없으면 첫 친구(`order`가 가장 작은)가 기본 캐릭터가 된다.
+저작권 그림으로 만든 팩은 이 폴더에만 두고 저장소에는 넣지 않는다.
 
 읽지 못한 팩은 캐릭터 메뉴 아래 "읽지 못한 팩"에 이유와 함께 표시된다.

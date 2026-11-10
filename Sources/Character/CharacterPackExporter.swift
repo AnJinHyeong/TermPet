@@ -8,7 +8,7 @@ enum CharacterPackExporter {
     /// 상태별 (프레임 수, fps)
     private static let plan: [(PetAction, Int, Double)] = [
         (.idle, 8, 6), (.walk, 8, 12), (.talk, 6, 10), (.happy, 8, 12),
-        (.angry, 6, 12), (.ask, 8, 10), (.sleep, 8, 4), (.dragged, 6, 10), (.fall, 4, 10),
+        (.angry, 6, 12), (.ask, 8, 10), (.sleep, 8, 4), (.dragged, 6, 10), (.fall, 4, 10), (.climb, 6, 10),
     ]
 
     /// `directory/<style>-sprite/` 에 팩을 만들고 그 폴더 URL을 반환

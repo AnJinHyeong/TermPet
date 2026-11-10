@@ -38,7 +38,7 @@ final class PetBrainTests: XCTestCase {
     func testHitWallFlipsDirection() {
         var brain = makeBrain()
         let before = brain.direction
-        brain.handle(.hitWall, using: &rng)
+        brain.handle(.hitWall(), using: &rng)
         XCTAssertEqual(brain.direction, before.flipped)
     }
 

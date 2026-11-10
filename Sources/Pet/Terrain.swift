@@ -1,0 +1,159 @@
+import CoreGraphics
+
+/// 화면에 떠 있는 앱 창 하나 (AppKit 좌표: 좌하단 원점, y 위로 증가)
+struct WindowBox: Equatable {
+    var id: Int
+    var frame: CGRect
+}
+
+/// 펫이 다니는 "지형" = 화면 바닥 + 앱 창 윗면(선반) + 창 옆면(벽). AppKit 비의존 순수 로직.
+///
+/// React 비유: 화면 상태(창 목록)에서 파생된 `useMemo` 값. 창 목록이 바뀌면 새로 만든다.
+/// - 선반(Ledge): 창 윗변 중 **앞 창에 가리지 않고** 위에 펫이 설 공간(메뉴바 아래)이 있는 구간
+/// - 벽(Wall): 걷다가 부딪히는 창 옆변. 기어 올라가면 그 창 윗면에 올라선다.
+struct Terrain {
+    struct Ledge: Equatable {
+        var minX: CGFloat
+        var maxX: CGFloat
+        var y: CGFloat
+        var windowID: Int
+
+        func contains(x: CGFloat) -> Bool { x >= minX && x <= maxX }
+    }
+
+    struct Wall: Equatable {
+        /// 벽면 x (펫 몸이 닿는 선)
+        var x: CGFloat
+        /// 벽 꼭대기 y (창 윗면). 화면 끝 벽이면 화면 위쪽 끝
+        var top: CGFloat
+        /// 창 벽이면 창 id, 화면 끝이면 nil
+        var windowID: Int?
+        /// 벽이 펫의 어느 쪽에 있는지 (= 부딪힐 때 걷던 방향)
+        var side: Direction
+    }
+
+    /// 착지 지점: 화면 바닥이면 windowID nil
+    struct Floor: Equatable {
+        var y: CGFloat
+        var windowID: Int?
+    }
+
+    var screens: ScreenLayout
+    /// 앞(위에 그려진 창) → 뒤 순서
+    private(set) var windows: [WindowBox]
+    private(set) var ledges: [Ledge] = []
+    let petSize: CGSize
+
+    /// 이보다 좁은 선반 구간은 버린다 (펫 몸 폭 비율)
+    static let minLedgeRatio: CGFloat = 0.6
+
+    init(screens: ScreenLayout, windows: [WindowBox] = [], petSize: CGSize = CGSize(width: 80, height: 80)) {
+        self.screens = screens
+        self.windows = windows
+        self.petSize = petSize
+        self.ledges = windows.indices.flatMap { computeLedges(of: $0) }
+    }
+
+    func window(id: Int) -> WindowBox? { windows.first { $0.id == id } }
+
+    // MARK: - 선반
+
+    private func computeLedges(of i: Int) -> [Ledge] {
+        let f = windows[i].frame
+        let y = f.maxY
+        // 1) 윗변이 들어가는 화면에서, 머리 위 공간(펫 키의 80%)이 남는 부분만
+        var spans: [ClosedRange<CGFloat>] = screens.frames.compactMap { s in
+            guard y >= s.minY, y + petSize.height * 0.8 <= s.maxY else { return nil }
+            let lo = max(f.minX, s.minX), hi = min(f.maxX, s.maxX)
+            return lo < hi ? lo...hi : nil
+        }
+        // 2) 앞 창이 윗변 선을 덮는 부분은 뺀다 (가려진 곳엔 못 선다)
+        for j in 0..<i {
+            let g = windows[j].frame
+            guard g.minY <= y + 1, g.maxY > y + 1 else { continue }
+            spans = spans.flatMap { subtract($0, g.minX...g.maxX) }
+        }
+        let minWidth = petSize.width * Self.minLedgeRatio
+        return spans.filter { $0.upperBound - $0.lowerBound >= minWidth }
+            .map { Ledge(minX: $0.lowerBound, maxX: $0.upperBound, y: y, windowID: windows[i].id) }
+    }
+
+    private func subtract(_ a: ClosedRange<CGFloat>, _ b: ClosedRange<CGFloat>) -> [ClosedRange<CGFloat>] {
+        guard b.lowerBound < a.upperBound, b.upperBound > a.lowerBound else { return [a] }
+        var out: [ClosedRange<CGFloat>] = []
+        if b.lowerBound > a.lowerBound { out.append(a.lowerBound...b.lowerBound) }
+        if b.upperBound < a.upperBound { out.append(b.upperBound...a.upperBound) }
+        return out
+    }
+
+    /// 펫 발(가로 중심 x, 높이 y)이 올라서 있는 창 선반
+    func ledge(atX x: CGFloat, y: CGFloat, windowID: Int? = nil) -> Ledge? {
+        ledges.first { abs($0.y - y) < 1.5 && $0.contains(x: x) && (windowID == nil || $0.windowID == windowID) }
+    }
+
+    // MARK: - 착지
+
+    /// `fromY`에서 `toY`까지 떨어지는 동안 처음 닿는 바닥 (선반 또는 화면 바닥).
+    /// 닿는 게 없으면 nil (계속 떨어짐).
+    func landing(centerX x: CGFloat, fromY: CGFloat, toY: CGFloat) -> Floor? {
+        var best: Floor?
+        for l in ledges where l.contains(x: x) && l.y <= fromY + 0.5 && l.y >= toY {
+            if best == nil || l.y > best!.y { best = Floor(y: l.y, windowID: l.windowID) }
+        }
+        if let floorY = screens.landingFloor(centerX: x, fromY: fromY), floorY >= toY || floorY > fromY {
+            if best == nil || floorY > best!.y { best = Floor(y: floorY, windowID: nil) }
+        }
+        return best
+    }
+
+    // MARK: - 벽
+
+    /// 몸 왼쪽 x가 `oldX` → `newX`로 움직일 때 부딪히는 첫 창 옆면.
+    /// 발 높이에서 펫 키의 60% 안쪽으로 시작해 발보다 4pt 이상 솟은 창만 벽이다
+    /// (창 아래를 지나가거나, 이미 창 앞에 겹쳐 있으면 벽 아님).
+    func windowWall(fromX oldX: CGFloat, toX newX: CGFloat, feetY: CGFloat, direction: Direction) -> Wall? {
+        let w = petSize.width
+        var hit: Wall?
+        for (i, box) in windows.enumerated() {
+            let f = box.frame
+            guard f.minY < feetY + petSize.height * 0.6, f.maxY > feetY + 4 else { continue }
+            let sideX: CGFloat
+            switch direction {
+            case .right:
+                sideX = f.minX
+                guard oldX + w <= sideX + 0.5, newX + w > sideX else { continue }
+            case .left:
+                sideX = f.maxX
+                guard oldX >= sideX - 0.5, newX < sideX else { continue }
+            }
+            // 벽 중간이 앞 창에 가려 있으면 안 보이는 벽 → 무시
+            let probe = CGPoint(x: sideX, y: min(f.maxY, feetY + petSize.height / 2))
+            if isCovered(probe, frontOf: i) { continue }
+            let wall = Wall(x: sideX, top: f.maxY, windowID: box.id, side: direction)
+            if let h = hit {
+                let closer = direction == .right ? sideX < h.x : sideX > h.x
+                if closer { hit = wall }
+            } else {
+                hit = wall
+            }
+        }
+        return hit
+    }
+
+    /// i번 창보다 앞에 있는 창이 점을 덮는지
+    func isCovered(_ p: CGPoint, frontOf i: Int) -> Bool {
+        windows[..<i].contains { $0.frame.insetBy(dx: -1, dy: -1).contains(p) }
+    }
+
+    /// 창 벽을 다 오른 뒤 올라설 선반 (벽 바로 안쪽에 몸 절반 이상 걸칠 수 있어야)
+    func ledgeAfterClimbing(_ wall: Wall) -> Ledge? {
+        guard let id = wall.windowID else { return nil }
+        let x = wall.x + wall.side.sign * (petSize.width * 0.5 + 1)
+        return ledges.first { $0.windowID == id && abs($0.y - wall.top) < 1.5 && $0.contains(x: x) }
+    }
+
+    /// 화면 위쪽 끝 (기어오를 수 있는 최대 높이 계산용)
+    func ceiling(atX x: CGFloat) -> CGFloat? {
+        screens.indices(inColumnX: x).map { screens.frames[$0].maxY }.max()
+    }
+}

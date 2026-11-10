@@ -13,7 +13,8 @@ enum PetAction: String, CaseIterable {
     case ask       // 확인 요청 / 손 흔들기
     case sleep     // 졸기
     case dragged   // 마우스로 잡혀 있음
-    case fall      // 떨어지는 중
+    case fall      // 떨어지는 중 (점프·던져짐 포함)
+    case climb     // 창/화면 벽을 기어오르는 중
 
     /// 이벤트로 잠깐 표시되고 시간이 지나면 idle로 돌아가는 상태들
     var isReaction: Bool {
@@ -35,12 +36,13 @@ enum PetAction: String, CaseIterable {
         case .sleep: return "잘 때"
         case .dragged: return "잡혔을 때"
         case .fall: return "떨어질 때"
+        case .climb: return "벽 오를 때"
         }
     }
 
     /// 사용자가 잡고 있거나 떨어지는 중 → 다른 입력으로 끊으면 안 되는 상태
     var isPhysicsControlled: Bool {
-        self == .dragged || self == .fall
+        self == .dragged || self == .fall || self == .climb
     }
 }
 

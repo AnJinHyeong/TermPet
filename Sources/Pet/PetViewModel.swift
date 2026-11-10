@@ -7,6 +7,10 @@ import Observation
 final class PetViewModel {
     var action: PetAction = .idle
     var facing: Direction = .right
+    /// 같은 동작의 여러 포즈 중 무엇을 보여줄지 (두뇌가 상태 진입 때 뽑은 난수)
+    var variant: Int = 0
+    /// 창 위 산책 켜짐 (메뉴 패널 칩 표시용)
+    var walkOnWindows: Bool = true
     /// 앱 시작 후 계속 흐르는 애니메이션 시계(초) — 숨쉬기, 눈 깜빡임 등
     var time: TimeInterval = 0
     /// 현재 상태에 들어온 뒤 지난 시간 — 점프 등 상태 시작 기준 애니메이션

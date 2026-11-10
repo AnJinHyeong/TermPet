@@ -5,13 +5,15 @@ import SwiftUI
 struct SpriteCharacterView: View {
     let sprite: SpriteCharacter
     let action: PetAction
+    var variant: Int = 0
     let facing: Direction
     let actionTime: TimeInterval
 
     var body: some View {
-        if let frame = sprite.frame(for: action, elapsed: actionTime) {
-            // 스프라이트가 바라보는 방향과 이동 방향이 다르면 좌우 반전
-            let flip = sprite.spriteFacing == "front" ? false : (facing == .left) != (sprite.spriteFacing == "left")
+        if let anim = sprite.animation(for: action, variant: variant),
+           let frame = sprite.frame(for: action, variant: variant, elapsed: actionTime) {
+            // 그림이 바라보는 방향과 이동 방향이 다르면 좌우 반전 ("front"면 반전 안 함)
+            let flip = anim.facing == "front" ? false : (facing == .left) != (anim.facing == "left")
             Image(decorative: frame, scale: 1)
                 // pixelArt면 확대 시 보간 끔(nearest neighbor) → 도트가 흐려지지 않음
                 .interpolation(sprite.pixelArt ? .none : .high)

@@ -47,105 +47,119 @@ struct BubbleShape: Shape {
     }
 }
 
-let cream = Color(red: 1.00, green: 0.87, blue: 0.60)
-let amber = Color(red: 0.99, green: 0.70, blue: 0.38)
-let outline = Color(red: 0.42, green: 0.24, blue: 0.11)
-let mint = Color(red: 0.47, green: 0.89, blue: 0.72)
-let check = Color(red: 0.16, green: 0.62, blue: 0.36)
+// 파스텔 팔레트 (메뉴 패널 Theme와 같은 색)
+let butter = Color(red: 1.00, green: 0.91, blue: 0.66)
+let peach = Color(red: 1.00, green: 0.80, blue: 0.80)
+let bunnyFur = Color(red: 1.00, green: 0.96, blue: 0.84)
+let blush = Color(red: 0.96, green: 0.56, blue: 0.66)
+let cocoa = Color(red: 0.36, green: 0.25, blue: 0.20)
+let mint = Color(red: 0.62, green: 0.92, blue: 0.78)
 
+/// 귀 하나: 바깥 털 + 안쪽 분홍
+struct Ear: View {
+    var body: some View {
+        ZStack {
+            Capsule().fill(bunnyFur)
+                .overlay(Capsule().stroke(cocoa, lineWidth: 16))
+            Capsule().fill(blush.opacity(0.55)).padding(.horizontal, 26).padding(.vertical, 40).offset(y: 18)
+        }
+        .frame(width: 104, height: 280)
+    }
+}
+
+/// 앱 아이콘: 터미널 창 위에 올라앉은 말랑 토끼 (창 위를 걸어 다니는 펫)
 struct AppIconView: View {
     var body: some View {
         ZStack {
-            // 그림자 + 배경 (Apple 아이콘 격자: 1024 캔버스 안에 824 크기 둥근 사각형)
+            // 배경 (Apple 아이콘 격자: 1024 캔버스 안에 824 크기 둥근 사각형)
             RoundedRectangle(cornerRadius: 185, style: .continuous)
-                .fill(LinearGradient(colors: [Color(red: 0.24, green: 0.27, blue: 0.37),
-                                              Color(red: 0.12, green: 0.13, blue: 0.20)],
-                                     startPoint: .top, endPoint: .bottom))
+                .fill(LinearGradient(colors: [butter, peach], startPoint: .topLeading, endPoint: .bottomTrailing))
                 .frame(width: 824, height: 824)
-                .shadow(color: .black.opacity(0.35), radius: 18, y: 10)
-            // 위쪽 은은한 하이라이트
+                .shadow(color: cocoa.opacity(0.28), radius: 18, y: 10)
             RoundedRectangle(cornerRadius: 185, style: .continuous)
-                .strokeBorder(LinearGradient(colors: [.white.opacity(0.22), .white.opacity(0.0)],
-                                             startPoint: .top, endPoint: .center), lineWidth: 6)
+                .strokeBorder(LinearGradient(colors: [.white.opacity(0.7), .white.opacity(0)],
+                                             startPoint: .top, endPoint: .center), lineWidth: 8)
                 .frame(width: 824, height: 824)
-
-            // 터미널 프롬프트 ›_
-            HStack(spacing: 10) {
-                Text("›").font(.system(size: 150, weight: .heavy, design: .monospaced))
-                RoundedRectangle(cornerRadius: 8).frame(width: 86, height: 22).offset(y: 46)
+            // 반짝이 장식
+            ForEach(Array([(250.0, 250.0, 64.0), (790.0, 300.0, 44.0), (800.0, 470.0, 28.0)].enumerated()), id: \.offset) { _, p in
+                Image(systemName: "sparkle").font(.system(size: p.2, weight: .bold))
+                    .foregroundStyle(.white).position(x: p.0, y: p.1)
             }
-            .foregroundStyle(mint)
-            .position(x: 265, y: 255)
+            Image(systemName: "heart.fill").font(.system(size: 50)).foregroundStyle(blush)
+                .rotationEffect(.degrees(-14)).position(x: 238, y: 470)
 
-            // 바닥 그림자
-            Ellipse().fill(.black.opacity(0.35)).frame(width: 470, height: 54).position(x: 512, y: 812)
+            // 귀 (몸 뒤)
+            Ear().rotationEffect(.degrees(-9)).position(x: 445, y: 270)
+            Ear().rotationEffect(.degrees(11)).position(x: 590, y: 272)
 
-            // 발
-            ForEach([-1.0, 1.0], id: \.self) { side in
-                Capsule().fill(Color(red: 0.86, green: 0.55, blue: 0.28))
-                    .overlay(Capsule().stroke(outline, lineWidth: 14))
-                    .frame(width: 110, height: 64)
-                    .position(x: 512 + side * 120, y: 790)
+            // 터미널 창
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: 56, style: .continuous).fill(cocoa)
+                HStack(spacing: 16) {
+                    Circle().fill(blush).frame(width: 30, height: 30)
+                    Circle().fill(butter).frame(width: 30, height: 30)
+                    Circle().fill(mint).frame(width: 30, height: 30)
+                }
+                .padding(.leading, 44).padding(.top, 108)
+                HStack(spacing: 14) {
+                    Text("›").font(.system(size: 130, weight: .heavy, design: .rounded))
+                    RoundedRectangle(cornerRadius: 9).frame(width: 84, height: 22).offset(y: 44)
+                }
+                .foregroundStyle(mint)
+                .padding(.leading, 60).padding(.top, 150)
             }
+            .frame(width: 600, height: 330)
+            .position(x: 512, y: 718)
 
-            // 몸
-            BlobShape()
-                .fill(LinearGradient(colors: [cream, amber], startPoint: .top, endPoint: .bottom))
-                .overlay(BlobShape().stroke(outline, style: StrokeStyle(lineWidth: 18, lineJoin: .round)))
-                .frame(width: 500, height: 410)
-                .position(x: 512, y: 580)
+            // 몸 (창 윗변에 앉음)
+            Ellipse().fill(bunnyFur)
+                .overlay(Ellipse().stroke(cocoa, lineWidth: 18))
+                .frame(width: 400, height: 320)
+                .position(x: 517, y: 432)
             // 몸 광택
-            Ellipse().fill(.white.opacity(0.45)).frame(width: 110, height: 60)
-                .rotationEffect(.degrees(-25)).position(x: 380, y: 450)
-
+            Ellipse().fill(.white.opacity(0.7)).frame(width: 90, height: 48)
+                .rotationEffect(.degrees(-25)).position(x: 405, y: 345)
             // 눈
             ForEach([-1.0, 1.0], id: \.self) { side in
                 ZStack {
-                    Ellipse().fill(Color(red: 0.16, green: 0.10, blue: 0.07)).frame(width: 58, height: 78)
-                    Circle().fill(.white).frame(width: 22, height: 22).offset(x: -9, y: -16)
+                    Ellipse().fill(cocoa).frame(width: 40, height: 50)
+                    Circle().fill(.white).frame(width: 15, height: 15).offset(x: -6, y: -10)
                 }
-                .position(x: 512 + side * 92, y: 585)
+                .position(x: 517 + side * 70, y: 430)
             }
             // 볼
             ForEach([-1.0, 1.0], id: \.self) { side in
-                Ellipse().fill(Color(red: 1.0, green: 0.45, blue: 0.55).opacity(0.55))
-                    .frame(width: 78, height: 42).position(x: 512 + side * 170, y: 650)
+                Ellipse().fill(blush.opacity(0.7)).frame(width: 74, height: 40).position(x: 517 + side * 128, y: 478)
             }
-            // 입
+            // 입 (ω)
             Path { p in
-                p.move(to: CGPoint(x: 487, y: 640))
-                p.addQuadCurve(to: CGPoint(x: 512, y: 652), control: CGPoint(x: 498, y: 656))
-                p.addQuadCurve(to: CGPoint(x: 537, y: 640), control: CGPoint(x: 526, y: 656))
+                p.move(to: CGPoint(x: 489, y: 466))
+                p.addQuadCurve(to: CGPoint(x: 517, y: 470), control: CGPoint(x: 500, y: 488))
+                p.addQuadCurve(to: CGPoint(x: 545, y: 466), control: CGPoint(x: 534, y: 488))
             }
-            .stroke(outline, style: StrokeStyle(lineWidth: 12, lineCap: .round, lineJoin: .round))
-
-            // 말풍선 + 체크 (작업 끝났어!)
-            ZStack {
-                BubbleShape().fill(.white)
-                    .shadow(color: .black.opacity(0.25), radius: 10, y: 6)
-                Image(systemName: "checkmark")
-                    .font(.system(size: 120, weight: .black))
-                    .foregroundStyle(check)
-                    .offset(y: -22)
+            .stroke(cocoa, style: StrokeStyle(lineWidth: 11, lineCap: .round, lineJoin: .round))
+            // 창 모서리에 걸친 앞발
+            ForEach([-1.0, 1.0], id: \.self) { side in
+                Ellipse().fill(bunnyFur)
+                    .overlay(Ellipse().stroke(cocoa, lineWidth: 14))
+                    .frame(width: 92, height: 70)
+                    .position(x: 517 + side * 92, y: 572)
             }
-            .frame(width: 270, height: 230)
-            .position(x: 700, y: 300)
         }
         .frame(width: 1024, height: 1024)
     }
 }
 
-// MARK: - 메뉴바 아이콘 (18pt 템플릿: 검정 실루엣 + 눈은 뚫기)
+// MARK: - 메뉴바 아이콘 (18pt 템플릿: 토끼 얼굴 실루엣 + 눈은 뚫기)
 
 struct MenuBarIconView: View {
     var body: some View {
         ZStack {
-            BlobShape().fill(.black).frame(width: 16, height: 13).position(x: 9, y: 9.5)
+            Capsule().fill(.black).frame(width: 3.6, height: 8.5).rotationEffect(.degrees(-10)).position(x: 6.6, y: 5.2)
+            Capsule().fill(.black).frame(width: 3.6, height: 8.5).rotationEffect(.degrees(10)).position(x: 11.4, y: 5.2)
+            Ellipse().fill(.black).frame(width: 15.5, height: 11.5).position(x: 9, y: 11.8)
             ForEach([-1.0, 1.0], id: \.self) { side in
-                Capsule().fill(.black).frame(width: 4.2, height: 2.6).position(x: 9 + side * 4, y: 16.2)
-            }
-            ForEach([-1.0, 1.0], id: \.self) { side in
-                Ellipse().frame(width: 2.4, height: 3.4).position(x: 9 + side * 3.2, y: 10)
+                Ellipse().frame(width: 2.2, height: 2.8).position(x: 9 + side * 3, y: 11.6)
                     .blendMode(.destinationOut) // 눈 부분을 투명하게 뚫는다
             }
         }

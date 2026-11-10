@@ -1,42 +1,89 @@
 import CoreGraphics
 import Foundation
 
-/// 펫 창의 위치 계산(걷기 / 중력 낙하). AppKit 비의존 순수 로직.
-/// `origin`은 펫 창의 좌하단 좌표(AppKit 화면 좌표, y 위로 증가).
+/// 펫 창의 위치 계산(걷기 / 낙하·던지기 / 벽 오르기 / 창 타고 다니기). AppKit 비의존 순수 로직.
+/// `origin`은 펫 창의 좌하단 좌표(AppKit 화면 좌표, y 위로 증가) = 발 위치.
 struct PetPhysics {
     var origin: CGPoint
     var size: CGSize
-    var velocityY: CGFloat = 0
+    /// 공중에 있을 때 속도 (pt/s). y는 위가 +
+    var velocity: CGVector = .zero
     /// 중력 가속도 (pt/s²)
     var gravity: CGFloat = 2600
+    /// 지금 서 있는 창 (nil = 화면 바닥이거나 공중)
+    var standingOn: Int?
 
     var centerX: CGFloat { origin.x + size.width / 2 }
 
-    enum WalkResult: Equatable {
-        case moved
-        case hitWall        // 화면 끝(이웃 화면 없음) → 방향 전환 필요
-        case startFalling   // 발밑에 바닥이 없음 (더 낮은 이웃 화면으로 넘어감 등)
+    /// 하위 호환: 예전 코드/테스트가 쓰던 세로 속도
+    var velocityY: CGFloat {
+        get { velocity.dy }
+        set { velocity.dy = newValue }
     }
 
-    mutating func walk(direction: Direction, speed: CGFloat, dt: TimeInterval,
-                       layout: ScreenLayout) -> WalkResult {
+    enum WalkResult: Equatable {
+        case moved
+        case hitWall(Terrain.Wall)   // 창 옆면 또는 화면 끝 → 기어오르거나 돌아선다
+        case reachedEdge             // 창 위에서 끝에 닿음 → 뛰어내리거나 돌아선다
+        case startFalling            // 발밑에 바닥이 없음
+    }
+
+    // MARK: - 걷기
+
+    mutating func walk(direction: Direction, speed: CGFloat, dt: TimeInterval, terrain: Terrain) -> WalkResult {
+        let dx = direction.sign * speed * CGFloat(dt)
+        let newX = origin.x + dx
+
+        // 1) 창 옆면에 부딪힘
+        if let wall = terrain.windowWall(fromX: origin.x, toX: newX, feetY: origin.y, direction: direction) {
+            origin.x = direction == .right ? wall.x - size.width : wall.x
+            // 발목 높이 정도의 낮은 턱은 그냥 올라선다
+            if wall.top - origin.y < size.height * 0.22, let ledge = terrain.ledgeAfterClimbing(wall) {
+                origin.y = ledge.y
+                origin.x = wall.x + direction.sign * 1 - (direction == .right ? 0 : size.width)
+                standingOn = ledge.windowID
+                return .moved
+            }
+            return .hitWall(wall)
+        }
+
+        // 2) 창 위에서 걷는 중: 선반 끝이면 멈춘다
+        if let id = standingOn {
+            guard terrain.ledge(atX: centerX, y: origin.y, windowID: id) != nil else {
+                standingOn = nil
+                return .startFalling // 서 있던 곳이 사라짐 (창이 가려짐 등)
+            }
+            let newCenter = newX + size.width / 2
+            if terrain.ledge(atX: newCenter, y: origin.y, windowID: id) == nil {
+                return .reachedEdge
+            }
+            origin.x = newX
+            return .moved
+        }
+
+        // 3) 화면 바닥: 모니터 사이 이동 / 화면 끝 벽
+        return walkOnScreenFloor(direction: direction, newX: newX, layout: terrain.screens)
+    }
+
+    /// 하위 호환: 창 없이 화면만 있는 지형
+    mutating func walk(direction: Direction, speed: CGFloat, dt: TimeInterval, layout: ScreenLayout) -> WalkResult {
+        walk(direction: direction, speed: speed, dt: dt, terrain: Terrain(screens: layout, petSize: size))
+    }
+
+    private mutating func walkOnScreenFloor(direction: Direction, newX: CGFloat, layout: ScreenLayout) -> WalkResult {
         guard let current = layout.index(containingX: centerX, y: origin.y) else {
             return .startFalling
         }
         let f = layout.frames[current]
-        let newX = origin.x + direction.sign * speed * CGFloat(dt)
-
         // 화면 끝을 넘으려 할 때: 같은 높이로 이어지는 이웃 화면이 없으면 벽
         let exceedsRight = direction == .right && newX + size.width > f.maxX
         let exceedsLeft = direction == .left && newX < f.minX
         if exceedsRight || exceedsLeft,
            layout.neighbor(of: current, side: direction, atY: origin.y) == nil {
             origin.x = exceedsRight ? f.maxX - size.width : f.minX
-            return .hitWall
+            return .hitWall(Terrain.Wall(x: exceedsRight ? f.maxX : f.minX, top: f.maxY, windowID: nil, side: direction))
         }
-
         origin.x = newX
-
         // 이동 후 발밑 확인 (이웃 화면 바닥이 더 낮으면 떨어진다)
         guard let now = layout.index(containingX: centerX, y: origin.y) else {
             return .startFalling
@@ -44,39 +91,109 @@ struct PetPhysics {
         return origin.y > layout.frames[now].minY + 0.5 ? .startFalling : .moved
     }
 
-    /// 낙하 시작 전 호출: 화면 밖에 있으면 가장 가까운 화면 안으로 x를 맞추고 속도 초기화.
-    mutating func prepareFall(layout: ScreenLayout) {
-        velocityY = 0
-        clampHorizontally(layout: layout)
+    // MARK: - 낙하 / 던지기 / 점프
+
+    /// 낙하 시작. `velocity`로 던지기·점프 초속을 줄 수 있다.
+    mutating func prepareFall(terrain: Terrain, velocity v: CGVector = .zero) {
+        velocity = v
+        standingOn = nil
+        clampHorizontally(layout: terrain.screens)
     }
 
-    /// 한 프레임 낙하. 착지하면 true.
-    mutating func fall(dt: TimeInterval, layout: ScreenLayout) -> Bool {
-        guard let floor = layout.landingFloor(centerX: centerX, fromY: origin.y) else {
-            return true // 화면이 하나도 없는 비정상 상황: 그냥 멈춤
-        }
-        velocityY -= gravity * CGFloat(dt)
-        let nextY = origin.y + velocityY * CGFloat(dt)
-        if nextY <= floor {
-            origin.y = floor
-            velocityY = 0
-            clampHorizontally(layout: layout)
+    mutating func prepareFall(layout: ScreenLayout) {
+        prepareFall(terrain: Terrain(screens: layout, petSize: size))
+    }
+
+    /// 한 프레임 낙하. 착지하면 true (standingOn 갱신).
+    mutating func fall(dt: TimeInterval, terrain: Terrain) -> Bool {
+        let t = CGFloat(dt)
+        velocity.dy -= gravity * t
+        // 공기 저항 살짝 (던진 뒤 끝없이 날아가지 않게)
+        velocity.dx *= pow(0.6, t)
+        let nextY = origin.y + velocity.dy * t
+        origin.x += velocity.dx * t
+        if bounceOffScreenEdges(layout: terrain.screens) { velocity.dx = -velocity.dx * 0.45 }
+
+        if velocity.dy <= 0, let floor = terrain.landing(centerX: centerX, fromY: origin.y, toY: nextY) {
+            origin.y = floor.y
+            velocity = .zero
+            standingOn = floor.windowID
+            clampHorizontally(layout: terrain.screens)
             return true
         }
+        if terrain.screens.frames.isEmpty { return true } // 화면이 하나도 없는 비정상 상황: 그냥 멈춤
         origin.y = nextY
+        // 위로 던졌을 때 화면 위로 사라지지 않게 천장에서 튕김
+        if let top = terrain.ceiling(atX: centerX), origin.y + size.height > top, velocity.dy > 0 {
+            origin.y = top - size.height
+            velocity.dy = -velocity.dy * 0.3
+        }
         return false
     }
 
+    mutating func fall(dt: TimeInterval, layout: ScreenLayout) -> Bool {
+        fall(dt: dt, terrain: Terrain(screens: layout, petSize: size))
+    }
+
+    // MARK: - 벽 오르기
+
+    enum ClimbResult: Equatable {
+        case climbing
+        /// 창 꼭대기에 올라섰다 (그 창 위를 걸으면 된다)
+        case reachedTop(windowID: Int)
+        /// 목표 높이까지 올랐지만 올라설 곳이 없음 → 벽을 차고 뛰어내린다
+        case letGo
+    }
+
+    /// `limitY`: 이 높이(발 기준)까지 오르면 손을 놓는다 (화면 벽처럼 꼭대기가 없을 때)
+    mutating func climb(_ wall: Terrain.Wall, speed: CGFloat, dt: TimeInterval, terrain: Terrain,
+                        limitY: CGFloat) -> ClimbResult {
+        standingOn = nil
+        // 벽에 몸을 붙인다
+        origin.x = wall.side == .right ? wall.x - size.width : wall.x
+        origin.y += speed * CGFloat(dt)
+
+        let goal = min(limitY, wall.top)
+        guard origin.y >= goal else { return .climbing }
+        if origin.y >= wall.top - 0.5, let ledge = terrain.ledgeAfterClimbing(wall) {
+            origin.y = ledge.y
+            // 몸이 창 윗면 안쪽으로 완전히 올라가게
+            origin.x = wall.side == .right ? max(wall.x + 1, ledge.minX) : min(wall.x - size.width - 1, ledge.maxX - size.width)
+            standingOn = ledge.windowID
+            return .reachedTop(windowID: ledge.windowID)
+        }
+        origin.y = goal
+        return .letGo
+    }
+
+    // MARK: - 창 따라가기
+
+    /// 서 있던(또는 매달린) 창이 움직였으면 같이 움직인다 (창 윗변 좌상단 기준 이동량만큼)
+    mutating func ride(from old: CGRect, to new: CGRect) {
+        origin.x += new.minX - old.minX
+        origin.y += new.maxY - old.maxY
+    }
+
+    // MARK: - 화면 안으로 보정
+
     /// 펫 몸이 이웃 화면이 없는 쪽 가장자리 밖으로 삐져나가지 않게 x 보정.
     mutating func clampHorizontally(layout: ScreenLayout) {
+        _ = bounceOffScreenEdges(layout: layout)
+    }
+
+    /// 보정했으면 true (던져서 화면 끝에 부딪힘)
+    private mutating func bounceOffScreenEdges(layout: ScreenLayout) -> Bool {
         let column = layout.indices(inColumnX: centerX)
-        guard let i = column.first ?? layout.nearestIndex(toX: centerX) else { return }
+        guard let i = column.first ?? layout.nearestIndex(toX: centerX) else { return false }
         let f = layout.frames[i]
         if origin.x + size.width > f.maxX, layout.neighbor(of: i, side: .right) == nil {
             origin.x = f.maxX - size.width
+            return true
         }
         if origin.x < f.minX, layout.neighbor(of: i, side: .left) == nil {
             origin.x = f.minX
+            return true
         }
+        return false
     }
 }

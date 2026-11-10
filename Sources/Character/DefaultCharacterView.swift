@@ -92,6 +92,15 @@ private struct DefaultCharacterRenderer {
             p.feetDangle = true
             p.arms = .up
             p.showShadow = false
+        case .climb:
+            // 영차영차: 몸을 위아래로 늘였다 줄이며 팔을 번갈아 든다
+            let s = CGFloat(sin(t * 9))
+            p.scaleY = 1.04 + s * 0.04
+            p.scaleX = 0.96 - s * 0.02
+            p.offsetY = -abs(s) * 2
+            p.arms = .up
+            p.feetDangle = true
+            p.showShadow = false
         }
         return p
     }
@@ -101,6 +110,7 @@ private struct DefaultCharacterRenderer {
         case .happy: return .happy
         case .sleep: return .closed
         case .dragged, .fall: return .wide
+        case .climb: return .angry // 힘주는 눈
         case .angry: return .angry
         default: return .normal
         }
@@ -112,7 +122,7 @@ private struct DefaultCharacterRenderer {
         case .happy: return .grin
         case .talk: return .talk
         case .angry: return .frown
-        case .ask, .dragged, .fall: return .o
+        case .ask, .dragged, .fall, .climb: return .o
         case .sleep: return .sleep
         }
     }

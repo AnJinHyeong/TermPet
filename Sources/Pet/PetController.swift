@@ -25,7 +25,25 @@ final class PetController: NSObject {
     private var brain: PetBrain
     private var physics: PetPhysics
     private var layout = ScreenLayout(frames: [])
+    /// 화면 + 앱 창 지형 (창 위 산책이 꺼져 있거나 바탕화면 층이면 창 없이 화면만)
+    private var terrain = Terrain(screens: ScreenLayout(frames: []))
+    /// 지금 기어오르는 벽
+    private var climbingWall: Terrain.Wall?
+    /// 손을 놓을 높이 (꼭대기에 올라설 곳이 없는 벽)
+    private var climbLimitY: CGFloat = .infinity
+    private var lastWindowScan: CFTimeInterval = 0
     private var rng = SystemRandomNumberGenerator()
+
+    /// 창 위를 걷고 기어오르기 (메뉴 패널 '창 위 산책' 칩)
+    static let walkOnWindowsKey = "walkOnWindows"
+    var walkOnWindows: Bool = UserDefaults.standard.object(forKey: PetController.walkOnWindowsKey) as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(walkOnWindows, forKey: Self.walkOnWindowsKey)
+            model.walkOnWindows = walkOnWindows
+            rescanWindows(force: true)
+            if !isDragging, physics.standingOn != nil || brain.action == .climb { beginFall() }
+        }
+    }
 
     private var window: PetWindow?
     /// 캐릭터 팩에 walkSpeed가 있으면 그 값, 없으면 설정값
@@ -39,6 +57,8 @@ final class PetController: NSObject {
     private var mouseDownLocation: CGPoint?
     private var dragOffset: CGPoint = .zero
     private var isDragging = false
+    /// 던지기 속도 계산용 최근 마우스 위치들 (시간, 위치)
+    private var dragTrail: [(CFTimeInterval, CGPoint)] = []
 
     init(config: PetConfig = PetConfig()) {
         self.config = config
@@ -78,6 +98,7 @@ final class PetController: NSObject {
 
         window.contentView = root
         model.layer = PetWindowLayer.load()
+        model.walkOnWindows = walkOnWindows
         applyEffectiveLayer()
         window.setFrameOrigin(physics.origin)
         window.orderFrontRegardless() // 앱을 활성화하지 않고 앞에 띄움
@@ -98,6 +119,7 @@ final class PetController: NSObject {
     static func loopFPS(for action: PetAction, maxFPS: Double) -> Double {
         switch action {
         case .fall, .dragged: return maxFPS      // 빠르게 움직일 때만 60fps
+        case .climb: return min(maxFPS, 30)
         case .walk: return min(maxFPS, 30)       // 걷기는 느려서(약 35pt/s) 30fps로도 부드러움
         case .idle: return min(maxFPS, 12)    // 숨쉬기·눈 깜빡임 정도라 12fps면 충분 (대부분의 시간)
         case .sleep: return min(maxFPS, 6)
@@ -183,6 +205,9 @@ final class PetController: NSObject {
         model.layer = layer
         layer.save()
         applyEffectiveLayer()
+        // 바탕화면 층에선 창 뒤에 숨으므로 창 위를 다니지 않는다 → 창 위에 있었다면 내려온다
+        rescanWindows(force: true)
+        if !isDragging, physics.standingOn != nil || brain.action == .climb { beginFall() }
     }
 
     /// 실제로 적용할 층: "바탕화면에만 + 알림 시 앞으로" 모드면 말풍선(알림)이 떠 있는 동안만
@@ -207,6 +232,7 @@ final class PetController: NSObject {
         physics.size = newSize
         window?.setContentSize(newSize)
         window?.setFrameOrigin(physics.origin)
+        rebuildTerrain(windows: terrain.windows)
         if !isDragging { beginFall() } // 화면 밖으로 삐져나갔으면 보정
     }
 
@@ -225,12 +251,16 @@ final class PetController: NSObject {
         }
     }
 
-    /// 디버그용: 화면 위쪽에서 떨어뜨리기
+    /// 화면 위쪽에서 떨어뜨리기 (창 위에 떨어지면 거기서 논다)
     func dropFromTop() {
         refreshLayout()
         guard let i = layout.index(containingX: physics.centerX, y: physics.origin.y)
                 ?? layout.nearestIndex(toX: physics.centerX) else { return }
         physics.origin.y = layout.frames[i].maxY - physics.size.height
+        // 화면 어딘가 랜덤한 가로 위치에서
+        let f = layout.frames[i]
+        physics.origin.x = CGFloat.random(in: f.minX...(max(f.minX, f.maxX - physics.size.width)), using: &rng)
+        window?.setFrameOrigin(physics.origin)
         beginFall()
     }
 
@@ -246,21 +276,35 @@ final class PetController: NSObject {
 
     private func step(_ dt: TimeInterval) {
         brain.tick(dt, using: &rng)
+        if !isDragging { rescanWindows() }
 
         switch brain.action {
         case .walk:
-            switch physics.walk(direction: brain.direction, speed: walkSpeed * model.mood.walkFactor,
-                                dt: dt, layout: layout) {
+            switch physics.walk(direction: brain.direction, speed: currentWalkSpeed, dt: dt, terrain: terrain) {
             case .moved: break
-            case .hitWall: brain.handle(.hitWall, using: &rng)
+            case .hitWall(let wall):
+                brain.handle(.hitWall(window: wall.windowID != nil), using: &rng)
+                if brain.action == .climb { startClimbing(wall) }
+            case .reachedEdge:
+                brain.handle(.reachedEdge, using: &rng)
+                if brain.action == .fall {
+                    // 선반 끝에서 폴짝 뛰어내리기
+                    physics.prepareFall(terrain: terrain, velocity: CGVector(dx: brain.direction.sign * 110, dy: 420))
+                }
             case .startFalling: beginFall()
             }
+        case .climb:
+            stepClimb(dt)
         case .fall:
-            if physics.fall(dt: dt, layout: layout) {
+            if physics.fall(dt: dt, terrain: terrain) {
                 brain.handle(.landed, using: &rng)
             }
         default:
-            break
+            // 가만히 서 있는데 발밑 창이 사라졌으면(닫힘·최소화·가려짐) 떨어진다
+            if !isDragging, !brain.action.isPhysicsControlled, let id = physics.standingOn,
+               terrain.ledge(atX: physics.centerX, y: physics.origin.y, windowID: id) == nil {
+                beginFall()
+            }
         }
 
         if !isDragging, let window, window.frame.origin != physics.origin {
@@ -279,7 +323,9 @@ final class PetController: NSObject {
         model.time += dt
         syncModel()
 
-        let wanted = Self.loopFPS(for: brain.action, maxFPS: config.fps)
+        var wanted = Self.loopFPS(for: brain.action, maxFPS: config.fps)
+        // 창 위에 있으면 창을 끌 때 매끄럽게 따라가도록 조금 더 자주
+        if physics.standingOn != nil { wanted = max(wanted, min(config.fps, 20)) }
         if wanted != timerFPS { startTimer(fps: wanted) }
     }
 
@@ -287,20 +333,112 @@ final class PetController: NSObject {
     private func syncModel() {
         if model.action != brain.action { model.action = brain.action }
         if model.facing != brain.direction { model.facing = brain.direction }
+        if model.variant != brain.variant { model.variant = brain.variant }
         model.actionTime = brain.elapsed
     }
 
-    private func beginFall() {
-        physics.prepareFall(layout: layout)
+    private func beginFall(velocity: CGVector = .zero) {
+        climbingWall = nil
+        physics.prepareFall(terrain: terrain, velocity: velocity)
         brain.handle(.startFall, using: &rng)
+    }
+
+    /// 걷기 속도: 기분 반영 + 달리기 포즈(walk.2)가 뽑히면 빠르게
+    private var currentWalkSpeed: CGFloat {
+        var speed = walkSpeed * model.mood.walkFactor
+        if case .sprite(let s) = model.character, s.variantCount(for: .walk) > 1,
+           brain.variant % s.variantCount(for: .walk) == 1 {
+            speed *= 1.9
+        }
+        return speed
     }
 
     private func refreshLayout() {
         layout = ScreenLayout(frames: NSScreen.screens.map(\.visibleFrame))
+        rebuildTerrain(windows: terrain.windows)
+    }
+
+    // MARK: - 창 지형
+
+    /// 창 위를 다닐 수 있는 상태인지 (설정 켜짐 + '프로그램 위' 층일 때만. 바탕화면 층은 창 뒤라 안 됨)
+    private var usesWindows: Bool { walkOnWindows && model.layer == .aboveApps }
+
+    private func rebuildTerrain(windows: [WindowBox]) {
+        terrain = Terrain(screens: layout, windows: usesWindows ? windows : [], petSize: physics.size)
+    }
+
+    /// 창 목록 다시 읽기. 창 위에 있거나 매달려 있으면 자주(창을 끌면 따라가게), 아니면 가끔.
+    private func rescanWindows(force: Bool = false) {
+        guard usesWindows else {
+            if !terrain.windows.isEmpty || force { rebuildTerrain(windows: []) }
+            return
+        }
+        let now = CACurrentMediaTime()
+        let onWindow = physics.standingOn != nil || climbingWall?.windowID != nil
+        let interval = onWindow ? 1.0 / 20 : (brain.action == .walk || brain.action == .fall ? 0.25 : 0.6)
+        guard force || now - lastWindowScan >= interval else { return }
+        lastWindowScan = now
+        let old = terrain
+        rebuildTerrain(windows: WindowScanner.scan())
+
+        // 서 있던 창이 움직였으면 같이 이동 (창을 끌면 펫도 실려 간다)
+        if let id = physics.standingOn {
+            if let before = old.window(id: id)?.frame, let after = terrain.window(id: id)?.frame, before != after {
+                physics.ride(from: before, to: after)
+                if !isDragging { window?.setFrameOrigin(physics.origin) }
+            }
+        }
+        // 매달린 벽(창)이 움직이거나 사라지면 따라가거나 떨어진다
+        if let wall = climbingWall, let id = wall.windowID {
+            if let after = terrain.window(id: id)?.frame {
+                let x = wall.side == .right ? after.minX : after.maxX
+                if let before = old.window(id: id)?.frame { physics.ride(from: before, to: after) }
+                climbingWall = Terrain.Wall(x: x, top: after.maxY, windowID: id, side: wall.side)
+            } else {
+                beginFall()
+            }
+        }
+    }
+
+    // MARK: - 벽 오르기
+
+    private func startClimbing(_ wall: Terrain.Wall) {
+        climbingWall = wall
+        physics.standingOn = nil
+        if wall.windowID != nil, terrain.ledgeAfterClimbing(wall) != nil {
+            climbLimitY = .infinity            // 창 꼭대기까지 올라가서 올라선다
+        } else {
+            // 올라설 곳이 없는 벽(화면 끝, 가려진 창 꼭대기): 적당히 오르다 뛰어내린다
+            let top = min(wall.top, terrain.ceiling(atX: physics.centerX) ?? wall.top) - physics.size.height
+            let room = max(0, top - physics.origin.y)
+            climbLimitY = physics.origin.y + room * CGFloat.random(in: 0.25...0.7, using: &rng)
+        }
+    }
+
+    private func stepClimb(_ dt: TimeInterval) {
+        guard let wall = climbingWall else { beginFall(); return }
+        // 가끔 힘이 빠져서 미끄러진다 (평균 50초에 한 번)
+        if Double.random(in: 0..<1, using: &rng) < dt / 50 {
+            brain.handle(.letGo, using: &rng)
+            beginFall(velocity: CGVector(dx: -wall.side.sign * 60, dy: 0))
+            return
+        }
+        switch physics.climb(wall, speed: max(walkSpeed * 1.3, 50), dt: dt, terrain: terrain, limitY: climbLimitY) {
+        case .climbing:
+            break
+        case .reachedTop:
+            climbingWall = nil
+            brain.handle(.climbedUp, using: &rng)
+        case .letGo:
+            brain.handle(.letGo, using: &rng)
+            // 벽을 차고 반대쪽으로 폴짝
+            beginFall(velocity: CGVector(dx: -wall.side.sign * 180, dy: 380))
+        }
     }
 
     @objc private func screensChanged() {
         refreshLayout()
+        rescanWindows(force: true)
         // 바닥 높이가 바뀌었을 수 있으니 다시 떨어뜨려서 자리 잡기
         if !isDragging { beginFall() }
     }
@@ -313,6 +451,7 @@ final class PetController: NSObject {
         mouseDownLocation = p
         dragOffset = CGPoint(x: p.x - physics.origin.x, y: p.y - physics.origin.y)
         isDragging = false
+        dragTrail = [(CACurrentMediaTime(), p)]
     }
 
     private func mouseDragged(_ event: NSEvent) {
@@ -325,7 +464,12 @@ final class PetController: NSObject {
             syncModel()
         }
         physics.origin = CGPoint(x: p.x - dragOffset.x, y: p.y - dragOffset.y)
+        physics.standingOn = nil
+        climbingWall = nil
         window?.setFrameOrigin(physics.origin)
+        let now = CACurrentMediaTime()
+        dragTrail.append((now, p))
+        dragTrail.removeAll { now - $0.0 > 0.1 } // 최근 0.1초만
     }
 
     private func mouseUp(_ event: NSEvent) {
@@ -333,7 +477,8 @@ final class PetController: NSObject {
         if isDragging {
             isDragging = false
             refreshLayout()
-            beginFall()
+            rescanWindows(force: true)
+            beginFall(velocity: Self.throwVelocity(dragTrail))
             return
         }
         if event.clickCount >= 2 {
@@ -355,6 +500,18 @@ final class PetController: NSObject {
             brain.handle(.clicked, using: &rng)
             bubble.say(stats.today.speech) // "오늘 12번 끝냈어요!"
         }
+    }
+
+    /// 놓는 순간의 마우스 속도 → 던지기 초속 (너무 세지 않게 제한)
+    nonisolated static func throwVelocity(_ trail: [(CFTimeInterval, CGPoint)]) -> CGVector {
+        guard let first = trail.first, let last = trail.last, last.0 - first.0 > 0.01 else { return .zero }
+        let dt = CGFloat(last.0 - first.0)
+        var v = CGVector(dx: (last.1.x - first.1.x) / dt, dy: (last.1.y - first.1.y) / dt)
+        let speed = hypot(v.dx, v.dy)
+        if speed < 150 { return .zero }          // 살살 놓으면 그냥 떨어진다
+        let cap: CGFloat = 1800
+        if speed > cap { v = CGVector(dx: v.dx * cap / speed, dy: v.dy * cap / speed) }
+        return v
     }
 
     private func openViewer() {
@@ -444,6 +601,12 @@ struct PetView: View {
         .overlay(alignment: .topTrailing) {
             MoodMarkView(mood: model.mood, time: model.time)
         }
+        // 잠잘 때 z z z (그림 팩 캐릭터는 그림에 z가 없으니 여기서 그린다)
+        .overlay(alignment: .topTrailing) {
+            if model.action == .sleep, case .sprite = model.character {
+                SleepZView(time: model.time)
+            }
+        }
     }
 
     /// 선택된 캐릭터 종류에 따라 렌더러 선택 (TS의 switch로 컴포넌트 고르기와 같음)
@@ -454,8 +617,8 @@ struct PetView: View {
             DefaultCharacterView(style: style, action: model.action, facing: model.facing,
                                  time: model.time, actionTime: model.actionTime)
         case .sprite(let sprite):
-            SpriteCharacterView(sprite: sprite, action: model.action, facing: model.facing,
-                                actionTime: model.actionTime)
+            SpriteCharacterView(sprite: sprite, action: model.action, variant: model.variant,
+                                facing: model.facing, actionTime: model.actionTime)
         }
     }
 }
@@ -580,5 +743,26 @@ final class StatsStore {
     func record(_ event: PetEvent) {
         stats.record(event)
         if let data = try? JSONEncoder().encode(stats) { defaults.set(data, forKey: Self.key) }
+    }
+}
+
+/// 잠잘 때 머리 위로 떠오르는 z z z
+struct SleepZView: View {
+    let time: TimeInterval
+
+    var body: some View {
+        ZStack {
+            ForEach(0..<3) { k in
+                let q = (time / 2.4 + Double(k) / 3).truncatingRemainder(dividingBy: 1)
+                Text("z")
+                    .font(.system(size: 9 + 7 * q, weight: .heavy, design: .rounded))
+                    .foregroundStyle(Color(red: 0.45, green: 0.55, blue: 0.85))
+                    .shadow(color: .white, radius: 1)
+                    .opacity(sin(q * .pi))
+                    .offset(x: -14 + q * 16, y: 22 - q * 22)
+            }
+        }
+        .frame(width: 30, height: 34)
+        .allowsHitTesting(false)
     }
 }

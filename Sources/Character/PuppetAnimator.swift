@@ -27,7 +27,7 @@ enum PuppetAnimator {
     /// 상태별 (프레임 수, fps)
     static let plan: [(PetAction, Int, Double)] = [
         (.idle, 8, 6), (.walk, 8, 10), (.talk, 6, 8), (.happy, 8, 12),
-        (.angry, 6, 12), (.ask, 8, 8), (.sleep, 8, 4), (.dragged, 6, 8), (.fall, 4, 10),
+        (.angry, 6, 12), (.ask, 8, 8), (.sleep, 8, 4), (.dragged, 6, 8), (.fall, 4, 10), (.climb, 6, 8),
     ]
 
     struct Geometry: Equatable {
@@ -114,6 +114,13 @@ enum PuppetAnimator {
             pose.scaleY = 1.06
             pose.scaleX = 0.96
             pose.rotation = sin(a) * 2
+            pose.shadow = false
+
+        case .climb:
+            // 벽에 붙어 영차영차 (위아래로 들썩 + 좌우 기울기)
+            pose.lift = h * 0.05 * (sin(a) + 1) / 2
+            pose.rotation = sin(a) * 5
+            pose.scaleX = 0.97 - 0.03 * sin(a)
             pose.shadow = false
         }
         return pose

@@ -159,7 +159,7 @@ enum ImageCharacterMaker {
     /// 여러 장 애니메이션의 기본 속도 (초당 장 수)
     static func frameFPS(for action: PetAction) -> Double {
         switch action {
-        case .walk, .fall, .happy, .angry: return 8
+        case .walk, .fall, .happy, .angry, .climb: return 8
         case .idle, .talk, .ask, .dragged: return 5
         case .sleep: return 2
         }
