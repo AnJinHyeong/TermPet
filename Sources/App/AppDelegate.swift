@@ -111,7 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate()
         let panel = NSOpenPanel()
         panel.title = "친구 팩 고르기"
-        panel.message = "캐릭터 팩이 든 zip 파일(또는 폴더)을 골라 주세요"
+        panel.message = "캐릭터 팩이 든 zip 파일(또는 폴더)을 골라 주세요. 지금 친구들은 지워지고 새 친구들로 바뀌어요"
         panel.prompt = "추가"
         panel.allowedContentTypes = [.zip, .folder]
         panel.canChooseDirectories = true
@@ -122,7 +122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             characters.reload()
             let names = ids.compactMap { id in characters.entries.first { $0.id == CharacterLibrary.friendPrefix + id }?.name }
             if let first = ids.first { selectCharacter(CharacterLibrary.friendPrefix + first) }
-            showAlert("친구 \(ids.count)명을 데려왔어요", names.joined(separator: ", "))
+            showAlert("친구를 \(ids.count)명으로 새로 바꿨어요", names.joined(separator: ", "))
         } catch {
             showAlert("친구를 추가하지 못했어요", error.localizedDescription)
         }

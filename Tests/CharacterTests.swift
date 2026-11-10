@@ -239,6 +239,29 @@ final class FriendPackImporterTests: XCTestCase {
         }
     }
 
+    func testImportReplacesAllExistingFriends() throws {
+        SpriteCharacterTests.makePack(in: friends.appendingPathComponent("old"), id: "old")
+        let src = tmp.appendingPathComponent("New")
+        SpriteCharacterTests.makePack(in: src.appendingPathComponent("a"), id: "alpha")
+        try FriendPackImporter.importPacks(from: zip(src), into: friends)
+        let names = try FileManager.default.contentsOfDirectory(atPath: friends.path).filter { !$0.hasPrefix(".") }
+        XCTAssertEqual(names, ["alpha"])   // 기존 친구(old)는 지워지고 새 친구만
+    }
+
+    func testBadZipKeepsExistingFriends() throws {
+        SpriteCharacterTests.makePack(in: friends.appendingPathComponent("old"), id: "old")
+        let bad = tmp.appendingPathComponent("bad.zip")
+        try Data("not a zip".utf8).write(to: bad)
+        XCTAssertThrowsError(try FriendPackImporter.importPacks(from: bad, into: friends))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: friends.appendingPathComponent("old/character.json").path))
+    }
+
+    func testPickingFolderInsideFriendsStillWorks() throws {
+        SpriteCharacterTests.makePack(in: friends.appendingPathComponent("alpha"), id: "alpha")
+        XCTAssertEqual(try FriendPackImporter.importPacks(from: friends, into: friends), ["alpha"])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: friends.appendingPathComponent("alpha/character.json").path))
+    }
+
     func testZipWithoutPacksFails() throws {
         let src = tmp.appendingPathComponent("empty")
         try FileManager.default.createDirectory(at: src, withIntermediateDirectories: true)

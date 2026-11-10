@@ -2,7 +2,7 @@ import Foundation
 
 /// 친구 팩 가져오기: zip(또는 폴더)을 받아 그 안의 캐릭터 팩들을 Friends 폴더에 설치한다.
 /// - zip 안 어디에 있든 `character.json`이 든 폴더를 모두 찾아서 하나씩 설치 (여러 친구를 한 번에)
-/// - 같은 id 팩이 이미 있으면 새것으로 교체
+/// - 기본은 덮어쓰기: 기존 친구를 모두 지우고 zip 안의 친구들로 바꾼다
 /// UI와 분리된 순수 로직 (React 비유: 컴포넌트 밖의 유틸 함수 모듈)
 enum FriendPackImporter {
     enum ImportError: LocalizedError {
@@ -21,17 +21,17 @@ enum FriendPackImporter {
     }
 
     /// 설치하고, 설치된 팩 id 목록(character.json의 id)을 돌려준다
+    /// - replaceAll: true(기본)면 기존 친구를 모두 지우고 zip 안의 친구들로 덮어쓴다.
+    ///   (팩을 무사히 찾고 복사 준비가 끝난 뒤에만 지운다 → 잘못된 zip이면 기존 친구는 그대로)
     @discardableResult
-    static func importPacks(from source: URL, into friendsDirectory: URL) throws -> [String] {
+    static func importPacks(from source: URL, into friendsDirectory: URL, replaceAll: Bool = true) throws -> [String] {
         let fm = FileManager.default
-        var tempDir: URL?
-        defer { if let tempDir { try? fm.removeItem(at: tempDir) } }
+        let dir = fm.temporaryDirectory.appendingPathComponent("termpet-import-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: dir) }
 
         var root = source
         if source.pathExtension.lowercased() == "zip" {
-            let dir = fm.temporaryDirectory.appendingPathComponent("termpet-import-\(UUID().uuidString)", isDirectory: true)
-            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
-            tempDir = dir
             // 먼저 앱이 직접 임시 폴더로 복사 → 거기서 푼다.
             // (다운로드·데스크탑 폴더는 macOS 개인정보 보호로, 파일 선택 창에서 고른 앱 자신만 읽을 수 있고
             //  앱이 실행한 압축 도구(ditto)는 막힐 수 있다)
@@ -46,13 +46,28 @@ enum FriendPackImporter {
         let packs = findPacks(in: root)
         guard !packs.isEmpty else { throw ImportError.noPacks(found: listing(root)) }
 
-        try fm.createDirectory(at: friendsDirectory, withIntermediateDirectories: true)
+        // 1) 먼저 임시 폴더에 모아 둔다 (고른 폴더가 Friends 안이어도 지우기 전에 안전하게 복사)
+        let staging = dir.appendingPathComponent("staging", isDirectory: true)
+        try fm.createDirectory(at: staging, withIntermediateDirectories: true)
         var installed: [String] = []
         for (folder, id) in packs where !installed.contains(id) {
-            let dest = friendsDirectory.appendingPathComponent(safeFolderName(id), isDirectory: true)
-            if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
-            try fm.copyItem(at: folder, to: dest)
+            try fm.copyItem(at: folder, to: staging.appendingPathComponent(safeFolderName(id), isDirectory: true))
             installed.append(id)
+        }
+        // 2) 덮어쓰기: 기존 친구 전부 지우기 (숨김 폴더는 그대로)
+        try fm.createDirectory(at: friendsDirectory, withIntermediateDirectories: true)
+        if replaceAll {
+            for old in (try? fm.contentsOfDirectory(at: friendsDirectory, includingPropertiesForKeys: nil,
+                                                    options: [.skipsHiddenFiles])) ?? [] {
+                try fm.removeItem(at: old)
+            }
+        }
+        // 3) 새 친구 넣기 (같은 id가 남아 있으면 교체)
+        for id in installed {
+            let name = safeFolderName(id)
+            let dest = friendsDirectory.appendingPathComponent(name, isDirectory: true)
+            if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
+            try fm.moveItem(at: staging.appendingPathComponent(name, isDirectory: true), to: dest)
         }
         return installed
     }
