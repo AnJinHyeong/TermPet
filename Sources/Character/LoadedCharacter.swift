@@ -51,8 +51,8 @@ final class SpriteCharacter {
 
     let pack: CharacterPack
     let folder: URL
-    /// 캐릭터 목록에서의 id (내 캐릭터 = custom, 기본 친구들 = friend.<id>)
-    var libraryId: String = CharacterLibrary.customId
+    /// 캐릭터 목록에서의 id (friend.<id>)
+    var libraryId: String = ""
     /// 동작별 포즈 목록 (변형 번호 순)
     private let animations: [PetAction: [Animation]]
 

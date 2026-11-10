@@ -75,7 +75,9 @@ TermPet/
   - collectionBehavior: `.canJoinAllSpaces`, `.fullScreenAuxiliary`, `.stationary`, `.ignoresCycle`
   - 클릭해도 다른 앱의 포커스를 뺏지 않을 것
 - SwiftUI 뷰를 `NSHostingView`로 올린다.
-- 바닥: 캐릭터가 있는 화면의 `NSScreen.visibleFrame.minY` (Dock 위). 멀티 모니터에서 화면 경계를 넘으면 인접 화면으로 이동하거나 벽처럼 되돌아간다.
+- 바닥: 화면 맨 아래(`NSScreen.frame.minY`) — 전체 화면 앱·Dock 숨김일 때도 맨 바닥까지. 아래에 Dock이 보이면 Dock 자리에 **발판**(창처럼 다룸)을 둬서 Dock 위에서 놀다 끝에서 떨어지고, 바닥에서 Dock 옆면을 기어 올라온다. Dock 폭은 접근성 권한이 있으면 실제 값, 없으면 Dock 설정(아이콘 수×크기)으로 추정.
+- 창 벽 오르기: 벽 위쪽을 앞 창이 덮고 있으면 그 창 아랫변에서 머리가 막혀 손을 놓는다.
+- 멀티 모니터에서 화면 경계를 넘으면 인접 화면으로 이동하거나 벽처럼 되돌아간다.
 
 ### 3-2. 움직임과 상태 머신 (Phase 1)
 - 상태(enum `PetMood/PetAction`):
@@ -227,6 +229,7 @@ TermPet/
 | 5 | 확장 | VSCode/Cursor 확장으로 정확한 탭 포커스, Codex 연동, 다중 세션 |
 | 6 | 내장 터미널 | 앱 안에서 AI CLI 실행 + 입력 |
 | 9 | 놀이 업데이트 | 창 위 산책·벽 오르기·던지기, 친구 팩(여러 포즈) 기본 캐릭터, 파스텔 메뉴 패널·아이콘 |
+| 10 | 다듬기 | Dock 발판·전체 화면 맨 바닥, 가려진 벽 막힘, 친구 팩 크기 통일·잘림 제거·벽 타기 포즈, 기본 캐릭터 목록·캐릭터 만들기 기능 제거 |
 
 각 Phase 시작 전에 해당 Phase의 세부 작업 목록을 먼저 보여주고 진행하라.
 

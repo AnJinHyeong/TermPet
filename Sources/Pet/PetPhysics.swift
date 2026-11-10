@@ -119,6 +119,7 @@ struct PetPhysics {
             velocity = .zero
             standingOn = floor.windowID
             clampHorizontally(layout: terrain.screens)
+            if standingOn == nil { stepOutOfDock(terrain: terrain) }
             return true
         }
         if terrain.screens.frames.isEmpty { return true } // 화면이 하나도 없는 비정상 상황: 그냥 멈춤
@@ -162,7 +163,8 @@ struct PetPhysics {
             standingOn = ledge.windowID
             return .reachedTop(windowID: ledge.windowID)
         }
-        origin.y = goal
+        // 이번 프레임에 오른 만큼만 되돌린다 (막힌 높이가 발보다 낮아도 순간이동하지 않게)
+        origin.y = max(goal, origin.y - speed * CGFloat(dt))
         return .letGo
     }
 
@@ -175,6 +177,16 @@ struct PetPhysics {
     }
 
     // MARK: - 화면 안으로 보정
+
+    /// 바닥에 내려섰는데 몸이 Dock 자리(Dock 뒤)에 걸쳐 있으면 Dock 위나 옆으로 (Dock 뒤에 숨지 않게)
+    mutating func stepOutOfDock(terrain: Terrain) {
+        for box in terrain.windows where ScreenFloor.isDock(box.id) {
+            guard let fix = ScreenFloor.resolveDockOverlap(origin: origin, size: size, dock: box.frame) else { continue }
+            origin = fix.origin
+            if fix.onDock { standingOn = box.id }
+            return
+        }
+    }
 
     /// 펫 몸이 이웃 화면이 없는 쪽 가장자리 밖으로 삐져나가지 않게 x 보정.
     mutating func clampHorizontally(layout: ScreenLayout) {

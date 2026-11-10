@@ -32,6 +32,9 @@ final class PetController: NSObject {
     /// 손을 놓을 높이 (꼭대기에 올라설 곳이 없는 벽)
     private var climbLimitY: CGFloat = .infinity
     private var lastWindowScan: CFTimeInterval = 0
+    /// 화면 아래 Dock 발판들 (창 위 산책 설정과 무관하게 항상 지형에 포함)
+    private var docks: [WindowBox] = []
+    private var lastDockCheck: CFTimeInterval = 0
     private var rng = SystemRandomNumberGenerator()
 
     /// 창 위를 걷고 기어오르기 (메뉴 패널 '창 위 산책' 칩)
@@ -41,7 +44,7 @@ final class PetController: NSObject {
             UserDefaults.standard.set(walkOnWindows, forKey: Self.walkOnWindowsKey)
             model.walkOnWindows = walkOnWindows
             rescanWindows(force: true)
-            if !isDragging, physics.standingOn != nil || brain.action == .climb { beginFall() }
+            if !isDragging, physics.standingOn.map({ !ScreenFloor.isDock($0) }) ?? false || brain.action == .climb { beginFall() }
         }
     }
 
@@ -78,8 +81,10 @@ final class PetController: NSObject {
         refreshLayout()
 
         // 처음엔 메인 화면 바닥 가운데에 세운다
-        if let main = NSScreen.main?.visibleFrame ?? layout.frames.first {
-            physics.origin = CGPoint(x: main.midX - physics.size.width / 2, y: main.minY)
+        if let main = NSScreen.main ?? NSScreen.screens.first {
+            // 가운데(= Dock이 있으면 Dock 위)에 세운다
+            physics.origin = CGPoint(x: main.frame.midX - physics.size.width / 2, y: main.frame.minY)
+            liftOutOfDock()
         }
 
         let window = PetWindow(size: physics.size)
@@ -207,7 +212,7 @@ final class PetController: NSObject {
         applyEffectiveLayer()
         // 바탕화면 층에선 창 뒤에 숨으므로 창 위를 다니지 않는다 → 창 위에 있었다면 내려온다
         rescanWindows(force: true)
-        if !isDragging, physics.standingOn != nil || brain.action == .climb { beginFall() }
+        if !isDragging, physics.standingOn.map({ !ScreenFloor.isDock($0) }) ?? false || brain.action == .climb { beginFall() }
     }
 
     /// 실제로 적용할 층: "바탕화면에만 + 알림 시 앞으로" 모드면 말풍선(알림)이 떠 있는 동안만
@@ -232,7 +237,7 @@ final class PetController: NSObject {
         physics.size = newSize
         window?.setContentSize(newSize)
         window?.setFrameOrigin(physics.origin)
-        rebuildTerrain(windows: terrain.windows)
+        rebuildTerrain(windows: appWindows)
         if !isDragging { beginFall() } // 화면 밖으로 삐져나갔으면 보정
     }
 
@@ -245,8 +250,14 @@ final class PetController: NSObject {
             library.select(id)
             return nil
         } catch {
-            setCharacter(.builtIn(.mallang))
-            library.select(CharacterLibrary.defaultId)
+            // 목록에 있는 다른 캐릭터(첫 친구)로. 그것도 안 되면 내장 캐릭터
+            let fallback = library.entries.first { $0.id != id }
+            if let fallback, let loaded = try? library.load(fallback) {
+                setCharacter(loaded)
+                library.select(fallback.id)
+            } else {
+                setCharacter(.builtIn(.mallang))
+            }
             return "\(entry.name): \(error)"
         }
     }
@@ -297,6 +308,7 @@ final class PetController: NSObject {
             stepClimb(dt)
         case .fall:
             if physics.fall(dt: dt, terrain: terrain) {
+                liftOutOfDock() // 던져져서 Dock 뒤 바닥에 떨어졌으면 Dock 위/옆으로
                 brain.handle(.landed, using: &rng)
             }
         default:
@@ -325,7 +337,7 @@ final class PetController: NSObject {
 
         var wanted = Self.loopFPS(for: brain.action, maxFPS: config.fps)
         // 창 위에 있으면 창을 끌 때 매끄럽게 따라가도록 조금 더 자주
-        if physics.standingOn != nil { wanted = max(wanted, min(config.fps, 20)) }
+        if let id = physics.standingOn, !ScreenFloor.isDock(id) { wanted = max(wanted, min(config.fps, 20)) }
         if wanted != timerFPS { startTimer(fps: wanted) }
     }
 
@@ -354,9 +366,36 @@ final class PetController: NSObject {
     }
 
     private func refreshLayout() {
-        layout = ScreenLayout(frames: NSScreen.screens.map(\.visibleFrame))
-        rebuildTerrain(windows: terrain.windows)
+        // 바닥 = 화면 맨 아래 (전체 화면 앱·Dock 숨김일 때도 맨 바닥까지)
+        layout = ScreenLayout(frames: NSScreen.screens.map { ScreenFloor.walkableFrame(frame: $0.frame, visible: $0.visibleFrame) })
+        refreshDocks()
+        rebuildTerrain(windows: appWindows)
     }
+
+    /// Dock 발판 다시 계산 (Dock 크기·실행 중인 앱 수가 바뀔 수 있어서 가끔 갱신)
+    private func refreshDocks() {
+        lastDockCheck = CACurrentMediaTime()
+        let width = WindowScanner.dockWidth()
+        let windows = WindowScanner.scan()
+        // Dock은 한 화면에만 있다. 그 화면을 전체 화면 앱이 덮고 있으면 Dock은 숨어 있으니 발판도 없다
+        docks = NSScreen.screens.lazy.compactMap { s -> WindowBox? in
+            guard !ScreenFloor.hasFullscreenWindow(windows, screen: s.frame) else { return nil }
+            return ScreenFloor.dockBox(frame: s.frame, visible: s.visibleFrame, dockWidth: width)
+        }.first.map { [$0] } ?? []
+    }
+
+    /// 바닥에 서 있는데 Dock 자리(Dock 뒤)에 들어가 있으면 Dock 위로 올린다
+    /// (처음 시작할 때, Dock이 넓어졌을 때)
+    private func liftOutOfDock() {
+        guard physics.standingOn == nil, let dock = docks.first,
+              let fix = ScreenFloor.resolveDockOverlap(origin: physics.origin, size: physics.size, dock: dock.frame) else { return }
+        physics.origin = fix.origin
+        if fix.onDock { physics.standingOn = dock.id }
+        window?.setFrameOrigin(physics.origin)
+    }
+
+    /// 지형의 창 목록에서 Dock 발판을 뺀 실제 앱 창들
+    private var appWindows: [WindowBox] { terrain.windows.filter { !ScreenFloor.isDock($0.id) } }
 
     // MARK: - 창 지형
 
@@ -364,17 +403,32 @@ final class PetController: NSObject {
     private var usesWindows: Bool { walkOnWindows && model.layer == .aboveApps }
 
     private func rebuildTerrain(windows: [WindowBox]) {
-        terrain = Terrain(screens: layout, windows: usesWindows ? windows : [], petSize: physics.size)
+        // Dock은 맨 앞(가장 위에 그려짐)에 둔다
+        terrain = Terrain(screens: layout, windows: docks + (usesWindows ? windows : []), petSize: physics.size)
     }
 
     /// 창 목록 다시 읽기. 창 위에 있거나 매달려 있으면 자주(창을 끌면 따라가게), 아니면 가끔.
     private func rescanWindows(force: Bool = false) {
+        let now = CACurrentMediaTime()
+        if now - lastDockCheck > 3 {
+            let old = docks
+            refreshDocks()
+            if old != docks {
+                rebuildTerrain(windows: appWindows)
+                if ScreenFloor.isDock(climbingWall?.windowID) || ScreenFloor.isDock(physics.standingOn) {
+                    // Dock 크기가 바뀌었다: 매달려 있거나 서 있던 자리가 달라졌으니 다시 자리 잡기
+                    if !isDragging { beginFall() }
+                } else if !isDragging, !brain.action.isPhysicsControlled {
+                    liftOutOfDock()
+                }
+            }
+        }
         guard usesWindows else {
-            if !terrain.windows.isEmpty || force { rebuildTerrain(windows: []) }
+            if !appWindows.isEmpty || force { rebuildTerrain(windows: []) }
             return
         }
-        let now = CACurrentMediaTime()
-        let onWindow = physics.standingOn != nil || climbingWall?.windowID != nil
+        let onWindow = (physics.standingOn.map { !ScreenFloor.isDock($0) } ?? false)
+            || (climbingWall?.windowID.map { !ScreenFloor.isDock($0) } ?? false)
         let interval = onWindow ? 1.0 / 20 : (brain.action == .walk || brain.action == .fall ? 0.25 : 0.6)
         guard force || now - lastWindowScan >= interval else { return }
         lastWindowScan = now
@@ -423,7 +477,9 @@ final class PetController: NSObject {
             beginFall(velocity: CGVector(dx: -wall.side.sign * 60, dy: 0))
             return
         }
-        switch physics.climb(wall, speed: max(walkSpeed * 1.3, 50), dt: dt, terrain: terrain, limitY: climbLimitY) {
+        // 위쪽을 앞 창이 막고 있으면 그 아래까지만 (가려진 벽을 계속 타지 않게)
+        let limit = min(climbLimitY, terrain.climbCeiling(for: wall, feetY: physics.origin.y) ?? .infinity)
+        switch physics.climb(wall, speed: max(walkSpeed * 1.3, 50), dt: dt, terrain: terrain, limitY: limit) {
         case .climbing:
             break
         case .reachedTop:
@@ -439,8 +495,8 @@ final class PetController: NSObject {
     @objc private func screensChanged() {
         refreshLayout()
         rescanWindows(force: true)
-        // 바닥 높이가 바뀌었을 수 있으니 다시 떨어뜨려서 자리 잡기
-        if !isDragging { beginFall() }
+        // 바닥 높이가 바뀌었을 수 있으니 다시 떨어뜨려서 자리 잡기 (Dock 뒤에 숨지 않게 먼저 위로)
+        if !isDragging { liftOutOfDock(); beginFall() }
     }
 
     // MARK: - 마우스

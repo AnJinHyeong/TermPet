@@ -195,7 +195,7 @@ struct MenuPanelView: View {
 
     // MARK: - 친구 고르기
 
-    /// 친구들·기본 캐릭터·내 캐릭터를 동그란 타일 격자로. 선택된 타일은 분홍 테두리 + 이름
+    /// 친구들을 동그란 타일 격자로. 선택된 타일은 분홍 테두리 + 이름
     private var characterPicker: some View {
         VStack(alignment: .leading, spacing: 8) {
             // LazyVGrid ≈ CSS grid (5칸)
@@ -208,49 +208,12 @@ struct MenuPanelView: View {
                     .buttonStyle(PressableStyle())
                     .hint(entry.name)
                 }
-                if characters.custom == nil {
-                    Button { closePanelThen { app.makeCharacterFromImage() } } label: {
-                        ZStack {
-                            Circle().fill(.white.opacity(0.6))
-                            Circle().strokeBorder(Theme.blush.opacity(0.8), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
-                            Image(systemName: "plus").font(.system(size: 15, weight: .bold)).foregroundStyle(Theme.blush)
-                        }
-                        .frame(width: 46, height: 46)
-                    }
-                    .buttonStyle(PressableStyle())
-                    .hint(characters.problem ?? "이미지로 내 캐릭터 만들기")
-                }
             }
 
             HStack(spacing: 5) {
                 Image(systemName: "heart.fill").font(.system(size: 9)).foregroundStyle(Theme.blush)
                 Text(selectedName).font(.system(size: 12.5, weight: .bold, design: .rounded)).foregroundStyle(Theme.cocoa)
-                if characters.selectedId == CharacterLibrary.customId {
-                    Text("· 내 캐릭터").font(.system(size: 11, design: .rounded)).foregroundStyle(Theme.cocoa.opacity(0.55))
-                }
                 Spacer()
-                if characters.custom != nil {
-                    IconButton(symbol: "photo.badge.plus", help: "내 캐릭터를 새 이미지로") {
-                        closePanelThen { app.makeCharacterFromImage() }
-                    }
-                    // 동작별 그림: 여러 장을 고르면 진짜 프레임 애니메이션 (Menu ≈ 드롭다운)
-                    Menu {
-                        ForEach(PetAction.allCases, id: \.self) { action in
-                            Button(action.title + "…") { closePanelThen { app.pickStateFrames(action) } }
-                        }
-                        Divider()
-                        Button("모든 동작 원래대로") { app.resetCustomStates() }
-                    } label: {
-                        Image(systemName: "figure.walk").font(.system(size: 11, weight: .medium))
-                    }
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
-                    .frame(width: 28, height: 24)
-                    .modifier(ControlSurface(radius: 12))
-                    .hint("내 캐릭터 동작별 그림")
-                    IconButton(symbol: "arrow.left.and.right", help: "내 캐릭터 방향 바꾸기") { app.flipCustomCharacter() }
-                    IconButton(symbol: "trash", help: "내 캐릭터 지우기") { app.removeCustomCharacter() }
-                }
             }
         }
     }
@@ -601,24 +564,6 @@ private struct Chip: View {
             .modifier(ControlSurface(on: on))
         }
         .buttonStyle(PressableStyle())
-    }
-}
-
-/// 글자 없는 작은 아이콘 버튼 (내 캐릭터 편집용)
-private struct IconButton: View {
-    let symbol: String
-    let help: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 11, weight: .medium))
-                .frame(width: 28, height: 24)
-                .modifier(ControlSurface(radius: 12))
-        }
-        .buttonStyle(PressableStyle())
-        .hint(help)
     }
 }
 

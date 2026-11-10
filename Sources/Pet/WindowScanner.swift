@@ -30,3 +30,38 @@ enum WindowScanner {
         }
     }
 }
+
+extension WindowScanner {
+    /// 아래 Dock 폭(pt). 접근성 권한이 있으면 실제 값, 없으면 Dock 설정으로 추정.
+    static func dockWidth() -> CGFloat? {
+        if AXIsProcessTrusted(), let w = axDockWidth() { return w }
+        guard let dock = UserDefaults(suiteName: "com.apple.dock") else { return nil }
+        let tile = CGFloat(dock.object(forKey: "tilesize") as? Double ?? 48)
+        let apps = (dock.array(forKey: "persistent-apps") as? [[String: Any]]) ?? []
+        let others = (dock.array(forKey: "persistent-others") as? [[String: Any]]) ?? []
+        let pinned = Set(apps.compactMap { ($0["tile-data"] as? [String: Any])?["bundle-identifier"] as? String })
+        // 고정 안 된 실행 중 앱도 Dock에 뜬다 (최근 앱 영역)
+        let extra = NSWorkspace.shared.runningApplications.filter {
+            $0.activationPolicy == .regular && !pinned.contains($0.bundleIdentifier ?? "")
+        }.count
+        let showsRecents = dock.object(forKey: "show-recents") as? Bool ?? true
+        let items = apps.count + (showsRecents ? extra : 0) + others.count + 1 // +1 휴지통
+        let separators = 1 + (showsRecents && extra > 0 ? 1 : 0)
+        return ScreenFloor.estimatedDockWidth(tileSize: tile, items: items, separators: separators)
+    }
+
+    /// Dock 앱의 접근성 트리에서 아이콘 목록(AXList) 폭을 읽는다
+    private static func axDockWidth() -> CGFloat? {
+        guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first else { return nil }
+        let ax = AXUIElementCreateApplication(app.processIdentifier)
+        var children: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(ax, kAXChildrenAttribute as CFString, &children) == .success,
+              let list = (children as? [AXUIElement])?.first else { return nil }
+        var sizeRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(list, kAXSizeAttribute as CFString, &sizeRef) == .success,
+              let value = sizeRef, CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+        var size = CGSize.zero
+        AXValueGetValue(value as! AXValue, .cgSize, &size)
+        return size.width > 0 ? size.width : nil
+    }
+}

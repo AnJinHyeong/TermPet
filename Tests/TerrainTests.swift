@@ -301,10 +301,52 @@ final class FriendPackTests: XCTestCase {
         let defaults = UserDefaults(suiteName: "FriendPackTests")!
         defaults.removePersistentDomain(forName: "FriendPackTests")
         defer { defaults.removePersistentDomain(forName: "FriendPackTests") }
-        let lib = CharacterLibrary(directory: root.appendingPathComponent("Characters"),
-                                   friendsDirectory: root.appendingPathComponent("Friends"), defaults: defaults)
-        XCTAssertEqual(Array(lib.entries.prefix(2).map(\.id)), ["friend.usagi", "friend.momonga"])
+        let lib = CharacterLibrary(friendsDirectory: root.appendingPathComponent("Friends"), defaults: defaults)
+        // 친구들만 (기본 캐릭터·내 캐릭터는 목록에 없음)
+        XCTAssertEqual(lib.entries.map(\.id), ["friend.usagi", "friend.momonga"])
         XCTAssertEqual(lib.selectedId, "friend.usagi")
         XCTAssertEqual(try lib.load(lib.selectedEntry).id, "friend.usagi")
+    }
+}
+
+final class ClimbCeilingTests: XCTestCase {
+    let screens = ScreenLayout(frames: [CGRect(x: 0, y: 0, width: 2000, height: 1200)])
+    let pet = CGSize(width: 80, height: 80)
+
+    /// 뒤 창(B) 왼쪽 벽을 오르는데, 그 벽 위쪽을 앞 창(A)이 덮고 있다 → A 아랫변에서 머리가 막힌다
+    func testFrontWindowAboveBlocksClimb() {
+        let front = WindowBox(id: 1, frame: CGRect(x: 400, y: 500, width: 600, height: 500))
+        let back = WindowBox(id: 2, frame: CGRect(x: 500, y: 0, width: 800, height: 900))
+        let t = Terrain(screens: screens, windows: [front, back], petSize: pet)
+        let wall = Terrain.Wall(x: 500, top: 900, windowID: 2, side: .right)
+        XCTAssertEqual(t.climbCeiling(for: wall, feetY: 0), 420)
+
+        var p = PetPhysics(origin: CGPoint(x: 420, y: 0), size: pet)
+        var result: PetPhysics.ClimbResult = .climbing
+        for _ in 0..<200 where result == .climbing {
+            let limit = t.climbCeiling(for: wall, feetY: p.origin.y) ?? .infinity
+            result = p.climb(wall, speed: 60, dt: 0.1, terrain: t, limitY: limit)
+        }
+        XCTAssertEqual(result, .letGo)
+        XCTAssertEqual(p.origin.y, 420, accuracy: 0.01)
+    }
+
+    func testNoCeilingWhenNothingInFront() {
+        let back = WindowBox(id: 2, frame: CGRect(x: 500, y: 0, width: 800, height: 900))
+        let behind = WindowBox(id: 3, frame: CGRect(x: 400, y: 500, width: 600, height: 500)) // 뒤에 있는 창은 무관
+        let t = Terrain(screens: screens, windows: [back, behind], petSize: pet)
+        XCTAssertNil(t.climbCeiling(for: Terrain.Wall(x: 500, top: 900, windowID: 2, side: .right), feetY: 0))
+        XCTAssertNil(t.climbCeiling(for: Terrain.Wall(x: 0, top: 1200, windowID: nil, side: .left), feetY: 0))
+    }
+
+    func testCeilingLowerThanFeetLetsGoWithoutTeleport() {
+        let front = WindowBox(id: 1, frame: CGRect(x: 400, y: 30, width: 600, height: 500))
+        let back = WindowBox(id: 2, frame: CGRect(x: 500, y: 0, width: 800, height: 900))
+        let t = Terrain(screens: screens, windows: [front, back], petSize: pet)
+        let wall = Terrain.Wall(x: 500, top: 900, windowID: 2, side: .right)
+        var p = PetPhysics(origin: CGPoint(x: 420, y: 10), size: pet)
+        let r = p.climb(wall, speed: 60, dt: 0.1, terrain: t, limitY: t.climbCeiling(for: wall, feetY: 10) ?? .infinity)
+        XCTAssertEqual(r, .letGo)
+        XCTAssertEqual(p.origin.y, 10, accuracy: 0.01)
     }
 }

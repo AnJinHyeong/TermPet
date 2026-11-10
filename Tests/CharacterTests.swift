@@ -116,7 +116,6 @@ final class SpriteCharacterTests: XCTestCase {
         XCTAssertEqual(sprite.frame(for: .walk, elapsed: 0)?.width, 16)
         XCTAssertTrue(sprite.pixelArt)
         XCTAssertEqual(LoadedCharacter.sprite(sprite).size, CGSize(width: 48, height: 48))
-        XCTAssertEqual(LoadedCharacter.sprite(sprite).id, CharacterLibrary.customId)
     }
 
     func testMissingImageFails() {
@@ -140,7 +139,7 @@ final class CharacterLibraryTests: XCTestCase {
     private let suite = "CharacterLibraryTests"
 
     override func setUp() {
-        dir = FileManager.default.temporaryDirectory.appendingPathComponent("termpet-lib-\(UUID().uuidString)")
+        dir = FileManager.default.temporaryDirectory.appendingPathComponent("termpet-friends-\(UUID().uuidString)")
         defaults = UserDefaults(suiteName: suite)
         defaults.removePersistentDomain(forName: suite)
     }
@@ -150,128 +149,30 @@ final class CharacterLibraryTests: XCTestCase {
         defaults.removePersistentDomain(forName: suite)
     }
 
-    func testBuiltInsAlwaysPresentAndDefaultSelected() {
-        let lib = CharacterLibrary(directory: dir, defaults: defaults)
-        XCTAssertEqual(lib.entries.map(\.id), BuiltInStyle.allCases.map(\.id))
+    /// 친구 팩이 하나도 없으면 말랑이 하나만 (빈 화면 방지용)
+    func testNoFriendsFallsBackToSingleBuiltIn() {
+        let lib = CharacterLibrary(friendsDirectory: dir, defaults: defaults)
+        XCTAssertEqual(lib.entries.map(\.id), [CharacterLibrary.defaultId])
         XCTAssertEqual(lib.selectedId, CharacterLibrary.defaultId)
     }
 
-    func testSelectPersistsAndUnknownIsIgnored() {
-        let lib = CharacterLibrary(directory: dir, defaults: defaults)
-        lib.select(BuiltInStyle.cat.id)
-        lib.select("pack.nope")
-        XCTAssertEqual(lib.selectedId, BuiltInStyle.cat.id)
-        XCTAssertEqual(CharacterLibrary(directory: dir, defaults: defaults).selectedId, BuiltInStyle.cat.id)
+    func testOnlyFriendsListedAndSelectPersists() {
+        SpriteCharacterTests.makePack(in: dir.appendingPathComponent("a"), id: "a")
+        SpriteCharacterTests.makePack(in: dir.appendingPathComponent("b"), id: "b")
+        let lib = CharacterLibrary(friendsDirectory: dir, defaults: defaults)
+        XCTAssertEqual(Set(lib.entries.map(\.id)), ["friend.a", "friend.b"])
+        lib.select("friend.b")
+        lib.select(BuiltInStyle.cat.id) // 목록에 없는 기본 캐릭터는 무시
+        XCTAssertEqual(lib.selectedId, "friend.b")
+        XCTAssertEqual(CharacterLibrary(friendsDirectory: dir, defaults: defaults).selectedId, "friend.b")
     }
 
-    func testMissingSelectedPackFallsBackToDefault() {
-        defaults.set("pack.gone", forKey: CharacterLibrary.selectedDefaultsKey)
-        XCTAssertEqual(CharacterLibrary(directory: dir, defaults: defaults).selectedId, CharacterLibrary.defaultId)
-    }
-
-    private func lib() -> CharacterLibrary {
-        CharacterLibrary(directory: dir, defaults: defaults, discard: { try FileManager.default.removeItem(at: $0) })
-    }
-
-    private func exists(_ name: String) -> Bool {
-        FileManager.default.fileExists(atPath: dir.appendingPathComponent(name).path)
-    }
-
-    func testCustomSlotListedAfterBuiltIns() {
-        SpriteCharacterTests.makePack(in: dir.appendingPathComponent(CharacterLibrary.customFolderName), id: "whatever")
-        let l = lib()
-        XCTAssertEqual(l.entries.map(\.id), BuiltInStyle.allCases.map(\.id) + [CharacterLibrary.customId])
-        XCTAssertEqual(l.custom?.name, "픽셀")
-        XCTAssertNil(l.problem)
-    }
-
-    func testBrokenCustomReportsProblem() {
-        SpriteCharacterTests.makePack(in: dir.appendingPathComponent(CharacterLibrary.customFolderName),
-                                      json: #"{"id":"x","frameWidth":8}"#)
-        let l = lib()
-        XCTAssertNil(l.custom)
-        XCTAssertNotNil(l.problem)
-    }
-
-    func testMigrationKeepsSelectedOldPackAndDiscardsOthers() {
-        SpriteCharacterTests.makePack(in: dir.appendingPathComponent("img-a"), id: "img-a")
-        SpriteCharacterTests.makePack(in: dir.appendingPathComponent("img-b"), id: "img-b")
-        defaults.set("pack.img-b", forKey: CharacterLibrary.selectedDefaultsKey)
-        let l = lib()
-        XCTAssertTrue(exists(CharacterLibrary.customFolderName))
-        XCTAssertFalse(exists("img-a"))
-        XCTAssertFalse(exists("img-b"))
-        XCTAssertEqual(l.selectedId, CharacterLibrary.customId)
-        XCTAssertEqual(defaults.string(forKey: CharacterLibrary.selectedDefaultsKey), CharacterLibrary.customId)
-        // 선택돼 있던 img-b가 남았는지: 팩 id로 확인
-        if case .sprite(let s) = try? l.load(l.custom!) { XCTAssertEqual(s.pack.id, "img-b") } else { XCTFail() }
-    }
-
-    func testMigrationLeavesBuiltInSelectionAlone() {
-        SpriteCharacterTests.makePack(in: dir.appendingPathComponent("img-a"), id: "img-a")
-        defaults.set(BuiltInStyle.cat.id, forKey: CharacterLibrary.selectedDefaultsKey)
-        let l = lib()
-        XCTAssertEqual(l.selectedId, BuiltInStyle.cat.id)
-        XCTAssertNotNil(l.custom) // 옮겨는 둔다
-    }
-
-    func testInstallCustomReplacesAndSelects() throws {
-        let built1 = dir.appendingPathComponent(".staging/one")
-        SpriteCharacterTests.makePack(in: built1, id: "one")
-        let l = lib()
-        try l.installCustom(from: built1)
-        XCTAssertEqual(l.selectedId, CharacterLibrary.customId)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: built1.path)) // 이동됨
-
-        let built2 = dir.appendingPathComponent(".staging/two")
-        SpriteCharacterTests.makePack(in: built2, id: "two")
-        try l.installCustom(from: built2)
-        XCTAssertEqual(l.entries.filter { $0.id == CharacterLibrary.customId }.count, 1)
-        if case .sprite(let s) = try l.load(l.custom!) { XCTAssertEqual(s.pack.id, "two") } else { XCTFail() }
-    }
-
-    func testInstallRejectsInvalidPackAndKeepsOld() throws {
-        SpriteCharacterTests.makePack(in: dir.appendingPathComponent(CharacterLibrary.customFolderName), id: "old")
-        let bad = dir.appendingPathComponent(".staging/bad")
-        SpriteCharacterTests.makePack(in: bad, json: #"{"id":"bad","frameWidth":16,"frameHeight":16,"states":{"idle":{"file":"missing.png"}}}"#)
-        let l = lib()
-        XCTAssertThrowsError(try l.installCustom(from: bad))
-        XCTAssertNotNil(l.custom)
-    }
-
-    func testRemoveCustomFallsBackToDefault() throws {
-        SpriteCharacterTests.makePack(in: dir.appendingPathComponent(CharacterLibrary.customFolderName), id: "c")
-        let l = lib()
-        l.select(CharacterLibrary.customId)
-        try l.removeCustom()
-        XCTAssertNil(l.custom)
-        XCTAssertEqual(l.selectedId, CharacterLibrary.defaultId)
-    }
-
-    func testFlipFacingToggles() throws {
-        SpriteCharacterTests.makePack(in: dir.appendingPathComponent(CharacterLibrary.customFolderName), id: "c")
-        let l = lib()
-        func facing() throws -> String? {
-            try CharacterPack.decode(Data(contentsOf: l.customFolder.appendingPathComponent("character.json"))).facing
-        }
-        try l.flipCustomFacing()
-        XCTAssertEqual(try facing(), "left")
-        try l.flipCustomFacing()
-        XCTAssertEqual(try facing(), "right")
-    }
-}
-
-@MainActor
-final class CharacterPackExporterTests: XCTestCase {
-    func testExportedSamplePackLoadsBack() throws {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("termpet-export-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let folder = try CharacterPackExporter.export(.cat, to: dir)
-        let sprite = try SpriteCharacter(folder: folder)
-        XCTAssertEqual(sprite.pack.id, "cat-sprite")
-        XCTAssertEqual(sprite.pack.displaySize, LoadedCharacter.defaultSize)
-        for action in PetAction.allCases {
-            XCTAssertGreaterThan(sprite.animation(for: action)?.frames.count ?? 0, 1, "\(action)")
+    /// 예전에 고른 기본 캐릭터·내 캐릭터(custom)는 첫 친구로 바뀐다
+    func testOldSelectionFallsBackToFirstFriend() {
+        SpriteCharacterTests.makePack(in: dir.appendingPathComponent("a"), id: "a")
+        for old in ["custom", BuiltInStyle.cat.id] {
+            defaults.set(old, forKey: CharacterLibrary.selectedDefaultsKey)
+            XCTAssertEqual(CharacterLibrary(friendsDirectory: dir, defaults: defaults).selectedId, "friend.a")
         }
     }
 }

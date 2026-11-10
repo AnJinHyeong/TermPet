@@ -1,22 +1,16 @@
 # 캐릭터 팩 만들기
 
-## 가장 쉬운 시작: 샘플 팩 복사
-
-메뉴바 🐾 → 캐릭터 → **샘플 스프라이트 팩 만들기**
-→ 현재 선택된 기본 캐릭터가 PNG 스프라이트 팩으로 만들어지고 Finder에서 열린다.
-PNG를 원하는 그림으로 바꾸고 `character.json`의 `id`/`name`을 고친 뒤
-캐릭터 → **목록 새로고침** 하면 목록에 나타난다.
+> 앱 안에서 캐릭터를 만들거나 가져오는 기능은 없다. 아래 형식으로 팩 폴더를 직접 만들어 `Friends/`에 넣는다.
 
 ## 폴더 구조
 
 ```
-~/Library/Application Support/TermPet/Characters/<id>/
+~/Library/Application Support/TermPet/Friends/<id>/
   character.json
   idle.png  walk.png  talk.png  happy.png  angry.png  ask.png  sleep.png  dragged.png  fall.png
 ```
 
-다른 곳에 만든 폴더는 캐릭터 → **캐릭터 팩 가져오기…** 로 선택하면 검증 후 위 위치로 복사된다
-(같은 id가 이미 있으면 교체).
+폴더를 넣은 뒤 앱을 다시 켜면 목록에 나타난다.
 
 ## 스프라이트 시트
 
@@ -78,8 +72,8 @@ PNG를 원하는 그림으로 바꾸고 `character.json`의 `id`/`name`을 고�
 
 ## 친구 팩 (여러 개)
 
-`~/Library/Application Support/TermPet/Friends/<id>/` 에 팩 폴더를 두면 캐릭터 목록 맨 앞에 나오고,
+`~/Library/Application Support/TermPet/Friends/<id>/` 에 팩 폴더를 두면 캐릭터 목록에 나오고,
 선택 기록이 없으면 첫 친구(`order`가 가장 작은)가 기본 캐릭터가 된다.
 저작권 그림으로 만든 팩은 이 폴더에만 두고 저장소에는 넣지 않는다.
 
-읽지 못한 팩은 캐릭터 메뉴 아래 "읽지 못한 팩"에 이유와 함께 표시된다.
+읽지 못한 팩은 목록에서 빠진다. 팩이 하나도 없으면 내장 캐릭터(말랑이) 하나만 보인다.

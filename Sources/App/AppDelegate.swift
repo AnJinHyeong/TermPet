@@ -43,7 +43,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard !isRunningTests else { return }
-        if CommandLineTool.run(arguments: CommandLine.arguments, library: characters) { return }
         petController.library = characters
         if let problem = petController.selectCharacter(id: characters.selectedId) {
             NSLog("[TermPet] character load failed: \(problem)")
@@ -95,76 +94,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func selectCharacter(_ id: String) {
         if let problem = petController.selectCharacter(id: id) {
             showAlert("캐릭터를 불러오지 못했어요", problem + "\n기본 캐릭터로 돌아갑니다.")
-        }
-    }
-
-    /// 이미지 선택 → 배경 제거 + 움직임 생성 → "내 캐릭터"로 교체하고 바로 적용 (캐릭터는 하나만 보관)
-    func makeCharacterFromImage() {
-        NSApp.activate() // 메뉴바 앱은 비활성 상태라 먼저 앞으로 가져와야 창이 보인다
-        let panel = NSOpenPanel()
-        panel.title = "캐릭터로 만들 그림 선택"
-        panel.message = "배경은 자동으로 지워져요. 지금 있는 내 캐릭터는 새 캐릭터로 바뀌어요."
-        panel.prompt = "캐릭터 만들기"
-        panel.allowedContentTypes = [.image]
-        panel.allowsMultipleSelection = false
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-
-        let staging = characters.directory.appendingPathComponent(".staging", isDirectory: true)
-        do {
-            try? FileManager.default.removeItem(at: staging)
-            let result = try ImageCharacterMaker.make(from: url, name: "내 캐릭터", facing: .right, into: staging)
-            try characters.installCustom(from: result.folder)
-            try? FileManager.default.removeItem(at: staging)
-            selectCharacter(CharacterLibrary.customId)
-        } catch {
-            try? FileManager.default.removeItem(at: staging)
-            showAlert("캐릭터를 만들지 못했어요", "\(error)\n\n배경이 단순한 그림(흰 배경, 투명 PNG 등)일수록 잘 돼요.")
-        }
-    }
-
-    /// 내 캐릭터가 뒤로 걷는 것처럼 보이면 방향 뒤집기
-    func flipCustomCharacter() {
-        do {
-            try characters.flipCustomFacing()
-            if characters.selectedId == CharacterLibrary.customId { selectCharacter(CharacterLibrary.customId) }
-        } catch {
-            showAlert("방향을 바꾸지 못했어요", "\(error)")
-        }
-    }
-
-    /// 내 캐릭터의 한 동작을 그림 여러 장(프레임)으로 바꾸기
-    func pickStateFrames(_ action: PetAction) {
-        NSApp.activate()
-        let panel = NSOpenPanel()
-        panel.title = "\(action.title) 그림 선택"
-        panel.message = "여러 장을 고르면 파일 이름 순서대로 움직여요 (예: walk1, walk2 …). 한 장이면 그 그림을 살짝 움직여요."
-        panel.prompt = "적용"
-        panel.allowedContentTypes = [.image]
-        panel.allowsMultipleSelection = true
-        guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
-        do {
-            try ImageCharacterMaker.replaceStateFrames(action, in: characters.customFolder, from: panel.urls)
-            selectCharacter(CharacterLibrary.customId)
-        } catch {
-            showAlert("그림을 적용하지 못했어요", "\(error)\n\n배경이 단순한 그림(흰 배경, 투명 PNG 등)일수록 잘 돼요.")
-        }
-    }
-
-    func resetCustomStates() {
-        do {
-            try ImageCharacterMaker.resetAllStates(in: characters.customFolder)
-            selectCharacter(CharacterLibrary.customId)
-        } catch {
-            showAlert("되돌리지 못했어요", "\(error)")
-        }
-    }
-
-    func removeCustomCharacter() {
-        do {
-            try characters.removeCustom()
-            selectCharacter(characters.selectedId)
-        } catch {
-            showAlert("캐릭터를 지우지 못했어요", "\(error)")
         }
     }
 

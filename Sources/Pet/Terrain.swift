@@ -152,6 +152,20 @@ struct Terrain {
         return ledges.first { $0.windowID == id && abs($0.y - wall.top) < 1.5 && $0.contains(x: x) }
     }
 
+    /// 창 벽을 오를 때 머리가 막히는 높이(발 기준).
+    /// 벽 선 위쪽을 **앞 창**이 덮고 있으면 거기서 벽이 끊긴 것 → 그 창 아랫변에 머리가 닿으면 더 못 오른다.
+    /// 막는 창이 없으면 nil.
+    func climbCeiling(for wall: Wall, feetY: CGFloat) -> CGFloat? {
+        guard let id = wall.windowID, let i = windows.firstIndex(where: { $0.id == id }) else { return nil }
+        return windows[..<i].compactMap { g -> CGFloat? in
+            let f = g.frame
+            guard f.minX - 1 <= wall.x, wall.x <= f.maxX + 1,   // 벽 선을 가로로 덮고
+                  f.maxY > feetY + 1, f.minY < wall.top,        // 발 위 ~ 벽 꼭대기 사이에 걸쳐 있음
+                  f.minY >= feetY - 1 else { return nil }
+            return f.minY - petSize.height
+        }.min()
+    }
+
     /// 화면 위쪽 끝 (기어오를 수 있는 최대 높이 계산용)
     func ceiling(atX x: CGFloat) -> CGFloat? {
         screens.indices(inColumnX: x).map { screens.frames[$0].maxY }.max()
