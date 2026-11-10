@@ -389,10 +389,19 @@ final class PetController: NSObject {
         }.first.map { [$0] } ?? []
         if docks != lastLoggedDocks {
             lastLoggedDocks = docks
-            NSLog("[TermPet] dock \(docks.first.map { "\($0.frame)" } ?? "none") exact=\(WindowScanner.canReadDockExactly)")
+            let line = "[TermPet] dock \(docks.first.map { "\($0.frame)" } ?? "none") exact=\(WindowScanner.canReadDockExactly)"
+            NSLog(line)
+            #if DEBUG
+            // 개발용: ~/Library/Logs/TermPet-debug.log 에도 남긴다 (open으로 띄우면 NSLog가 안 보여서)
+            let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/TermPet-debug.log")
+            if !FileManager.default.fileExists(atPath: url.path) { FileManager.default.createFile(atPath: url.path, contents: nil) }
+            if let h = try? FileHandle(forWritingTo: url) {
+                h.seekToEndOfFile(); h.write(Data((Date().description + " " + line + "\n").utf8)); try? h.close()
+            }
+            #endif
         }
     }
-    private var lastLoggedDocks: [WindowBox] = []
+    private var lastLoggedDocks: [WindowBox]?
 
     /// 바닥에 서 있는데 Dock 자리(Dock 뒤)에 들어가 있으면 Dock 위로 올린다
     /// (처음 시작할 때, Dock이 넓어졌을 때)
