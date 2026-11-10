@@ -113,6 +113,11 @@ final class PetController: NSObject {
         NotificationCenter.default.addObserver(
             self, selector: #selector(screensChanged),
             name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        // 데스크톱(Space) 전환 = 전체 화면 앱으로 들어가거나 나옴 → Dock 발판을 바로 다시 계산
+        // (NSWorkspace 알림은 별도 알림 센터를 쓴다 ≈ 다른 이벤트 버스에 구독)
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self, selector: #selector(spaceChanged),
+            name: NSWorkspace.activeSpaceDidChangeNotification, object: nil)
 
         startTimer()
         quiet.start()
@@ -490,6 +495,15 @@ final class PetController: NSObject {
             // 벽을 차고 반대쪽으로 폴짝
             beginFall(velocity: CGVector(dx: -wall.side.sign * 180, dy: 380))
         }
+    }
+
+    @objc private func spaceChanged() {
+        let old = docks
+        refreshDocks()
+        guard old != docks else { return }
+        rebuildTerrain(windows: appWindows)
+        // Dock이 사라졌으면 Dock 위에 있던 펫은 맨 바닥으로, 다시 생겼으면 Dock 뒤에 숨지 않게
+        if !isDragging { liftOutOfDock(); beginFall() }
     }
 
     @objc private func screensChanged() {

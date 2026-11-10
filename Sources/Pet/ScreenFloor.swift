@@ -39,9 +39,16 @@ enum ScreenFloor {
         return (CGPoint(x: center < dock.minX ? dock.minX - size.width : dock.maxX, y: origin.y), false)
     }
 
-    /// 화면을 꽉 채운 창(전체 화면 앱)이 있으면 Dock은 숨겨져 있다
+    /// 전체 화면 앱이 있으면 Dock은 숨겨져 있다.
+    /// 판정: 화면 폭을 꽉 채우고, 아래는 화면 맨 바닥(Dock 자리까지)에 닿고, 위는 화면 꼭대기 근처까지 올라간 창.
+    /// (노치 있는 MacBook은 전체 화면 창이 노치 줄(약 45pt)을 빼고 잡혀서 화면 frame 전체와 같지 않다.
+    ///  최대화(초록 버튼 + Option)한 창은 Dock 위에서 끝나므로 걸리지 않는다)
     static func hasFullscreenWindow(_ windows: [WindowBox], screen: CGRect) -> Bool {
-        windows.contains { $0.frame.insetBy(dx: -2, dy: -2).contains(screen) }
+        windows.contains { w in
+            let f = w.frame
+            return f.minX <= screen.minX + 2 && f.maxX >= screen.maxX - 2
+                && f.minY <= screen.minY + 2 && f.maxY >= screen.maxY - 80
+        }
     }
 
     /// Dock 폭 추정: 아이콘 칸 수 × 아이콘 크기 + 구분선·여백.

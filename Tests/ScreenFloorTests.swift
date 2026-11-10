@@ -90,8 +90,12 @@ final class ScreenFloorTests: XCTestCase {
     }
 
     func testFullscreenWindowHidesDock() {
-        XCTAssertTrue(ScreenFloor.hasFullscreenWindow([WindowBox(id: 1, frame: frame)], screen: frame))
-        XCTAssertFalse(ScreenFloor.hasFullscreenWindow([WindowBox(id: 1, frame: CGRect(x: 0, y: 81, width: 1800, height: 1049))], screen: frame))
+        func full(_ r: CGRect) -> Bool { ScreenFloor.hasFullscreenWindow([WindowBox(id: 1, frame: r)], screen: frame) }
+        XCTAssertTrue(full(frame))                                              // 화면 전체
+        XCTAssertTrue(full(CGRect(x: 0, y: 0, width: 1800, height: 1124)))      // 노치 MacBook 전체 화면(노치 줄 제외)
+        XCTAssertFalse(full(CGRect(x: 0, y: 81, width: 1800, height: 1049)))    // 최대화(Dock 위까지만)
+        XCTAssertFalse(full(CGRect(x: 0, y: 0, width: 1200, height: 1124)))     // 폭이 모자람
+        XCTAssertFalse(full(CGRect(x: 0, y: 0, width: 1800, height: 600)))      // 아래쪽 반만
     }
 }
 
