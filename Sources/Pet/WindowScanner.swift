@@ -70,7 +70,14 @@ extension WindowScanner {
         let ax = AXUIElementCreateApplication(app.processIdentifier)
         var children: CFTypeRef?
         guard AXUIElementCopyAttributeValue(ax, kAXChildrenAttribute as CFString, &children) == .success,
-              let list = (children as? [AXUIElement])?.first else { return nil }
+              let kids = children as? [AXUIElement] else { return nil }
+        // 아이콘 줄 = 역할이 AXList인 자식 (보통 첫 번째)
+        let list = kids.first { el in
+            var role: CFTypeRef?
+            return AXUIElementCopyAttributeValue(el, kAXRoleAttribute as CFString, &role) == .success
+                && (role as? String) == (kAXListRole as String)
+        } ?? kids.first
+        guard let list else { return nil }
         var sizeRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(list, kAXSizeAttribute as CFString, &sizeRef) == .success,
               let value = sizeRef, CFGetTypeID(value) == AXValueGetTypeID() else { return nil }

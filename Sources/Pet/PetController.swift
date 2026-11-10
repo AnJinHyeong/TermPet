@@ -387,7 +387,12 @@ final class PetController: NSObject {
             guard !ScreenFloor.hasFullscreenWindow(windows, screen: s.frame) else { return nil }
             return ScreenFloor.dockBox(frame: s.frame, visible: s.visibleFrame, dockWidth: width)
         }.first.map { [$0] } ?? []
+        if docks != lastLoggedDocks {
+            lastLoggedDocks = docks
+            NSLog("[TermPet] dock \(docks.first.map { "\($0.frame)" } ?? "none") exact=\(WindowScanner.canReadDockExactly)")
+        }
     }
+    private var lastLoggedDocks: [WindowBox] = []
 
     /// 바닥에 서 있는데 Dock 자리(Dock 뒤)에 들어가 있으면 Dock 위로 올린다
     /// (처음 시작할 때, Dock이 넓어졌을 때)
