@@ -79,7 +79,7 @@ final class EventDecoderTests: XCTestCase {
          "title":"Permission needed","notification_type":"permission_prompt"}
         """))
         XCTAssertEqual(e.kind, .ask)
-        XCTAssertEqual(e.message, "Claude needs your permission")
+        XCTAssertEqual(e.message, "권한 확인이 필요해요") // 한국어로
         XCTAssertEqual(e.notificationType, "permission_prompt")
         XCTAssertFalse(e.isIdlePrompt)
     }
@@ -168,5 +168,16 @@ final class OneLineMarkdownTests: XCTestCase {
                        "스크린샷 덕분에 알림이 도착한 것도 확인했습니다.")
         XCTAssertEqual(EventDecoder.oneLine("- 목록 항목"), "목록 항목")
         XCTAssertEqual(EventDecoder.oneLine("> 인용"), "인용")
+    }
+
+    func testNotificationMessagesInKorean() {
+        XCTAssertEqual(EventDecoder.koreanNotification("Claude is waiting for your input", type: "idle_prompt"), "입력을 기다리고 있어요")
+        XCTAssertEqual(EventDecoder.koreanNotification("Claude needs your permission to use Bash", type: "permission_prompt"),
+                       "Bash 사용을 허락해 줄래요?")
+        XCTAssertEqual(EventDecoder.koreanNotification("Claude needs your permission", type: nil), "권한 확인이 필요해요")
+        XCTAssertNil(EventDecoder.koreanNotification(nil, type: "idle_prompt")) // 원문 없으면 캐릭터 대사
+        XCTAssertEqual(EventDecoder.koreanNotification("Some new english text", type: "elicitation_dialog"), "선택해 줄 게 있어요")
+        XCTAssertEqual(EventDecoder.koreanNotification("이미 한국어", type: "idle_prompt"), "이미 한국어")
+        XCTAssertEqual(EventDecoder.koreanNotification("Unknown", type: nil), "Unknown")
     }
 }

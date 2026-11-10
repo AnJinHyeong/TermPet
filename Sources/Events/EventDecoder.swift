@@ -98,7 +98,7 @@ enum EventDecoder {
                 // auth_success, quota_* 등은 사용자 행동이 필요 없음
                 throw DecodeError.ignored("notification_type=\(type ?? "")")
             }
-            event.message = obj.string("message").flatMap(nonEmpty)
+            event.message = koreanNotification(obj.string("message").flatMap(nonEmpty), type: type)
 
         case "StopFailure":
             event.kind = .error
@@ -119,6 +119,37 @@ enum EventDecoder {
             throw DecodeError.ignored("hook_event_name=\(eventName)")
         }
         return event
+    }
+
+    // MARK: - 알림 문구 한국어로
+
+    /// Claude Code 알림(영어)을 한국어로. 이미 한국어거나 모르는 문장이면 종류별 기본 문구, 그것도 없으면 원문.
+    /// 예) "Claude needs your permission to use Bash" → "Bash 사용을 허락해 줄래요?"
+    /// 원문이 없으면 nil 그대로 (말풍선이 캐릭터 대사를 쓰게)
+    static func koreanNotification(_ message: String?, type: String?) -> String? {
+        guard let message else { return nil }
+        if message.unicodeScalars.contains(where: { (0xAC00...0xD7A3).contains($0.value) }) {
+            return message // 이미 한국어
+        }
+        let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = text.lowercased()
+        let usePrefix = "claude needs your permission to use "
+        if lower.hasPrefix(usePrefix) {
+            let tool = String(text.dropFirst(usePrefix.count)).trimmingCharacters(in: CharacterSet(charactersIn: " ."))
+            return tool.isEmpty ? "권한 확인이 필요해요" : "\(tool) 사용을 허락해 줄래요?"
+        }
+        if lower.contains("needs your permission") || lower.contains("permission") { return "권한 확인이 필요해요" }
+        if lower.contains("waiting for your input") || lower.contains("waiting for input") { return "입력을 기다리고 있어요" }
+        if lower.contains("needs your attention") { return "확인이 필요해요" }
+        switch type {
+        case "permission_prompt": return "권한 확인이 필요해요"
+        case "idle_prompt": return "입력을 기다리고 있어요"
+        case "elicitation_dialog": return "선택해 줄 게 있어요"
+        case "elicitation_url_dialog": return "링크에서 확인해 줄 게 있어요"
+        case "agent_needs_input": return "입력이 필요해요"
+        case "agent_completed": return "작업이 끝났어요"
+        default: return message
+        }
     }
 
     // MARK: - Codex notify (POST /hook/codex)
