@@ -105,6 +105,23 @@ xcodebuild -project TermPet.xcodeproj -scheme TermPet test   # 테스트
 
 Swift · SwiftUI + AppKit · [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`project.yml`만 수정, `.xcodeproj`는 생성물)
 
+## 윈도우판 (베타)
+
+`windows/` 폴더 — Electron + React + TypeScript. 맥 앱과 같은 기능(걷기·창 위 산책·던지기, 말풍선 알림, AI 연결, 조용한 시간/회의 중, 표시 위치, 친구 zip 추가, 업데이트)을 Windows 10/11에서.
+
+- 설치: `TermPet-Setup-<버전>.exe` 실행 → 작업 표시줄 트레이의 텀펫 아이콘 (왼쪽 클릭: 메뉴, 오른쪽 클릭: 빠른 메뉴)
+- 연결: 메뉴의 **AI 연결**에서 Claude Code / Codex / 터미널 명령(PowerShell 프로필) — 원래 파일은 `*.termpet-backup-<시각>` 으로 백업 후 병합
+- PowerShell 실행 정책이 `Restricted` 면 프로필이 안 돌아요: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`
+- 친구 폴더: `%APPDATA%\TermPet\Friends`, 기록: `%USERPROFILE%\.termpet\events.log`
+
+```bash
+cd windows
+npm install
+npm run dev        # 개발 실행 (맥에서도 실행되지만 포트 47831 · ~/.termpet-electron-dev 를 써서 맥 앱과 안 겹침)
+npm test           # 로직 테스트 (vitest)
+npm run dist:win   # Windows 설치 파일 → windows/dist/TermPet-Setup-<버전>.exe
+```
+
 ## 라이선스
 
 MIT

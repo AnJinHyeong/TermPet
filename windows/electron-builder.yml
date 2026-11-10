@@ -1,4 +1,5 @@
 # 윈도우 설치 파일 만들기: npm run dist:win → dist/TermPet-Setup-<버전>.exe
+# (koffi:win 이 윈도우용 koffi 바이너리를 받아 둔다. 맥에서 빌드해도 윈도우용이 들어가게)
 appId: com.termpet.TermPet
 productName: TermPet
 directories:
@@ -7,11 +8,16 @@ directories:
 files:
   - out/**
   - package.json
+# koffi 네이티브 모듈(.node)은 asar 압축 안에서 못 읽으므로 밖에 풀어 둔다
+asarUnpack:
+  - '**/*.node'
 extraResources:
   - from: resources/tray.png
     to: tray.png
   - from: resources/builtin
     to: builtin
+  - from: resources/hooks
+    to: hooks
 win:
   target: nsis
   icon: resources/icon.png

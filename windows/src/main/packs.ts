@@ -12,6 +12,8 @@ export interface LoadedPack {
   pack: CharacterPack
   anims: Partial<Record<PetAction, Animation[]>>
   size: { width: number; height: number }
+  /** 친구 고르기 타일에 쓸 대표 그림 (source.png 가 있으면 그것, 없으면 idle 첫 프레임) */
+  thumbnail: string
 }
 
 /** PNG 파일 머리(IHDR)에서 가로 크기만 읽는다 — 이미지 라이브러리 없이 프레임 수 계산용 */
@@ -32,7 +34,8 @@ export function loadPack(folder: string, key: string): LoadedPack {
     const w = pngWidth(join(folder, spec.file))
     if (w) widths[spec.file] = w
   }
-  return { key, name: pack.name ?? pack.id, folder, pack, anims: animations(pack, widths), size: displaySize(pack) }
+  const thumbnail = existsSync(join(folder, 'source.png')) ? 'source.png' : pack.states.idle.file
+  return { key, name: pack.name ?? pack.id, folder, pack, anims: animations(pack, widths), size: displaySize(pack), thumbnail }
 }
 
 /** Friends 폴더의 팩들 (order → 이름 순). 읽지 못한 팩은 건너뛰고 로그만 남긴다 */

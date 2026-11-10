@@ -1,0 +1,161 @@
+// 펫의 "두뇌" = 상태 머신. 맥 앱 Sources/Pet/PetBrain.swift 를 그대로 옮김.
+// React 비유: useReducer 의 reducer. tick() ≈ 매 프레임 타이머 reducer, handle() ≈ dispatch(action).
+// 클래스지만 UI·Electron 비의존이라 Vitest로 테스트한다. rng 를 주입해 결과를 재현할 수 있다.
+import type { PetAction } from './characterPack'
+import { flipped, type Direction } from './geometry'
+
+export type Random = () => number // 0 ≤ r < 1
+
+export interface BrainConfig {
+  idleDuration: [number, number]
+  walkDuration: [number, number]
+  /** 이벤트 반응(happy/angry/ask/talk) 기본 유지 시간 */
+  reactionDuration: number
+  /** 펫을 클릭했을 때 짧은 happy 반응 시간 */
+  clickReactionDuration: number
+  /** 이 시간 동안 아무 일도 없으면 잠든다 (기본 10분) */
+  sleepAfter: number
+  /** 창 옆면에 막혔을 때 기어오를 확률 */
+  climbWindowChance: number
+  /** 화면 끝 벽을 기어오를 확률 */
+  climbScreenChance: number
+  /** 창 위에서 끝에 닿았을 때 뛰어내릴 확률 */
+  edgeJumpChance: number
+}
+
+export const defaultBrainConfig: BrainConfig = {
+  idleDuration: [2, 6],
+  walkDuration: [3, 8],
+  reactionDuration: 4,
+  clickReactionDuration: 1.5,
+  sleepAfter: 600,
+  climbWindowChance: 0.75,
+  climbScreenChance: 0.3,
+  edgeJumpChance: 0.4,
+}
+
+/** 외부 입력 (TS 판별 유니온) */
+export type BrainInput =
+  | { type: 'clicked' }
+  | { type: 'dragStarted' }
+  | { type: 'startFall' }
+  | { type: 'landed' }
+  | { type: 'hitWall'; window: boolean }
+  | { type: 'reachedEdge' }
+  | { type: 'climbedUp' }
+  | { type: 'letGo' }
+  | { type: 'react'; action: PetAction; duration?: number }
+  | { type: 'sleep' }
+  | { type: 'wake' }
+
+const isReaction = (a: PetAction) => a === 'talk' || a === 'happy' || a === 'angry' || a === 'ask'
+/** 사용자가 잡고 있거나 떨어지는 중 → 다른 입력으로 끊으면 안 되는 상태 */
+export const isPhysicsControlled = (a: PetAction) => a === 'dragged' || a === 'fall' || a === 'climb'
+
+const between = (rng: Random, [a, b]: [number, number]) => a + (b - a) * rng()
+
+export class PetBrain {
+  action: PetAction = 'idle'
+  direction: Direction = 'right'
+  /** 현재 상태에 들어온 뒤 지난 시간 */
+  elapsed = 0
+  /** 현재 상태 유지 시간 (Infinity = 외부 입력까지) */
+  duration: number
+  /** 마지막 활동 이후 지난 시간 */
+  inactivity = 0
+  /** 상태 진입 때마다 뽑는 난수 → 포즈(idle.2 등) 고르기 */
+  variant = 0
+
+  constructor(readonly config: BrainConfig = defaultBrainConfig) {
+    this.duration = config.idleDuration[0]
+  }
+
+  tick(dt: number, rng: Random) {
+    this.elapsed += dt
+    switch (this.action) {
+      case 'idle':
+      case 'walk':
+        this.inactivity += dt
+        if (this.inactivity >= this.config.sleepAfter) {
+          this.enter('sleep', Infinity, rng)
+          return
+        }
+        if (this.elapsed < this.duration) return
+        if (this.action === 'idle') {
+          this.direction = rng() < 0.5 ? 'left' : 'right'
+          this.enter('walk', between(rng, this.config.walkDuration), rng)
+        } else {
+          this.enterIdle(rng)
+        }
+        return
+      default:
+        if (isReaction(this.action) && this.elapsed >= this.duration) this.enterIdle(rng)
+      // sleep/dragged/fall/climb 은 외부 입력으로만 바뀜
+    }
+  }
+
+  handle(input: BrainInput, rng: Random) {
+    switch (input.type) {
+      case 'clicked':
+        this.inactivity = 0
+        if (this.action === 'sleep') this.enterIdle(rng)
+        else if (!isPhysicsControlled(this.action)) this.enter('happy', this.config.clickReactionDuration, rng)
+        return
+      case 'dragStarted':
+        this.inactivity = 0
+        this.enter('dragged', Infinity, rng)
+        return
+      case 'startFall':
+        this.enter('fall', Infinity, rng)
+        return
+      case 'landed':
+        if (this.action === 'fall') this.enterIdle(rng)
+        return
+      case 'hitWall': {
+        if (this.action !== 'walk') {
+          this.direction = flipped(this.direction)
+          return
+        }
+        const chance = input.window ? this.config.climbWindowChance : this.config.climbScreenChance
+        if (rng() < chance) this.enter('climb', Infinity, rng)
+        else this.direction = flipped(this.direction)
+        return
+      }
+      case 'reachedEdge':
+        if (rng() < this.config.edgeJumpChance) this.enter('fall', Infinity, rng)
+        else this.direction = flipped(this.direction)
+        return
+      case 'climbedUp':
+        if (this.action === 'climb') this.enter('walk', between(rng, this.config.walkDuration), rng)
+        return
+      case 'letGo':
+        if (this.action !== 'climb') return
+        this.direction = flipped(this.direction) // 벽 반대쪽으로 뛴다
+        this.enter('fall', Infinity, rng)
+        return
+      case 'react':
+        this.inactivity = 0
+        if (isPhysicsControlled(this.action)) return
+        this.enter(input.action, input.duration ?? this.config.reactionDuration, rng)
+        return
+      case 'sleep':
+        if (!isPhysicsControlled(this.action)) this.enter('sleep', Infinity, rng)
+        return
+      case 'wake':
+        this.inactivity = 0
+        if (this.action === 'sleep') this.enterIdle(rng)
+        return
+    }
+  }
+
+  private enter(action: PetAction, duration: number, rng: Random) {
+    if (action !== this.action) this.variant = Math.floor(rng() * 1000)
+    this.action = action
+    this.duration = duration
+    this.elapsed = 0
+  }
+
+  private enterIdle(rng: Random) {
+    this.enter('idle', between(rng, this.config.idleDuration), rng)
+  }
+}

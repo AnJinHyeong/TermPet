@@ -12,11 +12,11 @@
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
-    "dist:win": "npm run build && electron-builder --win nsis --x64"
+    "dist:win": "npm run build && npm run koffi:win && electron-builder --win nsis --x64",
+    "koffi:win": "node scripts/fetch-koffi-win.mjs"
   },
   "dependencies": {
-    "react": "^19.3.1",
-    "react-dom": "^19.3.1"
+    "koffi": "^3.3.7"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
@@ -26,6 +26,8 @@
     "electron": "^45.2.3",
     "electron-builder": "^26.18.0",
     "electron-vite": "^6.0.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "typescript": "^7.0.2",
     "vite": "^8.3.7",
     "vitest": "^5.1.0"
