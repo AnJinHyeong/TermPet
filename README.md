@@ -41,8 +41,9 @@ AI 에이전트나 빌드를 돌려 두고 다른 일을 하다 보면 끝난 �
 ## 설치
 
 ```bash
+brew trust anjinhyeong/tap                     # 처음 한 번 (Homebrew 7+: 공식 아닌 tap 허용)
 brew install --cask anjinhyeong/tap/termpet   # 설치
-brew upgrade --cask termpet                    # 업데이트
+brew update && brew upgrade --cask termpet     # 업데이트
 ```
 
 macOS 14 이상.
