@@ -17,10 +17,20 @@ rm -f "$ZIP"
 ditto -c -k --keepParent build/Build/Products/Release/TermPet.app "$ZIP"
 SHA=$(shasum -a 256 "$ZIP" | cut -d' ' -f1)
 
+# 윈도우판(windows/)도 같은 버전 번호로 맞춘다. 설치 파일(exe)은 아래에서 GitHub Actions가 빌드해 같은 릴리스에 붙임
+if [[ -d windows ]]; then
+  (cd windows && npm version "$VERSION" --no-git-tag-version --allow-same-version >/dev/null)
+  git add windows/package.json windows/package-lock.json
+fi
+
 git add project.yml
 git commit -m "release: v$VERSION" || true
 git push
-gh release create "v$VERSION" "$ZIP" --title "텀펫 v$VERSION" --notes "brew upgrade --cask termpet 로 업데이트"
+gh release create "v$VERSION" "$ZIP" --title "텀펫 v$VERSION" \
+  --notes "맥: brew upgrade --cask termpet 로 업데이트
+윈도우: TermPet-Setup-$VERSION.exe 실행 (서명 없음 → '추가 정보 → 실행')"
+# 윈도우 설치 파일: Actions(windows-release.yml)가 윈도우 서버에서 빌드해 이 릴리스에 업로드 (몇 분 걸림)
+[[ -d windows ]] && gh workflow run windows-release.yml -f tag="v$VERSION" && echo "▶ 윈도우 설치 파일 빌드 시작 (GitHub Actions)"
 
 # Homebrew tap 저장소의 cask 버전·체크섬 갱신 (설치 명령: brew install --cask anjinhyeong/tap/termpet)
 TAP=build/homebrew-tap
