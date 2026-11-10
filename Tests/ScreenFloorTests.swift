@@ -89,6 +89,11 @@ final class ScreenFloorTests: XCTestCase {
         XCTAssertNil(ScreenFloor.resolveDockOverlap(origin: CGPoint(x: 600, y: 300), size: pet, dock: dock)) // 공중
     }
 
+    /// 실측: tilesize 55, 앱 23 + 최소화 창 2 + 휴지통 = 26칸, 구분선 1 → 실제 Dock 폭 약 1578pt
+    func testDockWidthEstimateMatchesMeasuredDock() {
+        XCTAssertEqual(ScreenFloor.estimatedDockWidth(tileSize: 55, items: 26, separators: 1), 1578, accuracy: 8)
+    }
+
     func testFullscreenWindowHidesDock() {
         func full(_ r: CGRect) -> Bool { ScreenFloor.hasFullscreenWindow([WindowBox(id: 1, frame: r)], screen: frame) }
         XCTAssertTrue(full(frame))                                              // 화면 전체

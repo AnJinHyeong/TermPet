@@ -51,9 +51,10 @@ enum ScreenFloor {
         }
     }
 
-    /// Dock 폭 추정: 아이콘 칸 수 × 아이콘 크기 + 구분선·여백.
-    /// shortcut: 정확한 값은 접근성 권한(AX)이 있어야 읽혀서, 권한 없이 Dock 설정값으로 근사한다.
+    /// Dock 폭 추정: 아이콘 칸 수 × 칸 폭 + 구분선 + 양끝 여백.
+    /// 실측(tilesize 55 → 칸 59.3pt, 구분선 26pt, 여백 5pt씩)으로 맞춘 값.
+    /// shortcut: 최소화된 창 칸은 설정에 안 나와서 빠진다 → 정확한 값은 손쉬운 사용 권한(AX)으로 읽는다.
     static func estimatedDockWidth(tileSize: CGFloat, items: Int, separators: Int) -> CGFloat {
-        CGFloat(items) * tileSize + CGFloat(separators) * tileSize * 0.35 + 16
+        CGFloat(items) * tileSize * 1.078 + CGFloat(separators) * tileSize * 0.47 + 10
     }
 }

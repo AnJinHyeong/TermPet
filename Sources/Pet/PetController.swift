@@ -415,7 +415,7 @@ final class PetController: NSObject {
     /// 창 목록 다시 읽기. 창 위에 있거나 매달려 있으면 자주(창을 끌면 따라가게), 아니면 가끔.
     private func rescanWindows(force: Bool = false) {
         let now = CACurrentMediaTime()
-        if now - lastDockCheck > 3 {
+        if now - lastDockCheck > 1 { // Dock 크기 변화(앱 실행·종료)를 빨리 반영
             let old = docks
             refreshDocks()
             if old != docks {

@@ -44,10 +44,24 @@ extension WindowScanner {
         let extra = NSWorkspace.shared.runningApplications.filter {
             $0.activationPolicy == .regular && !pinned.contains($0.bundleIdentifier ?? "")
         }.count
+        // 최근 사용 앱 칸(실행 중이 아닌 것, 최대 3개)과 그 앞 구분선
         let showsRecents = dock.object(forKey: "show-recents") as? Bool ?? true
-        let items = apps.count + (showsRecents ? extra : 0) + others.count + 1 // +1 휴지통
-        let separators = 1 + (showsRecents && extra > 0 ? 1 : 0)
+        let recents = showsRecents ? min(3, (dock.array(forKey: "recent-apps") ?? []).count) : 0
+        let items = apps.count + extra + recents + others.count + 1 // +1 휴지통
+        let separators = 1 + (recents > 0 ? 1 : 0)
         return ScreenFloor.estimatedDockWidth(tileSize: tile, items: items, separators: separators)
+    }
+
+    /// 손쉬운 사용 권한이 있는지 (있으면 Dock 폭을 정확히 읽는다)
+    static var canReadDockExactly: Bool { AXIsProcessTrusted() }
+
+    /// 손쉬운 사용 권한 요청 (시스템 대화상자 + 설정 화면). 메뉴 버튼을 눌렀을 때만 호출한다.
+    static func requestDockAccess() {
+        let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+        if !AXIsProcessTrustedWithOptions([key: true] as CFDictionary),
+           let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     /// Dock 앱의 접근성 트리에서 아이콘 목록(AXList) 폭을 읽는다

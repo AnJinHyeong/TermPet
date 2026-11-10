@@ -55,6 +55,12 @@ struct MenuPanelView: View {
                     pet.receive(PetEvent(source: .shell, kind: .done, message: "알림이 잘 보이나요?"))
                 }
                 .hint("말풍선을 한 번 띄워 봐요")
+                let exactDock = WindowScanner.canReadDockExactly
+                Chip(symbol: "dock.rectangle", title: "Dock 정확히", on: exactDock) {
+                    if !exactDock { closePanelThen { WindowScanner.requestDockAccess() } }
+                }
+                .hint(exactDock ? "Dock 끝을 정확히 알고 있어요"
+                                : "손쉬운 사용 권한을 켜면 Dock 끝을 정확히 알아서 뒤로 숨지 않아요")
             }
             Text("펫을 잡아서 휙 던져 보세요")
                 .font(.system(size: 10.5, design: .rounded))
