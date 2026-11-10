@@ -1,0 +1,36 @@
+# 윈도우 설치 파일(TermPet-Setup-<버전>.exe)을 GitHub 서버에서 빌드해 릴리스에 붙인다.
+# 로컬 업로드가 느리거나 막힐 때 사용: Actions 탭 → "Windows installer" → Run workflow → 릴리스 태그 입력
+#   또는: gh workflow run windows-release.yml -f tag=v0.4.0
+name: Windows installer
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '설치 파일을 붙일 릴리스 태그 (예: v0.4.0, draft도 가능)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: windows/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run dist:win -- --publish never
+      - name: 릴리스에 업로드
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ inputs.tag }}" dist/TermPet-Setup-*.exe --clobber
