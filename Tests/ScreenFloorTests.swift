@@ -102,6 +102,22 @@ final class ScreenFloorTests: XCTestCase {
         XCTAssertFalse(full(CGRect(x: 0, y: 0, width: 1200, height: 1124)))     // 폭이 모자람
         XCTAssertFalse(full(CGRect(x: 0, y: 0, width: 1800, height: 600)))      // 아래쪽 반만
     }
+
+    /// 크롬 전체 화면: 웹페이지 창(0~1008) + 툴바 창(972~1130) 여러 장 → 합쳐서 전체 화면
+    func testChromeSplitFullscreenWindowsCount() {
+        let chrome: [WindowBox] = [
+            WindowBox(id: 1, frame: CGRect(x: 0, y: 0, width: 1800, height: 1008), owner: 42),
+            WindowBox(id: 2, frame: CGRect(x: 0, y: 972, width: 1800, height: 158), owner: 42),
+        ]
+        XCTAssertTrue(ScreenFloor.hasFullscreenWindow(chrome, screen: frame))
+        // 다른 앱 창끼리는 합치지 않는다
+        var mixed = chrome; mixed[1].owner = 7
+        XCTAssertFalse(ScreenFloor.hasFullscreenWindow(mixed, screen: frame))
+        // 사이가 떠 있으면 아님
+        let gap = [WindowBox(id: 1, frame: CGRect(x: 0, y: 0, width: 1800, height: 500), owner: 42),
+                   WindowBox(id: 2, frame: CGRect(x: 0, y: 700, width: 1800, height: 430), owner: 42)]
+        XCTAssertFalse(ScreenFloor.hasFullscreenWindow(gap, screen: frame))
+    }
 }
 
 /// 두뇌 + 물리를 컨트롤러처럼 돌려 보는 통합 시뮬레이션:

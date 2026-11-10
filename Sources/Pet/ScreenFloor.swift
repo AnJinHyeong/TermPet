@@ -40,14 +40,23 @@ enum ScreenFloor {
     }
 
     /// 전체 화면 앱이 있으면 Dock은 숨겨져 있다.
-    /// 판정: 화면 폭을 꽉 채우고, 아래는 화면 맨 바닥(Dock 자리까지)에 닿고, 위는 화면 꼭대기 근처까지 올라간 창.
-    /// (노치 있는 MacBook은 전체 화면 창이 노치 줄(약 45pt)을 빼고 잡혀서 화면 frame 전체와 같지 않다.
-    ///  최대화(초록 버튼 + Option)한 창은 Dock 위에서 끝나므로 걸리지 않는다)
+    /// 판정: 한 앱의 '화면 폭을 꽉 채운 창'들을 세로로 이어 붙였을 때, 아래는 화면 맨 바닥에 닿고
+    /// 위는 화면 꼭대기 근처(80pt 이내)까지 올라가면 전체 화면.
+    /// - 크롬은 전체 화면에서도 툴바 창 + 웹페이지 창 여러 장으로 나뉘어 잡혀서 앱 단위로 합친다
+    /// - 노치 MacBook은 노치 줄(약 40pt)을 빼고 잡혀서 화면 전체와 같지 않다
+    /// - 최대화한 창은 Dock 위에서 끝나므로 걸리지 않는다
     static func hasFullscreenWindow(_ windows: [WindowBox], screen: CGRect) -> Bool {
-        windows.contains { w in
-            let f = w.frame
-            return f.minX <= screen.minX + 2 && f.maxX >= screen.maxX - 2
-                && f.minY <= screen.minY + 2 && f.maxY >= screen.maxY - 80
+        let fullWidth = windows.filter { $0.frame.minX <= screen.minX + 2 && $0.frame.maxX >= screen.maxX - 2 }
+        // 앱별로 묶기 (주인을 모르면 창 하나씩)
+        let groups = Dictionary(grouping: fullWidth) { $0.owner == 0 ? -Int32(truncatingIfNeeded: $0.id) : $0.owner }
+        return groups.values.contains { group in
+            // 아래에서부터 이어지는 세로 구간을 쌓는다 (틈 2pt까지 허용)
+            var top = screen.minY
+            for f in group.map(\.frame).sorted(by: { $0.minY < $1.minY }) {
+                guard f.minY <= top + 2 else { break }
+                top = max(top, f.maxY)
+            }
+            return top >= screen.maxY - 80
         }
     }
 

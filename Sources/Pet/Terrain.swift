@@ -4,6 +4,8 @@ import CoreGraphics
 struct WindowBox: Equatable {
     var id: Int
     var frame: CGRect
+    /// 창 주인 앱의 프로세스 id (0 = 모름). 한 앱이 여러 장으로 나눠 그린 전체 화면을 합쳐 보기 위해
+    var owner: Int32 = 0
 }
 
 /// 펫이 다니는 "지형" = 화면 바닥 + 앱 창 윗면(선반) + 창 옆면(벽). AppKit 비의존 순수 로직.

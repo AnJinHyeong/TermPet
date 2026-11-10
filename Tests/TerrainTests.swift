@@ -179,7 +179,7 @@ final class TerrainTests: XCTestCase {
              "kCGWindowBounds": ["X": 0, "Y": 0, "Width": 40, "Height": 30] as NSDictionary],
         ]
         let boxes = WindowScanner.boxes(from: infos, ownPID: 99, primaryHeight: 1000)
-        XCTAssertEqual(boxes, [WindowBox(id: 1, frame: CGRect(x: 100, y: 650, width: 400, height: 300))])
+        XCTAssertEqual(boxes, [WindowBox(id: 1, frame: CGRect(x: 100, y: 650, width: 400, height: 300), owner: 10)])
     }
 }
 

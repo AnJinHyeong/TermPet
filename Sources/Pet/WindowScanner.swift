@@ -26,7 +26,7 @@ enum WindowScanner {
                   let cg = CGRect(dictionaryRepresentation: dict as CFDictionary),
                   cg.width >= 120, cg.height >= 60 else { return nil }
             let frame = CGRect(x: cg.minX, y: primaryHeight - cg.maxY, width: cg.width, height: cg.height)
-            return WindowBox(id: id, frame: frame)
+            return WindowBox(id: id, frame: frame, owner: info[kCGWindowOwnerPID as String] as? Int32 ?? 0)
         }
     }
 }
