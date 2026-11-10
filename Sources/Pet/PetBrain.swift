@@ -35,6 +35,7 @@ struct PetBrain {
         case reachedEdge          // 창 위에서 끝에 닿음 → 뛰어내리거나 돌아선다
         case climbedUp            // 벽을 다 올라 창 위에 올라섬 → 계속 걷기
         case letGo                // 벽에서 손을 놓음 → 반대쪽으로 뛰어내림
+        case climbOutOfDock       // Dock 뒤에 가려졌음 → 그 자리에서 Dock 위로 기어 올라온다
         case react(PetAction, duration: TimeInterval? = nil)
         case sleep
         case wake
@@ -122,6 +123,10 @@ struct PetBrain {
             } else {
                 direction = direction.flipped
             }
+
+        case .climbOutOfDock:
+            guard action != .dragged, action != .fall else { return }
+            enter(.climb, for: .infinity, using: &rng)
 
         case .climbedUp:
             guard action == .climb else { return }

@@ -166,3 +166,25 @@ final class LoopFPSTests: XCTestCase {
         XCTAssertEqual(PetController.loopFPS(for: .idle, maxFPS: 12), 12) // 설정값보다 높이지 않음
     }
 }
+
+final class PetBrainDockRiseTests: XCTestCase {
+    func testClimbOutOfDockEntersClimbFromIdleOrWalk() {
+        var rng = SeededGenerator(seed: 1)
+        var brain = PetBrain()
+        brain.handle(.climbOutOfDock, using: &rng)
+        XCTAssertEqual(brain.action, .climb)
+        brain.handle(.climbedUp, using: &rng)
+        XCTAssertEqual(brain.action, .walk)
+    }
+
+    func testClimbOutOfDockIgnoredWhileDraggedOrFalling() {
+        var rng = SeededGenerator(seed: 1)
+        var brain = PetBrain()
+        brain.handle(.dragStarted, using: &rng)
+        brain.handle(.climbOutOfDock, using: &rng)
+        XCTAssertEqual(brain.action, .dragged)
+        brain.handle(.startFall, using: &rng)
+        brain.handle(.climbOutOfDock, using: &rng)
+        XCTAssertEqual(brain.action, .fall)
+    }
+}

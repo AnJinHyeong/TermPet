@@ -35,6 +35,10 @@ final class PetController: NSObject {
     /// 화면 아래 Dock 발판들 (창 위 산책 설정과 무관하게 항상 지형에 포함)
     private var docks: [WindowBox] = []
     private var lastDockCheck: CFTimeInterval = 0
+    /// Space 전환·화면 변경 뒤 이 시각에 한 번만 자리 판정 (전환 애니메이션 중엔 창 목록이 들쭉날쭉해서)
+    private var settleAt: CFTimeInterval?
+    /// Dock 뒤에 가려져서 그 자리에서 Dock 위로 기어오르는 중
+    private var risingOutOf: WindowBox?
     private var rng = SystemRandomNumberGenerator()
 
     /// 창 위를 걷고 기어오르기 (메뉴 패널 '창 위 산책' 칩)
@@ -310,7 +314,7 @@ final class PetController: NSObject {
             case .startFalling: beginFall()
             }
         case .climb:
-            stepClimb(dt)
+            if risingOutOf != nil { stepRise(dt) } else { stepClimb(dt) }
         case .fall:
             if physics.fall(dt: dt, terrain: terrain) {
                 liftOutOfDock() // 던져져서 Dock 뒤 바닥에 떨어졌으면 Dock 위/옆으로
@@ -356,6 +360,7 @@ final class PetController: NSObject {
 
     private func beginFall(velocity: CGVector = .zero) {
         climbingWall = nil
+        risingOutOf = nil
         physics.prepareFall(terrain: terrain, velocity: velocity)
         brain.handle(.startFall, using: &rng)
     }
@@ -429,7 +434,9 @@ final class PetController: NSObject {
     /// 창 목록 다시 읽기. 창 위에 있거나 매달려 있으면 자주(창을 끌면 따라가게), 아니면 가끔.
     private func rescanWindows(force: Bool = false) {
         let now = CACurrentMediaTime()
-        if now - lastDockCheck > 1 { // Dock 크기 변화(앱 실행·종료)를 빨리 반영
+        if let at = settleAt {
+            if now >= at { settleAt = nil; settle() }
+        } else if now - lastDockCheck > 1 { // Dock 크기 변화(앱 실행·종료)를 빨리 반영
             let old = docks
             refreshDocks()
             if old != docks {
@@ -438,7 +445,7 @@ final class PetController: NSObject {
                     // Dock 크기가 바뀌었다: 매달려 있거나 서 있던 자리가 달라졌으니 다시 자리 잡기
                     if !isDragging { beginFall() }
                 } else if !isDragging, !brain.action.isPhysicsControlled {
-                    liftOutOfDock()
+                    startRisingOutOfDock()
                 }
             }
         }
@@ -511,20 +518,63 @@ final class PetController: NSObject {
         }
     }
 
+    /// Space 전환(전체 화면 앱 ↔ 바탕화면): 전환 애니메이션이 끝난 뒤 한 번만 자리 판정
     @objc private func spaceChanged() {
-        let old = docks
-        refreshDocks()
-        guard old != docks else { return }
-        rebuildTerrain(windows: appWindows)
-        // Dock이 사라졌으면 Dock 위에 있던 펫은 맨 바닥으로, 다시 생겼으면 Dock 뒤에 숨지 않게
-        if !isDragging { liftOutOfDock(); beginFall() }
+        settleAt = CACurrentMediaTime() + 0.7
     }
 
     @objc private func screensChanged() {
+        settleAt = CACurrentMediaTime() + 0.7
+    }
+
+    /// 화면이 바뀐 뒤 자리 잡기 — 순간이동 없이:
+    /// - 바닥에 있던 펫은 그대로 바닥에 (Dock이 생겼다고 위로 올리지 않는다)
+    /// - Dock 뒤에 가려졌으면 그 자리에서 Dock 위로 기어 올라온다
+    /// - 서 있던 Dock·창이 사라졌을 때만 떨어진다
+    private func settle() {
         refreshLayout()
         rescanWindows(force: true)
-        // 바닥 높이가 바뀌었을 수 있으니 다시 떨어뜨려서 자리 잡기 (Dock 뒤에 숨지 않게 먼저 위로)
-        if !isDragging { liftOutOfDock(); beginFall() }
+        guard !isDragging else { return }
+        if risingOutOf != nil, docks.first != risingOutOf { risingOutOf = nil; beginFall(); return }
+        guard !brain.action.isPhysicsControlled else { return } // 떨어지는 중·벽 타는 중이면 그대로
+        if let id = physics.standingOn {
+            if terrain.ledge(atX: physics.centerX, y: physics.origin.y, windowID: id) == nil { beginFall() }
+            return
+        }
+        let floor = layout.landingFloor(centerX: physics.centerX, fromY: physics.origin.y) ?? physics.origin.y
+        if physics.origin.y > floor + 0.5 { beginFall(); return }
+        startRisingOutOfDock()
+    }
+
+    /// 바닥에서 몸이 Dock 뒤에 들어가 있으면: 가운데가 Dock 안이면 그 자리에서 기어 오르고,
+    /// 살짝 걸친 정도면 옆으로 비켜선다.
+    private func startRisingOutOfDock() {
+        guard physics.standingOn == nil, risingOutOf == nil, let dock = docks.first,
+              let fix = ScreenFloor.resolveDockOverlap(origin: physics.origin, size: physics.size, dock: dock.frame) else { return }
+        if fix.onDock {
+            risingOutOf = dock
+            brain.handle(.climbOutOfDock, using: &rng)
+            if brain.action != .climb { risingOutOf = nil }
+        } else {
+            physics.origin = fix.origin
+            window?.setFrameOrigin(physics.origin)
+        }
+    }
+
+    /// Dock 뒤에서 위로 기어오르기 (벽 타기와 같은 속도)
+    private func stepRise(_ dt: TimeInterval) {
+        guard let dock = risingOutOf, docks.first == dock else {
+            risingOutOf = nil
+            beginFall()
+            return
+        }
+        physics.origin.y += max(walkSpeed * 1.3, 50) * CGFloat(dt)
+        if physics.origin.y >= dock.frame.maxY {
+            physics.origin.y = dock.frame.maxY
+            physics.standingOn = dock.id
+            risingOutOf = nil
+            brain.handle(.climbedUp, using: &rng)
+        }
     }
 
     // MARK: - 마우스
@@ -550,6 +600,7 @@ final class PetController: NSObject {
         physics.origin = CGPoint(x: p.x - dragOffset.x, y: p.y - dragOffset.y)
         physics.standingOn = nil
         climbingWall = nil
+        risingOutOf = nil
         window?.setFrameOrigin(physics.origin)
         let now = CACurrentMediaTime()
         dragTrail.append((now, p))
