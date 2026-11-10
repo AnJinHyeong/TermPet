@@ -9,7 +9,7 @@ import { makeEvent, type PetEvent } from '../shared/events'
 import type { IntegrationKind, PanelAction, PanelState } from '../shared/ipc'
 import { LAYERS } from '../shared/misc'
 import { currentStats, statsSummary } from '../shared/notifications'
-import { focusEvent } from './focus'
+import { focusEvent, rememberWindow } from './focus'
 import { importPacks } from './importer'
 import { INTEGRATIONS, isAvailable, status as integrationStatus, toggle as toggleIntegration } from './integrations'
 import { loadFriends, loadPack, type LoadedPack } from './packs'
@@ -372,7 +372,10 @@ function startEventServer() {
   startServer(
     port,
     token,
-    (e) => pet.receive(e),
+    (e) => {
+      rememberWindow(e)
+      pet.receive(e)
+    },
     (s) => {
       serverState = s
       refreshUI()

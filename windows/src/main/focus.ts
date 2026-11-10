@@ -6,15 +6,40 @@ import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import type { PetEvent } from '../shared/events'
 import { editorCandidates, findProjectRoot, planFocus, processNamesFor } from '../shared/hostApp'
-import { focusProcessWindow } from './win32'
+import { focusProcessWindow, focusWindow, foregroundWindow } from './win32'
+
+// 세션별로 "사용자가 작업하던 창"을 기억 (Map ≈ JS Map 그대로).
+// 훅 환경변수로 앱을 알 수 없는 경우(Claude 데스크톱 앱, 일반 콘솔 창 …)에도 그 창으로 돌아가기 위해:
+// 프롬프트를 보낸 순간(UserPromptSubmit)의 맨 앞 창 = 그 세션을 돌리는 창.
+const windowByKey = new Map<string, bigint>()
+const keyOf = (e: PetEvent) => e.sessionId ?? e.terminal ?? e.cwd
+
+/** 이벤트를 받을 때마다 호출. 프롬프트 제출 시점(또는 처음 보는 세션)의 맨 앞 창을 기억 */
+export function rememberWindow(e: PetEvent) {
+  if (process.platform !== 'win32') return
+  const key = keyOf(e)
+  if (!key) return
+  const isPromptSubmit = e.source === 'claude' && e.kind === 'working' && !e.detail
+  if (!isPromptSubmit && windowByKey.has(key)) return
+  const hwnd = foregroundWindow()
+  if (!hwnd) return
+  if (windowByKey.size > 200) windowByKey.clear()
+  windowByKey.set(key, hwnd)
+}
 
 export function focusEvent(e: PetEvent) {
   const action = planFocus(e, (cwd) => findProjectRoot(cwd, homedir(), existsSync))
-  if (action.type === 'none') return
   if (process.platform !== 'win32') {
     console.log('[TermPet] (윈도우 전용) 이동:', action)
     return
   }
+  // 폴더 열기(에디터)가 아니면, 기억해 둔 바로 그 창이 가장 정확하다 (창이 여러 개여도)
+  if (action.type !== 'openFolder') {
+    const key = keyOf(e)
+    const hwnd = key ? windowByKey.get(key) : undefined
+    if (hwnd && focusWindow(hwnd)) return
+  }
+  if (action.type === 'none') return
   if (action.type === 'activate') {
     focusProcessWindow(processNamesFor(action.host.kind))
     return

@@ -22,6 +22,8 @@ interface Api {
   DwmGetWindowAttributeInt: (h: bigint, attr: number, out: number[], size: number) => number
   SetWindowPos: (h: bigint, after: bigint, x: number, y: number, cx: number, cy: number, flags: number) => boolean
   SetForegroundWindow: (h: bigint) => boolean
+  GetForegroundWindow: () => bigint | number
+  IsWindow: (h: bigint) => boolean
   ShowWindow: (h: bigint, cmd: number) => boolean
   GetAsyncKeyState: (key: number) => number
   OpenProcess: (access: number, inherit: boolean, pid: number) => bigint | number
@@ -56,6 +58,8 @@ function load(): Api | null {
       DwmGetWindowAttributeInt: dwm.func('DwmGetWindowAttribute', 'long', ['intptr_t', 'uint32_t', koffi.out(koffi.pointer('uint32_t')), 'uint32_t']),
       SetWindowPos: user32.func('bool __stdcall SetWindowPos(intptr_t hwnd, intptr_t after, int x, int y, int cx, int cy, uint32_t flags)'),
       SetForegroundWindow: user32.func('bool __stdcall SetForegroundWindow(intptr_t hwnd)'),
+      GetForegroundWindow: user32.func('intptr_t __stdcall GetForegroundWindow()'),
+      IsWindow: user32.func('bool __stdcall IsWindow(intptr_t hwnd)'),
       ShowWindow: user32.func('bool __stdcall ShowWindow(intptr_t hwnd, int cmd)'),
       GetAsyncKeyState: user32.func('short __stdcall GetAsyncKeyState(int key)'),
       keybd_event: user32.func('void __stdcall keybd_event(uint8_t vk, uint8_t scan, uint32_t flags, uintptr_t extra)'),
@@ -189,6 +193,31 @@ export function focusProcessWindow(names: string[]): boolean {
   a.keybd_event(0x12, 0, 0, 0)
   a.keybd_event(0x12, 0, 0x0002, 0)
   return a.SetForegroundWindow(target.hwnd)
+}
+
+/** 지금 맨 앞(키보드 입력을 받는) 창. 내 프로세스 창이면 undefined */
+export function foregroundWindow(): bigint | undefined {
+  const a = load()
+  if (!a) return undefined
+  try {
+    const h = toBig(a.GetForegroundWindow())
+    if (!h) return undefined
+    const pid = [0]
+    a.GetWindowThreadProcessId(h, pid)
+    return pid[0] && pid[0] !== process.pid ? h : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** 이 창을 앞으로 (닫혔으면 false) */
+export function focusWindow(hwnd: bigint): boolean {
+  const a = load()
+  if (!a || !a.IsWindow(hwnd)) return false
+  if (a.IsIconic(hwnd)) a.ShowWindow(hwnd, 9) // SW_RESTORE
+  a.keybd_event(0x12, 0, 0, 0) // Alt 우회 (focusProcessWindow 참고)
+  a.keybd_event(0x12, 0, 0x0002, 0)
+  return a.SetForegroundWindow(hwnd)
 }
 
 /** 최소화된 창도 포함 (앞으로 가져오기용) */
