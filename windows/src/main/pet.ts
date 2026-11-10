@@ -488,11 +488,12 @@ export class PetController {
   }
 
   /** 누르고 있는 동안 매 프레임: 커서를 따라 창 이동 (창 밖으로 빨리 움직여도 놓치지 않게 메인에서 커서를 읽는다) */
-  private trackMouse() {
+  private trackMouse(checkButton = true) {
     const start = this.mouseDownAt
     if (!start || !this.win) return
-    // 창 밖에서 버튼을 놓아 mouseup 이 안 온 경우 (윈도우만 확인 가능)
-    if (leftButtonDown() === false) return this.mouseUp()
+    // 창 밖에서 버튼을 놓아 mouseup 이 안 온 경우 (윈도우만 확인 가능).
+    // mouseUp 안에서 부를 때는 확인하지 않는다 (확인하면 mouseUp ↔ trackMouse 가 서로 무한히 부름)
+    if (checkButton && leftButtonDown() === false) return this.mouseUp()
     const p = screen.getCursorScreenPoint()
     if (!this.dragging) {
       if (Math.hypot(p.x - start.x, p.y - start.y) < DRAG_THRESHOLD) return
@@ -514,7 +515,7 @@ export class PetController {
 
   private mouseUp() {
     if (!this.mouseDownAt) return
-    this.trackMouse()
+    this.trackMouse(false)
     this.mouseDownAt = undefined
     if (this.dragging) {
       this.dragging = false

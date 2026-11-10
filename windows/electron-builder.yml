@@ -28,4 +28,4 @@ nsis:
   perMachine: false
   artifactName: TermPet-Setup-${version}.${ext}
   shortcutName: 텀펫
-  createDesktopShortcut: false
+  createDesktopShortcut: true
