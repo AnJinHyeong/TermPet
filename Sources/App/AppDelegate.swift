@@ -97,6 +97,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// 패널의 "친구 추가하기": 파일 선택 창에서 zip(또는 폴더)을 골라 친구 팩 설치 → 첫 친구로 바꾸기
+    /// NSOpenPanel ≈ <input type="file"> 를 코드로 띄우는 것
+    func importFriends() {
+        NSApp.activate()
+        let panel = NSOpenPanel()
+        panel.title = "친구 팩 고르기"
+        panel.message = "캐릭터 팩이 든 zip 파일(또는 폴더)을 골라 주세요"
+        panel.prompt = "추가"
+        panel.allowedContentTypes = [.zip, .folder]
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let ids = try FriendPackImporter.importPacks(from: url, into: characters.friendsDirectory)
+            characters.reload()
+            let names = ids.compactMap { id in characters.entries.first { $0.id == CharacterLibrary.friendPrefix + id }?.name }
+            if let first = ids.first { selectCharacter(CharacterLibrary.friendPrefix + first) }
+            showAlert("친구 \(ids.count)명을 데려왔어요", names.joined(separator: ", "))
+        } catch {
+            showAlert("친구를 추가하지 못했어요", error.localizedDescription)
+        }
+    }
+
     /// 패널의 AI 연결 버튼: 설정 파일 백업 → 텀펫 항목 추가/삭제
     /// remove: 스위치를 끈 경우 (업데이트가 필요한 상태여도 해제)
     func toggleIntegration(_ kind: IntegrationManager.Kind, remove: Bool = false) {

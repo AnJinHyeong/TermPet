@@ -214,6 +214,16 @@ struct MenuPanelView: View {
                     .buttonStyle(PressableStyle())
                     .hint(entry.name)
                 }
+                // 친구 추가하기: zip을 골라 캐릭터 팩 설치
+                Button { closePanelThen { app.importFriends() } } label: {
+                    ZStack {
+                        Circle().strokeBorder(Theme.cocoa.opacity(0.3), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                        Image(systemName: "plus").font(.system(size: 16, weight: .bold)).foregroundStyle(Theme.cocoa.opacity(0.6))
+                    }
+                    .frame(width: 46, height: 46)
+                }
+                .buttonStyle(PressableStyle())
+                .hint("친구 추가하기 (zip 파일 고르기)")
             }
 
             HStack(spacing: 5) {

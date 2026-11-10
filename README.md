@@ -72,7 +72,9 @@ macOS 14 이상.
 
 ## 캐릭터
 
-`~/Library/Application Support/TermPet/Friends/<id>/`에 스프라이트 팩을 넣으면 메뉴의 **친구 고르기**에 나타납니다.
+메뉴 → **친구 고르기**의 **＋(친구 추가하기)** 를 누르고 캐릭터 팩 zip(또는 폴더)을 고르면 바로 추가됩니다.
+zip 하나에 여러 친구가 들어 있어도 모두 한 번에 등록되고, 같은 id의 친구는 새것으로 바뀝니다.
+팩은 `~/Library/Application Support/TermPet/Friends/<id>/`에 저장됩니다 (직접 넣어도 됩니다).
 동작별 포즈 여러 장, 바라보는 방향, 벽 타기 포즈 등을 지정할 수 있습니다. 형식은 [docs/CHARACTER_PACK.md](docs/CHARACTER_PACK.md)를 참고하세요.
 팩이 하나도 없으면 내장 캐릭터 '말랑이'가 나옵니다.
 

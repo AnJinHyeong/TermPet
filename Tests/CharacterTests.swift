@@ -176,3 +176,66 @@ final class CharacterLibraryTests: XCTestCase {
         }
     }
 }
+
+final class FriendPackImporterTests: XCTestCase {
+    private var tmp: URL!
+    private var friends: URL { tmp.appendingPathComponent("Friends") }
+
+    override func setUp() {
+        tmp = FileManager.default.temporaryDirectory.appendingPathComponent("importer-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+    }
+    override func tearDown() { try? FileManager.default.removeItem(at: tmp) }
+
+    /// 폴더 → zip (Finder 압축과 같은 ditto 사용)
+    private func zip(_ folder: URL) -> URL {
+        let out = tmp.appendingPathComponent("\(folder.lastPathComponent).zip")
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+        p.arguments = ["-c", "-k", "--sequesterRsrc", "--keepParent", folder.path, out.path]
+        try? p.run(); p.waitUntilExit()
+        return out
+    }
+
+    func testImportsAllPacksFromZipAndLibrarySeesThem() throws {
+        let src = tmp.appendingPathComponent("MyFriends")
+        SpriteCharacterTests.makePack(in: src.appendingPathComponent("a"), id: "alpha")
+        SpriteCharacterTests.makePack(in: src.appendingPathComponent("nested/b"), id: "beta")
+        let ids = try FriendPackImporter.importPacks(from: zip(src), into: friends)
+        XCTAssertEqual(Set(ids), ["alpha", "beta"])
+
+        let defaults = UserDefaults(suiteName: "importer-\(UUID().uuidString)")!
+        let library = CharacterLibrary(friendsDirectory: friends, defaults: defaults)
+        XCTAssertEqual(Set(library.entries.map(\.id)), ["friend.alpha", "friend.beta"])
+        XCTAssertNoThrow(try library.load(library.entries[0]))
+    }
+
+    func testReplacesExistingPackWithSameId() throws {
+        SpriteCharacterTests.makePack(in: friends.appendingPathComponent("alpha"), id: "alpha")
+        try Data("old".utf8).write(to: friends.appendingPathComponent("alpha/stale.txt"))
+        let src = tmp.appendingPathComponent("new/alpha")
+        SpriteCharacterTests.makePack(in: src, id: "alpha")
+        try FriendPackImporter.importPacks(from: src, into: friends)  // 폴더도 받는다
+        XCTAssertFalse(FileManager.default.fileExists(atPath: friends.appendingPathComponent("alpha/stale.txt").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: friends.appendingPathComponent("alpha/character.json").path))
+    }
+
+    func testZipWithoutPacksFails() throws {
+        let src = tmp.appendingPathComponent("empty")
+        try FileManager.default.createDirectory(at: src, withIntermediateDirectories: true)
+        try Data("hi".utf8).write(to: src.appendingPathComponent("readme.txt"))
+        XCTAssertThrowsError(try FriendPackImporter.importPacks(from: zip(src), into: friends))
+    }
+
+    func testBrokenZipFails() throws {
+        let bad = tmp.appendingPathComponent("bad.zip")
+        try Data("not a zip".utf8).write(to: bad)
+        XCTAssertThrowsError(try FriendPackImporter.importPacks(from: bad, into: friends))
+    }
+
+    func testSafeFolderNameBlocksPathTricks() {
+        XCTAssertEqual(FriendPackImporter.safeFolderName("../evil"), "_evil")
+        XCTAssertEqual(FriendPackImporter.safeFolderName(".."), "friend")
+        XCTAssertEqual(FriendPackImporter.safeFolderName("usagi"), "usagi")
+    }
+}
