@@ -388,10 +388,14 @@ final class PetController: NSObject {
         let width = WindowScanner.dockWidth()
         let windows = WindowScanner.scan()
         // Dock은 한 화면에만 있다. 그 화면을 전체 화면 앱이 덮고 있으면 Dock은 숨어 있으니 발판도 없다
-        docks = NSScreen.screens.lazy.compactMap { s -> WindowBox? in
-            guard !ScreenFloor.hasFullscreenWindow(windows, screen: s.frame) else { return nil }
-            return ScreenFloor.dockBox(frame: s.frame, visible: s.visibleFrame, dockWidth: width)
-        }.first.map { [$0] } ?? []
+        // (전체 화면 판정이 한순간 풀려도 Dock이 깜빡 생기지 않게 dockGate로 거른다)
+        let found = NSScreen.screens.lazy.compactMap { s -> (CGRect, WindowBox)? in
+            ScreenFloor.dockBox(frame: s.frame, visible: s.visibleFrame, dockWidth: width).map { (s.frame, $0) }
+        }.first
+        let fullscreen = found.map { ScreenFloor.hasFullscreenWindow(windows, screen: $0.0) } ?? false
+        let hidden = dockGate.update(fullscreen: fullscreen, spaceChanged: spaceChangedSinceDockCheck)
+        spaceChangedSinceDockCheck = false
+        docks = (found.map { [$0.1] } ?? []).filter { _ in !hidden }
         if docks != lastLoggedDocks {
             lastLoggedDocks = docks
             let line = "[TermPet] dock \(docks.first.map { "\($0.frame)" } ?? "none") exact=\(WindowScanner.canReadDockExactly)"
@@ -407,6 +411,9 @@ final class PetController: NSObject {
         }
     }
     private var lastLoggedDocks: [WindowBox]?
+    private var dockGate = DockFullscreenGate()
+    /// Space 전환 뒤 첫 Dock 검사인지 (그땐 전체 화면 해제를 바로 믿는다)
+    private var spaceChangedSinceDockCheck = false
 
     /// 바닥에 서 있는데 Dock 자리(Dock 뒤)에 들어가 있으면 Dock 위로 올린다
     /// (처음 시작할 때, Dock이 넓어졌을 때)
@@ -520,6 +527,7 @@ final class PetController: NSObject {
 
     /// Space 전환(전체 화면 앱 ↔ 바탕화면): 전환 애니메이션이 끝난 뒤 한 번만 자리 판정
     @objc private func spaceChanged() {
+        spaceChangedSinceDockCheck = true
         settleAt = CACurrentMediaTime() + 0.7
     }
 

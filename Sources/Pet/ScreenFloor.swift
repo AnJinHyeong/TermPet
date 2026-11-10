@@ -67,3 +67,31 @@ enum ScreenFloor {
         CGFloat(items) * tileSize * 1.078 + CGFloat(separators) * tileSize * 0.47 + 10
     }
 }
+
+/// 전체 화면이라 Dock을 숨겨 둘지 정하는 문지기.
+/// 창 목록은 가끔 한순간 전체 화면 창이 빠진 채로 읽힌다 → 그때마다 Dock 발판이 생겼다 사라지면
+/// 펫이 보이지 않는 Dock을 기어올랐다 떨어진다. 그래서 '숨김 해제'는 여러 번 연속 확인됐을 때만 받아들인다.
+/// (Space 전환처럼 진짜로 화면이 바뀐 경우는 바로 반영)
+/// React 비유: 값이 잠깐 튀어도 무시하는 debounce 훅을 순수 로직으로 뺀 것.
+struct DockFullscreenGate {
+    /// 전체 화면이 아니라는 판정이 이만큼 연속돼야 Dock을 다시 보여준다 (Dock 검사 1초 간격 → 약 3초)
+    static let clearChecksNeeded = 3
+
+    private(set) var hidden = false
+    private var clearChecks = 0
+
+    /// 이번 검사 결과를 넣고, Dock을 숨길지 돌려준다
+    mutating func update(fullscreen: Bool, spaceChanged: Bool) -> Bool {
+        if fullscreen {
+            hidden = true
+            clearChecks = 0
+        } else if hidden {
+            clearChecks += 1
+            if spaceChanged || clearChecks >= Self.clearChecksNeeded {
+                hidden = false
+                clearChecks = 0
+            }
+        }
+        return hidden
+    }
+}

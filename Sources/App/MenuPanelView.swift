@@ -17,6 +17,17 @@ struct MenuPanelView: View {
                 .padding(.horizontal, 12)
                 .padding(.top, 12)
 
+            // 새 버전이 있을 때만: [업데이트] 버튼 (누르면 brew로 바로 업데이트 후 다시 켜짐)
+            if let version = app.updater.availableVersion {
+                updateBanner(version: version)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+            } else if app.updater.state == .updating {
+                updateBanner(version: nil)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+            }
+
             // 진행 중인 AI 세션이 있을 때만 (누르면 그 프로젝트 창으로 이동)
             let sessions = pet.sessions.tracker.ordered
             if !sessions.isEmpty {
@@ -252,6 +263,14 @@ struct MenuPanelView: View {
             }
             .toggleStyle(.checkbox)
             Spacer()
+            // 버전 · 누르면 새 버전 확인
+            Button { Task { await app.updater.check() } } label: {
+                Text(versionLabel)
+                    .font(.system(size: 10.5, design: .rounded))
+                    .foregroundStyle(Theme.cocoa.opacity(0.55))
+            }
+            .buttonStyle(.plain)
+            .hint("눌러서 새 버전 확인")
             Button { NSApplication.shared.terminate(nil) } label: {
                 HStack(spacing: 3) {
                     Image(systemName: "power").font(.system(size: 9, weight: .bold))
@@ -267,6 +286,44 @@ struct MenuPanelView: View {
         .padding(.vertical, 10)
         .background(Theme.cream.opacity(0.9))
         .overlay(alignment: .top) { Rectangle().fill(Theme.cocoa.opacity(0.08)).frame(height: 1) }
+    }
+
+    /// 새 버전 안내 띠 (version == nil 이면 업데이트 중 표시)
+    private func updateBanner(version: String?) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "sparkles").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.blushStrong)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(version.map { "새 버전 v\($0)이 나왔어요" } ?? "업데이트 중…")
+                    .font(.system(size: 12, weight: .bold, design: .rounded)).foregroundStyle(Theme.cocoa)
+                Text(version == nil ? "잠시 꺼졌다가 다시 켜져요" : "지금 버전 v\(app.updater.current)")
+                    .font(.system(size: 10.5, design: .rounded)).foregroundStyle(Theme.cocoa.opacity(0.6))
+            }
+            Spacer()
+            if version != nil {
+                Button { app.updater.update() } label: {
+                    Text("업데이트")
+                        .font(.system(size: 11.5, weight: .bold, design: .rounded)).foregroundStyle(.white)
+                        .padding(.horizontal, 12).frame(height: 24)
+                        .background(Capsule().fill(Theme.blush))
+                }
+                .buttonStyle(PressableStyle())
+            } else {
+                ProgressView().controlSize(.small)
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 9)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.butter.opacity(0.55)))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.blush.opacity(0.5), lineWidth: 1))
+    }
+
+    /// 푸터 버전 글씨: 확인 결과를 짧게 보여 준다
+    private var versionLabel: String {
+        switch app.updater.state {
+        case .checking: return "확인 중…"
+        case .upToDate: return "v\(app.updater.current) · 최신"
+        case .failed(let message): return message
+        default: return "v\(app.updater.current)"
+        }
     }
 
     private var serverColor: Color {

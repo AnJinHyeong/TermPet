@@ -179,3 +179,30 @@ final class DockPlaySimulationTests: XCTestCase {
         XCTAssertTrue(climbedBack, "seed \(seed): 바닥에서 Dock 위로 다시 올라온 적이 없음")
     }
 }
+
+final class DockFullscreenGateTests: XCTestCase {
+    func testBriefFullscreenDropoutKeepsDockHidden() {
+        var gate = DockFullscreenGate()
+        XCTAssertFalse(gate.update(fullscreen: false, spaceChanged: false))   // 평소: Dock 보임
+        XCTAssertTrue(gate.update(fullscreen: true, spaceChanged: false))     // 전체 화면
+        XCTAssertTrue(gate.update(fullscreen: false, spaceChanged: false))    // 한순간 판정 풀림 → 그래도 숨김
+        XCTAssertTrue(gate.update(fullscreen: true, spaceChanged: false))     // 다시 전체 화면 (카운트 초기화)
+        XCTAssertTrue(gate.update(fullscreen: false, spaceChanged: false))
+        XCTAssertTrue(gate.update(fullscreen: false, spaceChanged: false))
+    }
+
+    func testDockReturnsAfterSeveralClearChecks() {
+        var gate = DockFullscreenGate()
+        _ = gate.update(fullscreen: true, spaceChanged: false)
+        for _ in 1..<DockFullscreenGate.clearChecksNeeded {
+            XCTAssertTrue(gate.update(fullscreen: false, spaceChanged: false))
+        }
+        XCTAssertFalse(gate.update(fullscreen: false, spaceChanged: false))
+    }
+
+    func testSpaceChangeShowsDockRightAway() {
+        var gate = DockFullscreenGate()
+        _ = gate.update(fullscreen: true, spaceChanged: false)
+        XCTAssertFalse(gate.update(fullscreen: false, spaceChanged: true))    // 전체 화면 앱에서 바탕화면으로 전환
+    }
+}

@@ -46,6 +46,8 @@ brew install --cask anjinhyeong/tap/termpet   # 설치
 brew update && brew upgrade --cask termpet     # 업데이트
 ```
 
+새 버전이 나오면 메뉴 위쪽에 **업데이트** 버튼이 뜹니다. 누르면 Homebrew로 업데이트한 뒤 다시 켜집니다 (메뉴 아래 버전 글씨를 누르면 바로 확인).
+
 macOS 14 이상.
 
 ## 연결

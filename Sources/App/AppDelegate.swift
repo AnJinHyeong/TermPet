@@ -29,6 +29,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let paths = TermPetPaths()
     let characters = CharacterLibrary()
     let integrations = IntegrationManager()
+    #if DEBUG
+    // 개발용: `--pretend-version 0.0.1` 로 옛 버전인 척해서 업데이트 안내를 확인
+    let updater = AppUpdater(current: CommandLine.arguments.firstIndex(of: "--pretend-version")
+        .flatMap { CommandLine.arguments.dropFirst($0 + 1).first } ?? AppInfo.version)
+    #else
+    let updater = AppUpdater()
+    #endif
     private var server: LocalHTTPServer?
 
     var port: UInt16 {
@@ -50,6 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         petController.start()
         paths.installBundledScripts()
         startServer()
+        updater.startPeriodicChecks()
         #if DEBUG
         // 개발용: 메뉴바 패널을 일반 창으로 띄워 스크린샷 확인 (`TermPet --preview-panel`)
         if CommandLine.arguments.contains("--preview-panel") { showPanelPreview() }
