@@ -6,3 +6,8 @@ DerivedData/
 *.xcworkspace/xcuserdata/
 # XcodeGen이 생성하므로 커밋하지 않음 (project.yml이 원본)
 TermPet.xcodeproj/
+
+# 윈도우판 (Electron)
+windows/node_modules/
+windows/out/
+windows/dist/

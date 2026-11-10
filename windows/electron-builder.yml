@@ -1,0 +1,25 @@
+# 윈도우 설치 파일 만들기: npm run dist:win → dist/TermPet-Setup-<버전>.exe
+appId: com.termpet.TermPet
+productName: TermPet
+directories:
+  output: dist
+  buildResources: resources
+files:
+  - out/**
+  - package.json
+extraResources:
+  - from: resources/tray.png
+    to: tray.png
+  - from: resources/builtin
+    to: builtin
+win:
+  target: nsis
+  icon: resources/icon.png
+  # 맥에서 빌드할 때 wine 없이 만들기 위해 exe 아이콘·버전 정보 편집을 건너뜀 (설치 파일 아이콘은 적용됨)
+  signAndEditExecutable: false
+nsis:
+  oneClick: true
+  perMachine: false
+  artifactName: TermPet-Setup-${version}.${ext}
+  shortcutName: 텀펫
+  createDesktopShortcut: false

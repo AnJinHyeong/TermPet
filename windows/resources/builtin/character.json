@@ -1,0 +1,9 @@
+{
+  "id": "builtin",
+  "name": "기본 토끼",
+  "frameWidth": 256,
+  "frameHeight": 256,
+  "scale": 0.36,
+  "facing": "front",
+  "states": { "idle": { "file": "idle.png", "frames": 1, "fps": 1 } }
+}
