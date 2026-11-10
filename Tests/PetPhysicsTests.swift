@@ -119,3 +119,20 @@ final class PetPhysicsTests: XCTestCase {
         XCTAssertEqual(p.origin.y, 800)
     }
 }
+
+final class FallSpeedTests: XCTestCase {
+    /// 화면 맨 위(1100pt)에서 떨어져도 1.5초 넘게 걸리고, 속도는 상한을 넘지 않는다 (캐릭터가 보이게)
+    func testFallIsSlowEnoughToSeeTheCharacter() {
+        let layout = ScreenLayout(frames: [CGRect(x: 0, y: 0, width: 1600, height: 1100)])
+        var p = PetPhysics(origin: CGPoint(x: 500, y: 1000), size: CGSize(width: 92, height: 92))
+        p.prepareFall(layout: layout)
+        var elapsed = 0.0, fastest: CGFloat = 0
+        while !p.fall(dt: 1.0 / 60, layout: layout), elapsed < 10 {
+            elapsed += 1.0 / 60
+            fastest = max(fastest, -p.velocity.dy)
+        }
+        XCTAssertGreaterThan(elapsed, 1.5)
+        XCTAssertLessThanOrEqual(fastest, p.maxFallSpeed + 0.001)
+        XCTAssertEqual(p.origin.y, 0, accuracy: 0.5)
+    }
+}

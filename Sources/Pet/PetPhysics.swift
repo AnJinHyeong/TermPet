@@ -9,7 +9,9 @@ struct PetPhysics {
     /// 공중에 있을 때 속도 (pt/s). y는 위가 +
     var velocity: CGVector = .zero
     /// 중력 가속도 (pt/s²)
-    var gravity: CGFloat = 2600
+    var gravity: CGFloat = 1800
+    /// 최대 낙하 속도 (pt/s). 높은 데서 떨어져도 캐릭터가 보이게 이 이상은 빨라지지 않는다 (낙하산처럼)
+    var maxFallSpeed: CGFloat = 700
     /// 지금 서 있는 창 (nil = 화면 바닥이거나 공중)
     var standingOn: Int?
 
@@ -107,7 +109,7 @@ struct PetPhysics {
     /// 한 프레임 낙하. 착지하면 true (standingOn 갱신).
     mutating func fall(dt: TimeInterval, terrain: Terrain) -> Bool {
         let t = CGFloat(dt)
-        velocity.dy -= gravity * t
+        velocity.dy = max(velocity.dy - gravity * t, -maxFallSpeed)
         // 공기 저항 살짝 (던진 뒤 끝없이 날아가지 않게)
         velocity.dx *= pow(0.6, t)
         let nextY = origin.y + velocity.dy * t
