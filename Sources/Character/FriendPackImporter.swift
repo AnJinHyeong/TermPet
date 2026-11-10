@@ -6,13 +6,16 @@ import Foundation
 /// UI와 분리된 순수 로직 (React 비유: 컴포넌트 밖의 유틸 함수 모듈)
 enum FriendPackImporter {
     enum ImportError: LocalizedError {
-        case unzipFailed
-        case noPacks
+        case unzipFailed(String)
+        case noPacks(found: [String])
 
         var errorDescription: String? {
             switch self {
-            case .unzipFailed: return "zip 파일을 풀지 못했어요."
-            case .noPacks: return "캐릭터 팩(character.json)을 찾지 못했어요."
+            case .unzipFailed(let reason):
+                return "zip 파일을 풀지 못했어요." + (reason.isEmpty ? "" : "\n(\(reason))")
+            case .noPacks(let found):
+                let list = found.prefix(8).joined(separator: ", ")
+                return "캐릭터 팩(character.json)을 찾지 못했어요." + (list.isEmpty ? "\n(zip 안이 비어 있어요)" : "\n안에 있던 것: \(list)")
             }
         }
     }
@@ -29,12 +32,19 @@ enum FriendPackImporter {
             let dir = fm.temporaryDirectory.appendingPathComponent("termpet-import-\(UUID().uuidString)", isDirectory: true)
             try fm.createDirectory(at: dir, withIntermediateDirectories: true)
             tempDir = dir
-            try unzip(source, to: dir)
-            root = dir
+            // 먼저 앱이 직접 임시 폴더로 복사 → 거기서 푼다.
+            // (다운로드·데스크탑 폴더는 macOS 개인정보 보호로, 파일 선택 창에서 고른 앱 자신만 읽을 수 있고
+            //  앱이 실행한 압축 도구(ditto)는 막힐 수 있다)
+            let copy = dir.appendingPathComponent("source.zip")
+            try fm.copyItem(at: source, to: copy)
+            let unpacked = dir.appendingPathComponent("unpacked", isDirectory: true)
+            try unzip(copy, to: unpacked)
+            try unzipNestedZips(in: unpacked)
+            root = unpacked
         }
 
         let packs = findPacks(in: root)
-        guard !packs.isEmpty else { throw ImportError.noPacks }
+        guard !packs.isEmpty else { throw ImportError.noPacks(found: listing(root)) }
 
         try fm.createDirectory(at: friendsDirectory, withIntermediateDirectories: true)
         var installed: [String] = []
@@ -76,15 +86,41 @@ enum FriendPackImporter {
         return name.isEmpty ? "friend" : name
     }
 
+    /// zip 안에 또 zip이 있으면 (메신저로 보내며 한 번 더 감싸진 경우) 그 자리에 풀어 둔다. 한 단계만.
+    private static func unzipNestedZips(in dir: URL) throws {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { return }
+        let zips = walker.compactMap { $0 as? URL }
+            .filter { $0.pathExtension.lowercased() == "zip" && !$0.path.contains("/__MACOSX/") }
+        for zip in zips {
+            let target = zip.deletingPathExtension()
+            try? unzip(zip, to: target.appendingPathExtension("unzipped"))
+        }
+    }
+
+    /// 실패 안내용: 풀린 내용물 이름 (맨 위 두 단계)
+    private static func listing(_ root: URL) -> [String] {
+        let fm = FileManager.default
+        let top = (try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
+        return top.filter { $0.lastPathComponent != "__MACOSX" }.sorted { $0.path < $1.path }.flatMap { item -> [String] in
+            let kids = (try? fm.contentsOfDirectory(atPath: item.path))?.filter { !$0.hasPrefix(".") }.sorted() ?? []
+            return kids.isEmpty ? [item.lastPathComponent] : kids.map { item.lastPathComponent + "/" + $0 }
+        }
+    }
+
     /// macOS 기본 도구 ditto로 압축 풀기 (Finder의 압축 풀기와 같은 방식)
     private static func unzip(_ zip: URL, to dir: URL) throws {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
         p.arguments = ["-x", "-k", zip.path, dir.path]
+        let errPipe = Pipe()
         p.standardOutput = FileHandle.nullDevice
-        p.standardError = FileHandle.nullDevice
-        do { try p.run() } catch { throw ImportError.unzipFailed }
+        p.standardError = errPipe
+        do { try p.run() } catch { throw ImportError.unzipFailed(error.localizedDescription) }
+        let errText = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         p.waitUntilExit()
-        guard p.terminationStatus == 0 else { throw ImportError.unzipFailed }
+        guard p.terminationStatus == 0 else {
+            throw ImportError.unzipFailed(errText.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
     }
 }

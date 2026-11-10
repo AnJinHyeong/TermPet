@@ -220,6 +220,25 @@ final class FriendPackImporterTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: friends.appendingPathComponent("alpha/character.json").path))
     }
 
+    func testZipInsideZipIsUnpacked() throws {
+        let src = tmp.appendingPathComponent("Inner")
+        SpriteCharacterTests.makePack(in: src.appendingPathComponent("a"), id: "alpha")
+        let inner = zip(src)
+        let outer = tmp.appendingPathComponent("Outer")
+        try FileManager.default.createDirectory(at: outer, withIntermediateDirectories: true)
+        try FileManager.default.moveItem(at: inner, to: outer.appendingPathComponent("Inner.zip"))
+        XCTAssertEqual(try FriendPackImporter.importPacks(from: zip(outer), into: friends), ["alpha"])
+    }
+
+    func testNoPacksErrorListsContents() throws {
+        let src = tmp.appendingPathComponent("empty")
+        try FileManager.default.createDirectory(at: src, withIntermediateDirectories: true)
+        try Data("hi".utf8).write(to: src.appendingPathComponent("readme.txt"))
+        XCTAssertThrowsError(try FriendPackImporter.importPacks(from: zip(src), into: friends)) { error in
+            XCTAssertTrue(error.localizedDescription.contains("empty/readme.txt"), error.localizedDescription)
+        }
+    }
+
     func testZipWithoutPacksFails() throws {
         let src = tmp.appendingPathComponent("empty")
         try FileManager.default.createDirectory(at: src, withIntermediateDirectories: true)
