@@ -20,7 +20,7 @@ export function transparentWindowOptions(): BrowserWindowConstructorOptions {
     alwaysOnTop: true,
     show: false,
     backgroundColor: '#00000000',
-    webPreferences: { preload: join(__dirname, '../preload/index.js'), sandbox: false },
+    webPreferences: { preload: join(__dirname, '../preload/index.js'), sandbox: true },
   }
 }
 

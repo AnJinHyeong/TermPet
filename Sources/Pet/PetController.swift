@@ -44,6 +44,12 @@ final class PetController: NSObject {
     /// 손을 놓을 높이 (꼭대기에 올라설 곳이 없는 벽)
     private var climbLimitY: CGFloat = .infinity
     private var lastWindowScan: CFTimeInterval = 0
+    /// 서 있던 창이 마지막으로 움직인 시각 (창을 끄는 중인지 판단)
+    private var lastRideAt: CFTimeInterval = -.infinity
+    private var isRidingWindow: Bool {
+        guard let id = physics.standingOn, !ScreenFloor.isDock(id) else { return false }
+        return CACurrentMediaTime() - lastRideAt < 2
+    }
     /// 화면 아래 Dock 발판들 (창 위 산책 설정과 무관하게 항상 지형에 포함)
     private var docks: [WindowBox] = []
     private var lastDockCheck: CFTimeInterval = 0
@@ -135,6 +141,10 @@ final class PetController: NSObject {
         NSWorkspace.shared.notificationCenter.addObserver(
             self, selector: #selector(spaceChanged),
             name: NSWorkspace.activeSpaceDidChangeNotification, object: nil)
+        // 앱이 켜지거나 꺼지면 Dock 칸 수가 바뀐다 → Dock 폭 캐시 지우기
+        for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
+            NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(dockMayHaveChanged), name: name, object: nil)
+        }
 
         startTimer()
         quiet.start()
@@ -160,6 +170,8 @@ final class PetController: NSObject {
         lastTick = CACurrentMediaTime()
         let timer = Timer(timeInterval: 1.0 / timerFPS, target: self,
                           selector: #selector(timerFired), userInfo: nil, repeats: true)
+        // 약간의 오차 허용 → macOS가 다른 일과 묶어서 깨워 배터리 절약 (애니메이션엔 티 안 남)
+        timer.tolerance = 0.1 / timerFPS
         // .common 모드: 메뉴가 열려 있거나 드래그 중에도 루프가 멈추지 않게
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
@@ -365,20 +377,43 @@ final class PetController: NSObject {
         let badge = PetBadge.pick(waiting: sessions.tracker.waitingCount, working: sessions.tracker.workingCount,
                                   hasUnread: bubble.hasUnread && !bubble.isShowing)
         if model.badge != badge { model.badge = badge }
-        model.time += dt
+        clock += dt
         syncModel()
 
         var wanted = Self.loopFPS(for: brain.action, maxFPS: config.fps)
-        // 창 위에 있으면 창을 끌 때 매끄럽게 따라가도록 조금 더 자주
-        if let id = physics.standingOn, !ScreenFloor.isDock(id) { wanted = max(wanted, min(config.fps, 20)) }
+        // 서 있는 창이 방금 움직였으면(창을 끄는 중) 매끄럽게 따라가도록 조금 더 자주
+        if isRidingWindow { wanted = max(wanted, min(config.fps, 20)) }
         if wanted != timerFPS { startTimer(fps: wanted) }
     }
 
     /// 두뇌 상태 → 뷰 모델 복사 (SwiftUI 재렌더 트리거)
     private func syncModel() {
-        if model.action != brain.action { model.action = brain.action }
+        var changed = false
+        if model.action != brain.action { model.action = brain.action; changed = true }
         if model.facing != brain.direction { model.facing = brain.direction }
-        if model.variant != brain.variant { model.variant = brain.variant }
+        if model.variant != brain.variant { model.variant = brain.variant; changed = true }
+        publishClock(force: changed)
+    }
+
+    /// 앱 시작 후 흐른 시간. 뷰에는 필요할 때만 넘긴다 (publishClock)
+    private var clock: TimeInterval = 0
+    private var lastSpriteFrame: Int?
+
+    /// 애니메이션 시계를 뷰 모델에 넘기기.
+    /// 시계 값을 바꾸면 SwiftUI가 펫 화면을 다시 그리는데, 그림 팩 캐릭터는 그림이 초당 6~12장만 바뀐다.
+    /// → 보여 줄 프레임 번호가 바뀔 때만 넘겨서 루프(최대 30fps)마다 다시 그리지 않게 한다 (CPU 절약).
+    /// 기본 도형 캐릭터·머리 위 표시(배지·기분·zzz)는 시계로 계속 움직이므로 그때는 매번 넘긴다.
+    /// React 비유: 매 프레임 setState 하지 않고, 화면에 보이는 값이 바뀔 때만 setState.
+    private func publishClock(force: Bool = false) {
+        if !force, case .sprite(let sprite) = model.character,
+           model.badge == .none, model.mood == .normal, model.action != .sleep {
+            let frame = sprite.animation(for: model.action, variant: model.variant)?.timing.frameIndex(at: brain.elapsed)
+            guard frame != lastSpriteFrame else { return }
+            lastSpriteFrame = frame
+        } else {
+            lastSpriteFrame = nil
+        }
+        model.time = clock
         model.actionTime = brain.elapsed
     }
 
@@ -409,8 +444,8 @@ final class PetController: NSObject {
     /// Dock 발판 다시 계산 (Dock 크기·실행 중인 앱 수가 바뀔 수 있어서 가끔 갱신)
     private func refreshDocks() {
         lastDockCheck = CACurrentMediaTime()
-        let width = WindowScanner.dockWidth()
-        let windows = WindowScanner.scan()
+        let width = currentDockWidth()
+        let windows = scanWindows()
         // Dock은 한 화면에만 있다. 그 화면을 전체 화면 앱이 덮고 있으면 Dock은 숨어 있으니 발판도 없다
         // (전체 화면 판정이 한순간 풀려도 Dock이 깜빡 생기지 않게 dockGate로 거른다)
         let found = NSScreen.screens.lazy.compactMap { s -> (CGRect, WindowBox)? in
@@ -435,6 +470,29 @@ final class PetController: NSObject {
         }
     }
     private var lastLoggedDocks: [WindowBox]?
+
+    /// Dock 폭 캐시. Dock 설정(다른 앱의 설정 파일)·접근성 트리를 읽는 건 비싸서 매초 하지 않는다.
+    /// 앱 실행·종료(Dock 칸 수가 바뀜)·화면 변경 알림이 오면 바로 지우고, 그 밖엔 10초마다 다시 읽는다.
+    private var dockWidthCache: (value: CGFloat?, at: CFTimeInterval)?
+    private func currentDockWidth() -> CGFloat? {
+        let now = CACurrentMediaTime()
+        if let cache = dockWidthCache, now - cache.at < 10 { return cache.value }
+        let width = WindowScanner.dockWidth()
+        dockWidthCache = (width, now)
+        return width
+    }
+    @objc private func dockMayHaveChanged() { dockWidthCache = nil }
+
+    /// 창 목록 읽기. Dock 검사와 지형 갱신이 같은 순간에 두 번 읽지 않게 같은 틱 안에서만(0.03초) 재사용한다
+    /// (창 위에 서 있으면 창을 끌 때 따라가도록 0.05초마다 새로 읽어야 해서 길게 잡지 않는다)
+    private var lastScan: (windows: [WindowBox], at: CFTimeInterval)?
+    private func scanWindows() -> [WindowBox] {
+        let now = CACurrentMediaTime()
+        if let scan = lastScan, now - scan.at < 0.03 { return scan.windows }
+        let windows = WindowScanner.scan()
+        lastScan = (windows, now)
+        return windows
+    }
     private var dockGate = DockFullscreenGate()
     /// Space 전환 뒤 첫 Dock 검사인지 (그땐 전체 화면 해제를 바로 믿는다)
     private var spaceChangedSinceDockCheck = false
@@ -486,15 +544,19 @@ final class PetController: NSObject {
         }
         let onWindow = (physics.standingOn.map { !ScreenFloor.isDock($0) } ?? false)
             || (climbingWall?.windowID.map { !ScreenFloor.isDock($0) } ?? false)
-        let interval = onWindow ? 1.0 / 20 : (brain.action == .walk || brain.action == .fall ? 0.25 : 0.6)
+        // 창 위에 가만히 있을 땐 0.25초마다, 그 창이 움직이기 시작하면 2초 동안 0.05초마다 (창 끌기 따라가기).
+        // 예전엔 창 위에 서 있기만 해도 계속 초당 20번 창 목록을 읽었다 (가만히 있어도 CPU 사용).
+        let interval = onWindow ? (isRidingWindow || brain.action == .climb ? 1.0 / 20 : 0.25)
+            : (brain.action == .walk || brain.action == .fall ? 0.25 : 0.6)
         guard force || now - lastWindowScan >= interval else { return }
         lastWindowScan = now
         let old = terrain
-        rebuildTerrain(windows: WindowScanner.scan())
+        rebuildTerrain(windows: scanWindows())
 
         // 서 있던 창이 움직였으면 같이 이동 (창을 끌면 펫도 실려 간다)
         if let id = physics.standingOn {
             if let before = old.window(id: id)?.frame, let after = terrain.window(id: id)?.frame, before != after {
+                lastRideAt = now
                 physics.ride(from: before, to: after)
                 if !isDragging { window?.setFrameOrigin(physics.origin) }
             }
@@ -552,10 +614,13 @@ final class PetController: NSObject {
     /// Space 전환(전체 화면 앱 ↔ 바탕화면): 전환 애니메이션이 끝난 뒤 한 번만 자리 판정
     @objc private func spaceChanged() {
         spaceChangedSinceDockCheck = true
+        lastScan = nil
         settleAt = CACurrentMediaTime() + 0.7
     }
 
     @objc private func screensChanged() {
+        dockWidthCache = nil
+        lastScan = nil
         settleAt = CACurrentMediaTime() + 0.7
     }
 

@@ -4,6 +4,7 @@
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
+import { isAbsolute } from 'node:path'
 import type { PetEvent } from '../shared/events'
 import { editorCandidates, findProjectRoot, planFocus, processNamesFor } from '../shared/hostApp'
 import { focusProcessWindow, focusWindow, foregroundWindow } from './win32'
@@ -44,7 +45,14 @@ export function focusEvent(e: PetEvent) {
     focusProcessWindow(processNamesFor(action.host.kind))
     return
   }
-  const candidates = [action.host.exePath, ...editorCandidates(action.host.kind, process.env)].filter((p): p is string => !!p)
+  // 에디터에 넘길 폴더는 실제로 있는 절대 경로만 ("-"로 시작하는 값이 에디터 옵션으로 해석되지 않게)
+  if (!isAbsolute(action.path) || !existsSync(action.path)) {
+    focusProcessWindow(processNamesFor(action.host.kind))
+    return
+  }
+  // 훅이 알려 준 실행 파일 경로도 절대 경로일 때만 쓴다
+  const reported = action.host.exePath && isAbsolute(action.host.exePath) ? action.host.exePath : undefined
+  const candidates = [reported, ...editorCandidates(action.host.kind, process.env)].filter((p): p is string => !!p)
   const exe = candidates.find((p) => existsSync(p))
   if (!exe) {
     // 설치 위치를 모르면 창만이라도 앞으로

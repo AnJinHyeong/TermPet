@@ -279,7 +279,7 @@ function createPanel() {
     skipTaskbar: true,
     alwaysOnTop: true,
     backgroundColor: '#00000000',
-    webPreferences: { preload: join(__dirname, '../preload/index.js'), sandbox: false },
+    webPreferences: { preload: join(__dirname, '../preload/index.js'), sandbox: true },
   })
   loadView(panel, 'panel')
   panel.on('blur', () => hidePanel()) // 다른 곳을 누르면 닫힘 (맥 메뉴바 패널처럼)
@@ -529,6 +529,12 @@ if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.on('second-instance', () => togglePanel())
+  // 보안: 펫·말풍선·패널 화면은 다른 페이지로 이동하거나 새 창을 열 일이 없다 → 전부 막는다
+  // (화면에 뜬 글자가 링크처럼 동작해 외부 페이지가 앱 안에서 열리는 일을 원천 차단)
+  app.on('web-contents-created', (_e, contents) => {
+    contents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    contents.on('will-navigate', (e) => e.preventDefault())
+  })
   app.whenReady().then(() => {
     app.dock?.hide() // 맥에서 개발 실행할 때 Dock 아이콘 숨김
     if (isWin) app.setAppUserModelId('com.termpet.TermPet')

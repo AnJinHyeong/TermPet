@@ -2,7 +2,7 @@
 // 더하기 — 기존 친구는 그대로 두고, 같은 id의 친구만 새 것으로 바꾼다. 팩을 무사히 찾은 뒤에만 Friends 폴더를 건드린다.
 // 압축 풀기: 윈도우 10+ 기본 tar.exe (bsdtar 라 zip 도 푼다). 맥 개발 실행에서도 bsdtar.
 import { execFileSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs'
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parsePack } from '../shared/characterPack'
@@ -10,12 +10,34 @@ import { safeFolderName } from '../shared/misc'
 
 export class ImportError extends Error {}
 
+/** 친구 팩 zip 크기 상한 (팩 하나는 보통 1~3MB) */
+export const MAX_ZIP_BYTES = 100 * 1024 * 1024
+/** 폴더 안 깊이 상한 (이상한 zip 에서 끝없이 내려가지 않게) */
+const MAX_DEPTH = 8
+
+/** 진짜 폴더인지 (바로 가기·심볼릭 링크는 따라가지 않는다 → 팩 밖의 파일을 끌어오거나 무한 반복하지 않게) */
+const isRealDir = (p: string) => {
+  try {
+    const st = lstatSync(p)
+    return st.isDirectory() && !st.isSymbolicLink()
+  } catch {
+    return false
+  }
+}
+const notLink = (p: string) => {
+  try {
+    return !lstatSync(p).isSymbolicLink()
+  } catch {
+    return false
+  }
+}
+
 /** root 아래(자기 자신 포함) character.json 이 든 폴더들 → [폴더, 팩 id]. __MACOSX·숨김 폴더 제외, 이름순 */
 export function findPacks(root: string): [string, string][] {
   const out: [string, string][] = []
-  const queue = [root]
+  const queue: [string, number][] = [[root, 0]]
   while (queue.length) {
-    const dir = queue.shift()!
+    const [dir, depth] = queue.shift()!
     try {
       const pack = parsePack(readFileSync(join(dir, 'character.json'), 'utf8'))
       out.push([dir, pack.id])
@@ -32,11 +54,7 @@ export function findPacks(root: string): [string, string][] {
     for (const k of kids) {
       if (k.startsWith('.') || k === '__MACOSX') continue
       const p = join(dir, k)
-      try {
-        if (statSync(p).isDirectory()) queue.push(p)
-      } catch {
-        /* 무시 */
-      }
+      if (depth < MAX_DEPTH && isRealDir(p)) queue.push([p, depth + 1])
     }
   }
   return out
@@ -58,13 +76,14 @@ function unzip(zip: string, dest: string) {
 
 /** zip 안에 또 zip 이 있으면 그 자리에 풀어 둔다 (한 단계만) */
 function unzipNested(dir: string) {
-  const walk = (d: string): string[] =>
+  const walk = (d: string, depth: number): string[] =>
     readdirSync(d).flatMap((k) => {
       if (k.startsWith('.') || k === '__MACOSX') return []
       const p = join(d, k)
-      return statSync(p).isDirectory() ? walk(p) : k.toLowerCase().endsWith('.zip') ? [p] : []
+      if (isRealDir(p)) return depth < MAX_DEPTH ? walk(p, depth + 1) : []
+      return k.toLowerCase().endsWith('.zip') && notLink(p) ? [p] : []
     })
-  for (const z of walk(dir)) {
+  for (const z of walk(dir, 0)) {
     try {
       unzip(z, z.slice(0, -4) + '.unzipped')
     } catch {
@@ -80,7 +99,7 @@ function listing(root: string): string[] {
       .sort()
       .flatMap((k) => {
         const p = join(root, k)
-        const kids = statSync(p).isDirectory() ? readdirSync(p).filter((x) => !x.startsWith('.')).sort() : []
+        const kids = isRealDir(p) ? readdirSync(p).filter((x) => !x.startsWith('.')).sort() : []
         return kids.length ? kids.map((x) => `${k}/${x}`) : [k]
       })
   } catch {
@@ -94,6 +113,7 @@ export function importPacks(source: string, friendsDir: string): string[] {
   try {
     let root = source
     if (source.toLowerCase().endsWith('.zip')) {
+      if (statSync(source).size > MAX_ZIP_BYTES) throw new ImportError('zip 파일이 너무 커요 (100MB 이하만).')
       const copy = join(work, 'source.zip')
       cpSync(source, copy)
       root = join(work, 'unpacked')
@@ -111,7 +131,8 @@ export function importPacks(source: string, friendsDir: string): string[] {
     const installed: string[] = []
     for (const [folder, id] of packs) {
       if (installed.includes(id)) continue
-      cpSync(folder, join(staging, safeFolderName(id)), { recursive: true })
+      // 심볼릭 링크는 빼고 복사 (팩 폴더 밖의 파일을 가리키는 링크가 친구 폴더에 들어오지 않게)
+      cpSync(folder, join(staging, safeFolderName(id)), { recursive: true, filter: notLink })
       installed.push(id)
     }
     // 2) 같은 id의 기존 친구만 지운다 (폴더 이름이 id와 달라도). 다른 친구는 그대로

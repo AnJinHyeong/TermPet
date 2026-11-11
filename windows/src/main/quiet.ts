@@ -35,18 +35,23 @@ export class QuietMode {
     saveSettings({ soundOnAsk: v })
   }
 
-  /** 5초마다 마이크 상태와 1시간 만료 확인 */
+  /** 5초마다 1시간 만료 확인, 마이크 상태(reg.exe 실행)는 15초마다 */
   start() {
     this.refresh()
-    this.timer = setInterval(() => this.refresh(), 5000)
+    let n = 0
+    this.timer = setInterval(() => this.refresh(++n % 3 === 0), 5000)
   }
 
   stop() {
     clearInterval(this.timer)
   }
 
-  refresh() {
+  refresh(checkMic = true) {
     if (this.manualUntil !== undefined && Date.now() >= this.manualUntil) this.manualUntil = undefined
+    if (!checkMic) {
+      this.update()
+      return
+    }
     if (this.duringMeetings && process.platform === 'win32') {
       execFile('reg.exe', ['query', MIC_KEY, '/s', '/v', 'LastUsedTimeStop'], { windowsHide: true, timeout: 3000 }, (_err, out) => {
         this.micInUse = micInUseFromRegQuery(String(out ?? ''))

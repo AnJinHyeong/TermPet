@@ -44,6 +44,11 @@ export class PetController {
   private climbingWall?: Wall
   private climbLimitY = Infinity
   private lastWindowScan = 0
+  /** 서 있던 창이 마지막으로 움직인 시각 (창을 끄는 중인지 판단) */
+  private lastRideAt = -Infinity
+  private get isRidingWindow() {
+    return this.physics.standingOn !== null && now() - this.lastRideAt < 2
+  }
   private lastBottomPush = 0
   private outcomes: [number, boolean][] = []
   private lastPrune = 0
@@ -235,7 +240,7 @@ export class PetController {
       console.warn('[TermPet] 루프 오류', e)
     }
     let fps = this.dragging || this.mouseDownAt ? 60 : loopFPS(this.brain.action)
-    if (this.physics.standingOn !== null) fps = Math.max(fps, 20) // 창을 끌 때 매끄럽게 따라가게
+    if (this.isRidingWindow) fps = Math.max(fps, 20) // 서 있는 창을 끄는 중이면 매끄럽게 따라가게
     if (!this.visible) fps = 2
     this.schedule(fps)
   }
@@ -391,7 +396,10 @@ export class PetController {
     }
     const t = now()
     const onWindow = this.physics.standingOn !== null || (this.climbingWall?.windowID ?? null) !== null
-    const interval = onWindow ? 1 / 20 : this.brain.action === 'walk' || this.brain.action === 'fall' ? 0.25 : 0.6
+    // 창 위에 가만히 있을 땐 0.25초마다, 그 창이 움직이기 시작하면 2초 동안 0.05초마다 (창 끌기 따라가기).
+    // 예전엔 창 위에 서 있기만 해도 계속 초당 20번 모든 창을 훑었다 (가만히 있어도 CPU 사용).
+    const fast = this.isRidingWindow || this.brain.action === 'climb'
+    const interval = onWindow ? (fast ? 1 / 20 : 0.25) : this.brain.action === 'walk' || this.brain.action === 'fall' ? 0.25 : 0.6
     if (!force && t - this.lastWindowScan < interval) return
     this.lastWindowScan = t
     const old = this.terrain
@@ -403,6 +411,7 @@ export class PetController {
       const before = old.window(id)?.frame
       const after = this.terrain.window(id)?.frame
       if (before && after && (before.x !== after.x || before.y !== after.y || before.width !== after.width || before.height !== after.height)) {
+        this.lastRideAt = t
         this.physics.ride(before, after)
       }
     }

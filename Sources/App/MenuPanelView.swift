@@ -12,6 +12,9 @@ struct MenuPanelView: View {
     @AppStorage("panelTab") private var tab: PanelTab = .friends
     /// 슬라이더 값 (펫 컨트롤러는 관찰 대상이 아니라서 화면용 사본을 들고 있다가 바꿀 때 넘긴다)
     @State private var prefs = PetPreferences.load()
+    /// 패널이 지금 화면에 떠 있는지. MenuBarExtra 패널은 닫혀도 화면이 메모리에 남아 있어서
+    /// 무대의 미니 펫이 펫 시계를 따라 계속 다시 그려졌다(닫힌 패널 전체 레이아웃 → CPU 낭비) → 닫혀 있으면 멈춘다.
+    @State private var panelOpen = true
     private var pet: PetController { app.petController }
     private var characters: CharacterLibrary { app.characters }
 
@@ -83,7 +86,10 @@ struct MenuPanelView: View {
         .tint(Theme.blush)
         // 아이콘 안내 말풍선은 맨 위층에 (다른 영역에 가려지지 않게)
         .overlayPreferenceValue(HintPreference.self) { HintLayer(info: $0) }
+        // 창이 보이는지 감시 (≈ document.visibilitychange)
+        .background(WindowVisibilityReader { panelOpen = $0 })
         .onAppear {
+            panelOpen = true
             app.integrations.refresh() // 터미널에서 직접 고쳤을 수도 있으니 열 때마다 다시 확인
             characters.reload() // Friends 폴더에 새로 만든 친구(캐릭터 만들기 스킬)가 바로 보이게
             launchAtLogin = LoginItem.isEnabled
@@ -99,7 +105,7 @@ struct MenuPanelView: View {
             ZStack {
                 Circle().fill(Theme.butter.opacity(0.55))
                 Circle().strokeBorder(.white, lineWidth: 3)
-                StagePetView(model: pet.model)
+                StagePetView(model: pet.model, live: panelOpen)
                     .frame(width: 58, height: 58)
                     .offset(y: 4)
                     .clipShape(Circle())
@@ -532,8 +538,31 @@ private struct PressableStyle: ButtonStyle {
 /// 무대 위 미니 펫: 실제 펫과 같은 상태를 작게 그린다 (말풍선·배지 없이)
 private struct StagePetView: View {
     let model: PetViewModel
+    /// false(패널 닫힘)면 펫 시계를 읽지 않는 정지 그림 → 펫이 움직여도 패널을 다시 그리지 않는다
+    var live = true
 
     var body: some View {
+        if !live {
+            still
+        } else {
+            moving
+        }
+    }
+
+    @ViewBuilder
+    private var still: some View {
+        switch model.character {
+        case .builtIn(let style):
+            DefaultCharacterView(style: style, action: .idle, facing: .right, time: 0, actionTime: 0)
+                .frame(width: LoadedCharacter.defaultSize.width, height: LoadedCharacter.defaultSize.height)
+                .scaleEffect(0.72)
+        case .sprite(let sprite):
+            SpriteCharacterView(sprite: sprite, action: .idle, facing: .right, actionTime: 0)
+        }
+    }
+
+    @ViewBuilder
+    private var moving: some View {
         switch model.character {
         case .builtIn(let style):
             DefaultCharacterView(style: style, action: model.action, facing: .right,
@@ -1020,5 +1049,53 @@ private struct HintLayer: View {
 private extension View {
     func hint(_ text: String) -> some View {
         modifier(HoverHint(text: text))
+    }
+}
+
+/// 이 뷰가 들어 있는 창이 지금 화면에 보이는지 알려 준다 (≈ document.visibilityState / IntersectionObserver).
+/// NSViewRepresentable ≈ React에서 ref로 DOM 노드를 직접 다루는 것: AppKit 뷰를 SwiftUI 안에 끼워 넣는다.
+private struct WindowVisibilityReader: NSViewRepresentable {
+    let onChange: (Bool) -> Void
+
+    func makeNSView(context: Context) -> ReaderView {
+        let view = ReaderView()
+        view.onChange = onChange
+        return view
+    }
+
+    func updateNSView(_ view: ReaderView, context: Context) {
+        view.onChange = onChange
+    }
+
+    final class ReaderView: NSView {
+        var onChange: ((Bool) -> Void)?
+        private var observer: NSObjectProtocol?
+        private var last: Bool?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let observer { NotificationCenter.default.removeObserver(observer) }
+            observer = nil
+            guard let window else { report(false); return }
+            // 창이 화면에 나타나거나(패널 열림) 사라질 때(패널 닫힘) 오는 알림
+            observer = NotificationCenter.default.addObserver(
+                forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main
+            ) { [weak self] _ in
+                guard let self else { return }
+                self.report(self.window?.occlusionState.contains(.visible) ?? false)
+            }
+            report(window.occlusionState.contains(.visible))
+        }
+
+        private func report(_ visible: Bool) {
+            guard visible != last else { return }
+            last = visible
+            // 화면 갱신 도중에 상태를 바꾸지 않도록 다음 차례에
+            DispatchQueue.main.async { [weak self] in self?.onChange?(visible) }
+        }
+
+        deinit {
+            if let observer { NotificationCenter.default.removeObserver(observer) }
+        }
     }
 }

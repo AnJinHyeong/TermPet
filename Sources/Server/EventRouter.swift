@@ -48,12 +48,13 @@ struct EventRouter {
         )
 
         do {
-            let event: PetEvent
+            var event: PetEvent
             switch request.path {
             case "/hook/claude": event = try EventDecoder.decodeClaudeHook(request.body, context: context)
             case "/hook/codex": event = try EventDecoder.decodeCodexNotify(request.body, context: context)
             default: event = try EventDecoder.decodeStandard(request.body, context: context)
             }
+            event.clampTextFields() // 아주 긴 글이 알림 큐·기록에 쌓여 메모리를 차지하지 않게
             return Outcome(response: .text(202, "accepted"), event: event)
         } catch EventDecoder.DecodeError.ignored(let reason) {
             return Outcome(response: .text(200, "ignored: \(reason)"))

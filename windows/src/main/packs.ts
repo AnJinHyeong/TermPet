@@ -1,6 +1,6 @@
 // 친구 팩 목록 읽기 (Node 파일 시스템). 해석 규칙은 shared/characterPack.ts
 // 위치: %APPDATA%\TermPet\Friends\<id>\character.json  (맥 앱과 같은 구조 → 같은 zip을 그대로 씀)
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { animations, displaySize, parsePack, type Animation, type CharacterPack, type PetAction } from '../shared/characterPack'
 
@@ -19,8 +19,16 @@ export interface LoadedPack {
 /** PNG 파일 머리(IHDR)에서 가로 크기만 읽는다 — 이미지 라이브러리 없이 프레임 수 계산용 */
 export function pngWidth(file: string): number | undefined {
   try {
-    const head = readFileSync(file).subarray(0, 24)
-    if (head.length < 24 || head.toString('ascii', 12, 16) !== 'IHDR') return undefined
+    // 파일 전체가 아니라 앞 24바이트만 읽는다 (패널을 열 때마다 모든 그림을 통째로 읽지 않게)
+    const head = Buffer.alloc(24)
+    const fd = openSync(file, 'r')
+    let n = 0
+    try {
+      n = readSync(fd, head, 0, 24, 0)
+    } finally {
+      closeSync(fd)
+    }
+    if (n < 24 || head.toString('ascii', 12, 16) !== 'IHDR') return undefined
     return head.readUInt32BE(16)
   } catch {
     return undefined

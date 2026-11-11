@@ -8,6 +8,7 @@ enum FriendPackImporter {
     enum ImportError: LocalizedError {
         case unzipFailed(String)
         case noPacks(found: [String])
+        case tooLarge
 
         var errorDescription: String? {
             switch self {
@@ -16,6 +17,8 @@ enum FriendPackImporter {
             case .noPacks(let found):
                 let list = found.prefix(8).joined(separator: ", ")
                 return "캐릭터 팩(character.json)을 찾지 못했어요." + (list.isEmpty ? "\n(zip 안이 비어 있어요)" : "\n안에 있던 것: \(list)")
+            case .tooLarge:
+                return "zip 파일이 너무 커요 (100MB 이하만)."
             }
         }
     }
@@ -32,6 +35,8 @@ enum FriendPackImporter {
 
         var root = source
         if source.pathExtension.lowercased() == "zip" {
+            let size = (try? source.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            guard size <= maxZipBytes else { throw ImportError.tooLarge }
             // 먼저 앱이 직접 임시 폴더로 복사 → 거기서 푼다.
             // (다운로드·데스크탑 폴더는 macOS 개인정보 보호로, 파일 선택 창에서 고른 앱 자신만 읽을 수 있고
             //  앱이 실행한 압축 도구(ditto)는 막힐 수 있다)
@@ -54,6 +59,8 @@ enum FriendPackImporter {
             try fm.copyItem(at: folder, to: staging.appendingPathComponent(safeFolderName(id), isDirectory: true))
             installed.append(id)
         }
+        // 심볼릭 링크는 빼고 넣는다 (팩 밖의 파일·장치 파일을 가리키는 링크로 그림을 읽다 멈추는 일 방지)
+        removeSymlinks(in: staging)
         // 2) 같은 id의 기존 친구만 지운다 (직접 복사해 넣어 폴더 이름이 id와 다른 경우도). 다른 친구는 그대로
         try fm.createDirectory(at: friendsDirectory, withIntermediateDirectories: true)
         for (old, id) in findPacks(in: friendsDirectory) where installed.contains(id) {
@@ -67,6 +74,18 @@ enum FriendPackImporter {
             try fm.moveItem(at: staging.appendingPathComponent(name, isDirectory: true), to: dest)
         }
         return installed
+    }
+
+    /// 친구 팩 zip 크기 상한 (팩 하나는 보통 1~3MB)
+    static let maxZipBytes = 100 * 1024 * 1024
+
+    /// 폴더 안의 심볼릭 링크를 모두 지운다 (링크만 지우고 가리키던 대상은 건드리지 않음)
+    static func removeSymlinks(in dir: URL) {
+        let fm = FileManager.default
+        guard let walker = fm.enumerator(at: dir, includingPropertiesForKeys: [.isSymbolicLinkKey]) else { return }
+        let links = walker.compactMap { $0 as? URL }
+            .filter { (try? $0.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true }
+        for link in links { try? fm.removeItem(at: link) }
     }
 
     /// root 아래(자기 자신 포함)에서 읽을 수 있는 character.json이 든 폴더들 → (폴더, 팩 id)

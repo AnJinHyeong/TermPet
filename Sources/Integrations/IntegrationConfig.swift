@@ -216,7 +216,18 @@ enum CodexNotifyConfig {
             var item = ""
             while let c = s.first {
                 s = s.dropFirst()
-                if c == "\\", let next = s.first { item.append(next == "n" ? "\n" : next); s = s.dropFirst(); continue }
+                if c == "\\", let next = s.first {
+                    // TOML 기본 문자열 이스케이프. 모르는 건 원래 글자 그대로 둔다 (예전엔 \t → t 로 망가졌다)
+                    switch next {
+                    case "n": item.append("\n")
+                    case "t": item.append("\t")
+                    case "r": item.append("\r")
+                    case "\"", "\\": item.append(next)
+                    default: item.append("\\"); item.append(next)
+                    }
+                    s = s.dropFirst()
+                    continue
+                }
                 if c == "\"" { break }
                 item.append(c)
             }
@@ -227,7 +238,11 @@ enum CodexNotifyConfig {
     }
 
     static func render(_ args: [String]) -> String {
-        let items = args.map { "\"" + $0.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\"" }
+        let items = args.map {
+            "\"" + $0.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+                .replacingOccurrences(of: "\n", with: "\\n").replacingOccurrences(of: "\t", with: "\\t")
+                .replacingOccurrences(of: "\r", with: "\\r") + "\""
+        }
         return "notify = [" + items.joined(separator: ", ") + "]"
     }
 }

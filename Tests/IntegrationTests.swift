@@ -92,6 +92,13 @@ final class CodexNotifyConfigTests: XCTestCase {
         XCTAssertNil(CodexNotifyConfig.parseStringArray("'a'"))
         XCTAssertEqual(CodexNotifyConfig.render(["a b", "c\"d"]), #"notify = ["a b", "c\"d"]"#)
     }
+
+    func testEscapesRoundTrip() {
+        // \t 가 t 로, 줄바꿈이 날것으로 들어가 config.toml 이 깨지던 문제
+        let parsed = CodexNotifyConfig.parseStringArray(#"["a\tb", "c\nd", "e\\f"]"#)
+        XCTAssertEqual(parsed, ["a\tb", "c\nd", "e\\f"])
+        XCTAssertEqual(CodexNotifyConfig.render(parsed!), #"notify = ["a\tb", "c\nd", "e\\f"]"#)
+    }
 }
 
 final class IntegrationManagerTests: XCTestCase {
@@ -128,6 +135,25 @@ final class IntegrationManagerTests: XCTestCase {
         let manager = IntegrationManager(home: home)
         XCTAssertFalse(manager.isAvailable(.codex))
         XCTAssertTrue(manager.isAvailable(.claude))
+    }
+}
+
+extension IntegrationManagerTests {
+    func testRefusesToRewriteNonUTF8TextFile() throws {
+        let zshrc = home.appendingPathComponent(".zshrc")
+        let latin1 = Data([0x65, 0x78, 0x70, 0x6F, 0x72, 0x74, 0x20, 0xE9, 0x0A]) // UTF-8 이 아닌 글자
+        try latin1.write(to: zshrc)
+        let manager = IntegrationManager(home: home)
+        XCTAssertThrowsError(try manager.toggle(.zsh))
+        XCTAssertEqual(try Data(contentsOf: zshrc), latin1) // 그대로
+    }
+
+    func testBackupIsPrivate() throws {
+        let zshrc = home.appendingPathComponent(".zshrc")
+        try "export A=1\n".write(to: zshrc, atomically: true, encoding: .utf8)
+        let backup = try XCTUnwrap(try IntegrationManager(home: home).toggle(.zsh))
+        let mode = try FileManager.default.attributesOfItem(atPath: backup.path)[.posixPermissions] as? Int
+        XCTAssertEqual(mode, 0o600)
     }
 }
 

@@ -229,6 +229,17 @@ final class FriendPackImporterTests: XCTestCase {
         XCTAssertNoThrow(try library.load(library.entries[0]))
     }
 
+    func testSymlinksInPackAreDropped() throws {
+        let src = tmp.appendingPathComponent("Linky")
+        SpriteCharacterTests.makePack(in: src.appendingPathComponent("a"), id: "alpha")
+        try FileManager.default.createSymbolicLink(atPath: src.appendingPathComponent("a/secret.png").path,
+                                                   withDestinationPath: "/etc/hosts")
+        XCTAssertEqual(try FriendPackImporter.importPacks(from: zip(src), into: friends), ["alpha"])
+        let installed = friends.appendingPathComponent("alpha")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: installed.appendingPathComponent("secret.png").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: installed.appendingPathComponent("character.json").path))
+    }
+
     func testReplacesExistingPackWithSameId() throws {
         SpriteCharacterTests.makePack(in: friends.appendingPathComponent("alpha"), id: "alpha")
         try Data("old".utf8).write(to: friends.appendingPathComponent("alpha/stale.txt"))

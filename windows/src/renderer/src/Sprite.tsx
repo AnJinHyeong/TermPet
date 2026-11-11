@@ -29,18 +29,25 @@ interface Props {
 export function Sprite({ packKey, file, frames, fps, loop = true, width, height, pixelArt, flip, restartKey }: Props) {
   const [frame, setFrame] = useState(0)
 
-  // requestAnimationFrame 으로 프레임 번호 갱신 (useEffect cleanup = 루프 정지)
+  // 그림의 fps 에 맞춰 setTimeout 으로 프레임 번호 갱신 (useEffect cleanup = 루프 정지).
+  // 예전엔 requestAnimationFrame 이라 그림이 초당 6~12장만 바뀌어도 화면 주사율(60~144Hz)로 계속 돌았다.
   useEffect(() => {
+    setFrame(0)
+    if (frames <= 1 || fps <= 0) return // 한 장짜리는 돌릴 필요 없음
     const start = performance.now()
-    let raf = 0
-    let last = -1
+    let timer = 0
+    let last = 0
     const tick = () => {
-      const f = frameIndex({ frames, fps, loop }, (performance.now() - start) / 1000)
+      const elapsed = (performance.now() - start) / 1000
+      const f = frameIndex({ frames, fps, loop }, elapsed)
       if (f !== last) setFrame((last = f))
-      raf = requestAnimationFrame(tick)
+      if (!loop && f >= frames - 1) return // 한 번만 도는 동작은 마지막 프레임에서 멈춤
+      // 다음 프레임 경계까지 기다린다 (밀림이 쌓이지 않게 경과 시간 기준)
+      const next = (Math.floor(elapsed * fps) + 1) / fps
+      timer = window.setTimeout(tick, Math.max(1, (next - elapsed) * 1000))
     }
     tick()
-    return () => cancelAnimationFrame(raf)
+    return () => window.clearTimeout(timer)
   }, [packKey, file, frames, fps, loop, restartKey])
 
   return (

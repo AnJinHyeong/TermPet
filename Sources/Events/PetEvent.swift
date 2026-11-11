@@ -78,3 +78,20 @@ struct PetEvent: Equatable, Identifiable {
         }
     }
 }
+
+extension PetEvent {
+    /// 글자 필드 길이 상한. 말풍선은 몇 줄만 보여 주는데, 요청 하나에 최대 1MB까지 들어올 수 있어서
+    /// 알림 큐(20개)·최근 기록(30개)에 큰 글이 그대로 남지 않게 자른다.
+    static let maxTextLength = 500
+
+    mutating func clampTextFields() {
+        func clamp(_ s: String?) -> String? {
+            guard let s, s.count > Self.maxTextLength else { return s }
+            return String(s.prefix(Self.maxTextLength - 1)) + "…"
+        }
+        message = clamp(message)
+        detail = clamp(detail)
+        title = clamp(title)
+        command = clamp(command)
+    }
+}

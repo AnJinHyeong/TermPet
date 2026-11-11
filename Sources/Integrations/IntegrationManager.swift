@@ -85,8 +85,19 @@ final class IntegrationManager {
     @discardableResult
     func toggle(_ kind: Kind, remove: Bool = false) throws -> URL? {
         let url = file(for: kind).resolvingSymlinksInPath() // dotfiles 심볼릭 링크면 실제 파일을 고친다
-        let original = try? Data(contentsOf: url)
+        // 파일이 없을 때만 "빈 파일"로 본다. 권한 문제 등으로 못 읽으면 덮어쓰지 않고 멈춘다
+        // (예전엔 못 읽으면 백업 없이 텀펫 줄만 남기고 덮어쓸 수 있었다)
+        let original: Data?
+        do {
+            original = try Data(contentsOf: url)
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+            original = nil
+        }
         let text = original.flatMap { String(data: $0, encoding: .utf8) }
+        // 글자 파일(.zshrc, config.toml)이 UTF-8이 아니면 내용을 이해하지 못한 채 고치게 되니 건드리지 않는다
+        if original != nil, text == nil, kind == .zsh || kind == .codex {
+            throw IntegrationError.unreadable("\(url.lastPathComponent) 파일이 UTF-8 글자가 아니라서 건드리지 않았어요. 직접 고쳐 주세요.")
+        }
         // remove: 업데이트가 필요한 상태에서도 스위치를 끄면 해제
         let on = installed[kind] == true && (remove || needsUpdate[kind] != true)
 
@@ -110,6 +121,8 @@ final class IntegrationManager {
             let stamp = Self.stamp.string(from: Date())
             backup = url.deletingLastPathComponent().appendingPathComponent("\(url.lastPathComponent).termpet-backup-\(stamp)")
             try original.write(to: backup!)
+            // 백업은 나만 읽을 수 있게 (settings.json 에 API 키 같은 값이 있을 수 있음)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backup!.path)
         }
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try updated.write(to: url, options: .atomic)
@@ -123,3 +136,4 @@ final class IntegrationManager {
         return f
     }()
 }
+

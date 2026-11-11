@@ -24,7 +24,13 @@ export function startServer(port: number, token: string, onEvent: (e: PetEvent) 
       if (headOnly) {
         if (size - c.length < HEAD_BYTES) chunks.push(c) // 앞부분만 모으고 나머지는 버린다
       } else if (size > MAX_BODY) {
-        tooLarge = true
+        // 너무 큰 요청은 끝까지 받지 않고 바로 끊는다
+        if (!tooLarge) {
+          tooLarge = true
+          res.writeHead(413, { 'Content-Type': 'text/plain; charset=utf-8', Connection: 'close' })
+          res.end('too large')
+          req.destroy()
+        }
       } else {
         chunks.push(c)
       }
@@ -34,7 +40,7 @@ export function startServer(port: number, token: string, onEvent: (e: PetEvent) 
         res.writeHead(status, { 'Content-Type': 'text/plain; charset=utf-8', Connection: 'close' })
         res.end(body)
       }
-      if (tooLarge) return send(413, 'too large')
+      if (tooLarge) return
       const headers: Record<string, string | undefined> = {}
       for (const [k, v] of Object.entries(req.headers)) headers[k.toLowerCase()] = Array.isArray(v) ? v[0] : v
       const out = route({ method: req.method ?? 'GET', path, headers, body: Buffer.concat(chunks).toString('utf8') }, token)

@@ -1,7 +1,7 @@
 // 패널의 "AI 연결" 버튼: 설정 파일을 백업한 뒤 텀펫 항목만 추가/삭제 (맥 IntegrationManager.swift 대응).
 // 사용자가 버튼을 눌렀을 때만 파일을 바꾼다. 해석할 수 없는 파일이면 손대지 않고 에러.
 import { app } from 'electron'
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type { IntegrationKind } from '../shared/ipc'
@@ -141,7 +141,10 @@ export function toggle(kind: IntegrationKind, remove: boolean): string[] {
     mkdirSync(dirname(f.path), { recursive: true })
     // PowerShell 5.1 은 BOM 없는 UTF-8 을 ANSI 로 읽는다 → 새 프로필은 BOM 을 붙이고, 기존 파일은 원래대로
     const bom = f.text === undefined ? kind === 'powershell' : f.bom
-    writeFileSync(f.path, (bom ? '﻿' : '') + next)
+    // 임시 파일에 다 쓴 뒤 바꿔치기 → 쓰는 도중 꺼져도 설정 파일이 반쯤 잘리지 않는다
+    const tmp = `${f.path}.termpet-tmp`
+    writeFileSync(tmp, (bom ? '﻿' : '') + next)
+    renameSync(tmp, f.path)
   }
   return backups
 }

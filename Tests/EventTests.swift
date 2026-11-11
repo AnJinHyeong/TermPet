@@ -181,3 +181,14 @@ final class OneLineMarkdownTests: XCTestCase {
         XCTAssertEqual(EventDecoder.koreanNotification("Unknown", type: nil), "Unknown")
     }
 }
+
+final class EventClampTests: XCTestCase {
+    func testLongTextIsClamped() {
+        var e = PetEvent(source: .claude, kind: .done, message: String(repeating: "가", count: 5000))
+        e.detail = "짧음"
+        e.clampTextFields()
+        XCTAssertEqual(e.message?.count, PetEvent.maxTextLength)
+        XCTAssertTrue(e.message!.hasSuffix("…"))
+        XCTAssertEqual(e.detail, "짧음")
+    }
+}
