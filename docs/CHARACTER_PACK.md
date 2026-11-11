@@ -1,6 +1,7 @@
 # 캐릭터 팩 만들기
 
-> 앱 안에서 캐릭터를 만들거나 가져오는 기능은 없다. 아래 형식으로 팩 폴더를 직접 만들어 `Friends/`에 넣는다.
+> 아래 형식으로 팩 폴더를 만들어 메뉴 → 친구의 **＋**로 가져오거나 `Friends/`에 직접 넣는다.
+> 그림에서 팩을 자동으로 만들려면 저장소의 `make-character` 스킬을 쓴다 (README 참고).
 
 ## 폴더 구조
 
@@ -10,7 +11,7 @@
   idle.png  walk.png  talk.png  happy.png  angry.png  ask.png  sleep.png  dragged.png  fall.png
 ```
 
-폴더를 넣은 뒤 앱을 다시 켜면 목록에 나타난다.
+폴더를 넣은 뒤 메뉴 패널을 다시 열면 목록에 나타난다. 윈도우는 `%APPDATA%\TermPet\Friends\<id>\`.
 
 ## 스프라이트 시트
 
@@ -63,11 +64,11 @@
 | `order` | | 캐릭터 목록 순서 (작을수록 앞, 친구 팩용) |
 | `states.*.facing` | | 이 동작 그림만 방향이 다를 때 (`right`/`left`/`front`) |
 
-상태 이름: `idle` `walk` `talk` `happy`(작업 완료) `angry`(에러) `ask`(확인 요청) `sleep` `dragged`(잡힘) `fall`(떨어짐·점프·던져짐) `climb`(창/화면 벽 오르기)
+상태 이름: `idle` `walk` `talk` `happy`(작업 완료) `angry`(에러) `ask`(확인 요청) `sleep` `dragged`(잡힘) `fall`(떨어짐·점프·던져짐) `climb`(창/화면 벽 오르기) `bite`(장난꾸러기 모드에서 포인터를 물고 흔들 때) `throw`(포인터를 던진 직후)
 
 - **포즈 여러 개**: `idle.2`, `walk.2`, `happy.3` …처럼 번호를 붙이면 그 동작에 들어갈 때마다 하나를 골라 보여준다.
   `walk.2`가 있으면 그 포즈가 뽑혔을 때 더 빨리 달린다.
-- **대체 규칙**: 없는 동작은 `idle`로, `climb`가 없으면 `dragged` → `idle` 순으로 대신한다.
+- **대체 규칙**: 없는 동작은 `idle`로, `climb`가 없으면 `dragged` → `idle`, `bite`가 없으면 `angry`, `throw`가 없으면 `happy`로 대신한다.
 - `sleep`일 때는 앱이 머리 위에 z z z 를 그려 준다.
 
 ## 친구 팩 (여러 개)

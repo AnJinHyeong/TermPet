@@ -1,6 +1,6 @@
 # TermPet 연동 설정 (수동)
 
-> 메뉴바 아이콘 → **AI 연결**의 [연결] 버튼으로 자동 설정할 수 있다 (백업 후 병합). 아래는 직접 설정하는 방법.
+> 메뉴 패널 → **연결** 탭의 [연결] 버튼으로 자동 설정할 수 있다 (백업 후 병합). 아래는 직접 설정하는 방법.
 
 TermPet 앱을 한 번 실행하면 다음이 자동 생성된다:
 
@@ -98,6 +98,20 @@ notify = ["/Users/<나>/.termpet/bin/termpet-hook", "codex"]
 notify = ["/Users/<나>/.termpet/bin/termpet-hook", "codex-chain", "<원래 명령>", "<원래 인자>"]
 ```
 
+**작업 중(•••) 표시** (선택): `~/.codex/hooks.json`의 `"hooks"`에 추가한다. 기존 항목은 그대로 둔다.
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      { "hooks": [ { "type": "command", "command": "/Users/<나>/.termpet/bin/termpet-hook codex-hook", "timeout": 5, "async": true } ] }
+    ]
+  }
+}
+```
+
+ChatGPT 앱 안의 Codex는 처음에 이 훅을 막아 둔다. ChatGPT 앱 **설정 → Hooks**에서 `termpet-hook`을 신뢰해야 동작한다.
+
 ## 4. Claude 데스크톱 앱 (일반 채팅)
 
 일반 채팅에는 훅이 없어서 텀펫을 MCP 서버로 등록한다. Claude가 `termpet_notify` 도구를 부르면 `POST /event`로 알림이 온다. 답변을 시작할 때는 `kind: "working"`으로 불러 머리 위에 "…"을 띄우고, 끝날 때는 요약과 함께 `done`·`ask`·`error`로 불러 말풍선을 띄운다.
@@ -113,7 +127,18 @@ notify = ["/Users/<나>/.termpet/bin/termpet-hook", "codex-chain", "<원래 명�
 
 다른 키와 다른 MCP 서버는 그대로 두고 `termpet` 항목만 더한다. Claude 앱을 완전히 종료했다가 다시 켜야 적용된다.
 
-## 5. 직접 테스트
+## 5. ChatGPT 앱 일반 채팅 (실험)
+
+설정 파일을 고치지 않는다. 메뉴의 **GPT 앱 채팅** 스위치를 켜면 텀펫이 ChatGPT 앱 로그의 새 줄을 1.5초마다 읽는다.
+
+- 맥: `~/Library/Logs/com.openai.codex/<년>/<월>/<일>/*.log` (날짜는 UTC 기준)
+- 윈도우: `%LOCALAPPDATA%\Codex\Logs\...` (스토어 설치판은 `%LOCALAPPDATA%\Packages\*\LocalCache\Local\Codex\Logs\...`)
+
+답변 완료로 보는 줄: `chatgpt_conversation_refetch_completed … reason=explicit_update`, `chatgpt_conversation_update_ignored … updateType=completed`, `[desktop-notifications] show turn-complete`. 같은 대화는 20초 안에 한 번만 알린다. Codex 대화는 notify가 알려 주므로 건너뛴다.
+
+맥에서 켜고 끄기: `defaults write com.termpet.TermPet chatgptAppWatch -bool true` (또는 `false`), 앱 재실행.
+
+## 6. 직접 테스트
 
 ```bash
 TOKEN=$(cat ~/.termpet/token)
@@ -147,7 +172,7 @@ echo '{"hook_event_name":"Stop","cwd":"'"$PWD"'","session_id":"test","last_assis
 | GET | `/health` | 없음 | 200 `ok` |
 | POST | `/event` | `X-TermPet-Token` | 표준 이벤트 JSON (SPEC 3-5) |
 | POST | `/hook/claude` | `X-TermPet-Token` | Claude Code 훅 stdin 원본 |
-| POST | `/hook/codex` | `X-TermPet-Token` | Codex notify 원본 (Phase 5에서 보강) |
+| POST | `/hook/codex` | `X-TermPet-Token` | Codex notify 원본 · Codex 훅(hooks.json) stdin |
 
 추가 헤더(선택): `X-TermPet-Host-Bundle`(=`$__CFBundleIdentifier`), `X-TermPet-Term-Program`(=`$TERM_PROGRAM`).
 `Origin` 헤더가 붙은 요청(브라우저)은 403으로 거부한다.
