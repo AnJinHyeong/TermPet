@@ -14,7 +14,8 @@ xcodebuild -project TermPet.xcodeproj -scheme TermPet -configuration Release \
 APP=build/Build/Products/Release/TermPet.app
 DEST=/Applications/TermPet.app
 
-pkill -x TermPet 2>/dev/null || true
+# 화면 있는 텀펫만 종료 (Claude 앱이 띄운 `TermPet --mcp` 는 그대로)
+pkill -xf '.*/TermPet\.app/Contents/MacOS/TermPet' 2>/dev/null || true
 sleep 0.5
 rm -rf "$DEST"
 ditto "$APP" "$DEST"

@@ -51,11 +51,48 @@ final class AppUpdater {
             var request = URLRequest(url: Self.latestReleaseURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
             request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
             request.setValue("TermPet", forHTTPHeaderField: "User-Agent")
-            let (data, _) = try await URLSession.shared.data(for: request)
-            guard let tag = Self.tagName(from: data) else { state = .failed("버전 정보를 읽지 못했어요"); return }
-            state = Self.isNewer(tag, than: current) ? .available(Self.normalized(tag)) : .upToDate
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            state = Self.checkResult(status: status, data: data, current: current)
         } catch {
             state = .failed("인터넷 연결을 확인해 주세요")
+        }
+        if case .failed(let why) = state {
+            NSLog("[TermPet] version check failed: \(why)")
+            scheduleRetry()
+        } else {
+            retryCount = 0
+        }
+    }
+
+    /// 확인이 실패하면 1분 → 5분 → 15분 뒤 다시 (GitHub 일시 오류·요청 횟수 제한·잠깐 끊긴 인터넷). 그 뒤는 6시간 주기에 맡긴다
+    private var retryCount = 0
+    private var retryTask: Task<Void, Never>?
+    private func scheduleRetry() {
+        let delays: [Double] = [60, 300, 900]
+        guard retryCount < delays.count else { return }
+        let delay = delays[retryCount]
+        retryCount += 1
+        retryTask?.cancel()
+        retryTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else { return }
+            await self?.check()
+        }
+    }
+
+    /// GitHub 응답 → 상태 (순수 함수, 테스트용)
+    nonisolated static func checkResult(status: Int, data: Data, current: String) -> State {
+        switch status {
+        case 200:
+            guard let tag = tagName(from: data) else { return .failed("버전 정보를 읽지 못했어요") }
+            return isNewer(tag, than: current) ? .available(normalized(tag)) : .upToDate
+        case 403, 429:
+            return .failed("GitHub 확인 횟수 초과 · 잠시 뒤 다시 확인해요") // 로그인 없이 시간당 60번 제한
+        case 404:
+            return .failed("릴리스 정보를 찾지 못했어요")
+        default:
+            return .failed("버전 확인 실패 (HTTP \(status))")
         }
     }
 
@@ -75,15 +112,7 @@ final class AppUpdater {
         // 이름으로 열면 같은 Mac에 있는 다른 TermPet.app(개발 빌드 등)이 열려서 예전 버전이 뜰 수 있다 (실제로 겪은 버그).
         // brew는 같은 자리(/Applications)에 새 버전을 넣으므로 이 경로가 곧 새 버전이다.
         let appPath = Bundle.main.bundlePath
-        // 앱이 brew에 의해 종료돼도 계속 돌도록 nohup + 백그라운드. 성공·실패와 상관없이 마지막에 앱을 다시 연다.
-        let script = """
-        export PATH="\((brew as NSString).deletingLastPathComponent):/usr/bin:/bin:/usr/sbin:/sbin"
-        export HOMEBREW_NO_ENV_HINTS=1
-        { date; '\(brew)' update --quiet; '\(brew)' upgrade --cask termpet; rc=$?; echo "exit $rc"; } >> '\(log)' 2>&1
-        echo "$rc" > '\(done.path)'
-        sleep 1
-        open \(Self.shellQuote(appPath))
-        """
+        let script = Self.updateScript(brew: brew, log: log, done: done.path, appPath: appPath)
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/sh")
         p.arguments = ["-c", "nohup /bin/sh -c \(Self.shellQuote(script)) >/dev/null 2>&1 &"]
@@ -136,6 +165,25 @@ final class AppUpdater {
         p.arguments = ["-c", "nohup /bin/sh -c \(Self.shellQuote(inner)) >/dev/null 2>&1 &"]
         try? p.run()
         NSApp.terminate(nil)
+    }
+
+
+    /// 업데이트 쉘 스크립트 (순수 함수, 테스트용). 앱이 brew에 의해 종료돼도 계속 돌도록 nohup + 백그라운드로 실행된다.
+    nonisolated static func updateScript(brew: String, log: String, done: String, appPath: String) -> String {
+        let executable = appPath + "/Contents/MacOS/TermPet"
+        return """
+            export PATH="\((brew as NSString).deletingLastPathComponent):/usr/bin:/bin:/usr/sbin:/sbin"
+            export HOMEBREW_NO_ENV_HINTS=1
+            { date; \(Self.shellQuote(brew)) update --quiet; \(Self.shellQuote(brew)) upgrade --cask termpet; rc=$?; echo "exit $rc"; } >> \(Self.shellQuote(log)) 2>&1
+            echo "$rc" > \(Self.shellQuote(done))
+            # brew 는 업그레이드 뒤 앱을 직접 다시 켠다("Reopening"). 그걸 기다렸다가 이 경로의 앱이 안 떠 있을 때만 연다.
+            # (예전엔 무조건 한 번 더 열어서, brew 가 켠 것과 합쳐 두 개가 뜰 수 있었다)
+            for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+              pgrep -xf \(Self.shellQuote(executable)) >/dev/null && exit 0
+              sleep 0.5
+            done
+            open \(Self.shellQuote(appPath))
+            """
     }
 
     // MARK: - 순수 함수 (테스트용)

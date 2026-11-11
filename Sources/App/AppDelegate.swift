@@ -50,13 +50,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard !isRunningTests else { return }
+        // 텀펫은 하나만: 이미 떠 있는 텀펫이 남을 차례면 나는 바로 종료 (업데이트 직후 두 개가 뜨던 문제)
+        guard SingleInstance.claim(ready: { [weak self] in self?.startServer() }) else {
+            exit(0)
+        }
         petController.library = characters
         if let problem = petController.selectCharacter(id: characters.selectedId) {
             NSLog("[TermPet] character load failed: \(problem)")
         }
         petController.start()
         paths.installBundledScripts()
-        startServer()
+        // startServer() 는 SingleInstance.claim 이 부른다 (다른 텀펫이 포트를 놓은 뒤)
         updater.startPeriodicChecks()
         #if DEBUG
         // 개발용: 메뉴바 패널을 일반 창으로 띄워 스크린샷 확인 (`TermPet --preview-panel`)

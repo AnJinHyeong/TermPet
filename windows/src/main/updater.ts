@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process'
 import { writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { isNewer, normalizeVersion, parseRelease } from '../shared/misc'
+import { checkResult } from '../shared/misc'
 
 const LATEST = 'https://api.github.com/repos/AnJinHyeong/TermPet/releases/latest'
 const RELEASES_PAGE = 'https://github.com/AnJinHyeong/TermPet/releases/latest'
@@ -33,14 +33,26 @@ export class Updater {
     if (this.status.state === 'updating' || this.status.state === 'checking') return
     this.set({ state: 'checking' })
     try {
-      const res = await net.fetch(LATEST, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'TermPet' } })
-      const rel = parseRelease(await res.json())
-      if (!rel) return this.set({ state: 'failed', message: '버전 정보를 읽지 못했어요' })
-      this.installerUrl = rel.installerUrl
-      this.set(isNewer(rel.tag, this.current) ? { state: 'available', version: normalizeVersion(rel.tag) } : { state: 'upToDate' })
+      const res = await net.fetch(LATEST, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'TermPet' }, cache: 'no-store' })
+      const body = await res.json().catch(() => undefined)
+      const out = checkResult(res.status, body, this.current)
+      if (out.installerUrl) this.installerUrl = out.installerUrl
+      this.set(out.state)
     } catch {
       this.set({ state: 'failed', message: '인터넷 연결을 확인해 주세요' })
     }
+    if (this.status.state === 'failed') this.scheduleRetry()
+    else this.retries = 0
+  }
+
+  /** 확인이 실패하면 1분 → 5분 → 15분 뒤 다시 (GitHub 일시 오류·요청 횟수 제한). 그 뒤는 6시간 주기에 맡긴다 */
+  private retries = 0
+  private retryTimer?: ReturnType<typeof setTimeout>
+  private scheduleRetry() {
+    const delays = [60_000, 300_000, 900_000]
+    if (this.retries >= delays.length) return
+    clearTimeout(this.retryTimer)
+    this.retryTimer = setTimeout(() => void this.check(), delays[this.retries++])
   }
 
   async update() {

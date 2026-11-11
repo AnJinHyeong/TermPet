@@ -29,12 +29,13 @@ xcodebuild -project TermPet.xcodeproj -scheme TermPet -configuration Debug \
 APP="build/Build/Products/Debug/TermPet.app"
 
 # 이미 실행 중이면 종료 (메뉴바 아이콘 중복 방지)
-pkill -x TermPet 2>/dev/null && sleep 0.5 || true
+# 화면 있는 텀펫만 종료 (Claude 앱이 띄운 `TermPet --mcp` 는 인자가 붙어 있어서 -xf 에 안 걸린다)
+pkill -xf '.*/TermPet\.app/Contents/MacOS/TermPet' 2>/dev/null && sleep 0.5 || true
 
 if [[ $LOGS -eq 1 ]]; then
   echo "▶ 실행 (로그 모드, Ctrl+C로 종료)"
   exec "$APP/Contents/MacOS/TermPet"
 else
   open "$APP"
-  echo "▶ 실행됨. 종료: pkill -x TermPet"
+  echo "▶ 실행됨. 종료: 메뉴의 [종료]"
 fi

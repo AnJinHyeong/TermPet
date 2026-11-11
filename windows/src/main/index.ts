@@ -7,7 +7,7 @@ import { join, normalize, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { makeEvent, type PetEvent } from '../shared/events'
 import type { CheckResult, IntegrationKind, PanelAction, PanelState } from '../shared/ipc'
-import { LAYERS } from '../shared/misc'
+import { isNewer, LAYERS } from '../shared/misc'
 import { currentStats, statsSummary } from '../shared/notifications'
 import { allowScripts, diagnose, takeSelfTest } from './diagnose'
 import { focusEvent, rememberWindow } from './focus'
@@ -525,10 +525,20 @@ async function devSnapshot(dir: string) {
 }
 
 // 앱을 두 번 켜면 펫이 둘이 되지 않게 (두 번째 실행은 메뉴만 열어 준다)
-if (!app.requestSingleInstanceLock()) {
+// 두 번째 실행이 자기 버전을 알려 준다 → 더 새 버전이면(업데이트 직후 예전 앱이 아직 떠 있던 경우) 내가 물러나고 새 버전으로 다시 켠다
+if (!app.requestSingleInstanceLock({ version: app.getVersion() })) {
   app.quit()
 } else {
-  app.on('second-instance', () => togglePanel())
+  app.on('second-instance', (_e, _argv, _cwd, data) => {
+    const incoming = (data as { version?: unknown } | undefined)?.version
+    if (typeof incoming === 'string' && isNewer(incoming, app.getVersion())) {
+      console.log(`[TermPet] newer version ${incoming} started — relaunching`)
+      app.relaunch() // 같은 exe 경로 = 디스크에 새로 깔린 버전
+      app.exit(0)
+      return
+    }
+    togglePanel()
+  })
   // 보안: 펫·말풍선·패널 화면은 다른 페이지로 이동하거나 새 창을 열 일이 없다 → 전부 막는다
   // (화면에 뜬 글자가 링크처럼 동작해 외부 페이지가 앱 안에서 열리는 일을 원천 차단)
   app.on('web-contents-created', (_e, contents) => {

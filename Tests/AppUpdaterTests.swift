@@ -41,6 +41,35 @@ final class AppUpdaterTests: XCTestCase {
         XCTAssertEqual(AppUpdater.installedVersion(at: app), "0.5.2")
     }
 
+    func testCheckResultKeepsReasons() {
+        let ok = Data(#"{"tag_name":"v0.5.4"}"#.utf8)
+        XCTAssertEqual(AppUpdater.checkResult(status: 200, data: ok, current: "0.5.3"), .available("0.5.4"))
+        XCTAssertEqual(AppUpdater.checkResult(status: 200, data: ok, current: "0.5.4"), .upToDate)
+        XCTAssertEqual(AppUpdater.checkResult(status: 200, data: Data("{}".utf8), current: "0.5.3"), .failed("버전 정보를 읽지 못했어요"))
+        // 요청 횟수 제한 응답은 "버전을 못 읽음"이 아니라 그 이유로
+        let limited = Data(#"{"message":"API rate limit exceeded"}"#.utf8)
+        guard case .failed(let why) = AppUpdater.checkResult(status: 403, data: limited, current: "0.5.3") else { return XCTFail() }
+        XCTAssertTrue(why.contains("횟수"))
+        XCTAssertEqual(AppUpdater.checkResult(status: 502, data: Data(), current: "0.5.3"), .failed("버전 확인 실패 (HTTP 502)"))
+    }
+
+    func testUpdateScriptOpensAppOnlyIfNotRunning() {
+        let s = AppUpdater.updateScript(brew: "/opt/homebrew/bin/brew", log: "/tmp/u.log", done: "/tmp/u.done",
+                                        appPath: "/Applications/TermPet.app")
+        // brew 가 다시 켠 앱이 있으면 또 열지 않는다 (업데이트 후 두 개 뜨던 문제)
+        XCTAssertTrue(s.contains("pgrep -xf '/Applications/TermPet.app/Contents/MacOS/TermPet' >/dev/null && exit 0"))
+        XCTAssertTrue(s.hasSuffix("open '/Applications/TermPet.app'"))
+        XCTAssertFalse(s.contains("open -a"))
+        XCTAssertTrue(s.contains("echo \"$rc\" > '/tmp/u.done'"))
+        // 쉘 문법 검사 (sh -n)
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/sh")
+        p.arguments = ["-n", "-c", s]
+        XCTAssertNoThrow(try p.run())
+        p.waitUntilExit()
+        XCTAssertEqual(p.terminationStatus, 0)
+    }
+
     func testShellQuoteSurvivesQuotes() {
         XCTAssertEqual(AppUpdater.shellQuote("a'b"), #"'a'\''b'"#)
     }

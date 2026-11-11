@@ -167,3 +167,18 @@ describe('하루 기록·기분', () => {
     expect(moodFrom([[0, false]], 31 * 60_000)).toBe('normal')
   })
 })
+
+import { checkResult } from './misc'
+describe('checkResult (버전 확인)', () => {
+  const ok = { tag_name: 'v0.5.4', assets: [{ name: 'TermPet-Setup-0.5.4.exe', browser_download_url: 'https://github.com/x/TermPet-Setup-0.5.4.exe' }] }
+  it('새 버전 / 최신', () => {
+    expect(checkResult(200, ok, '0.5.3').state).toEqual({ state: 'available', version: '0.5.4' })
+    expect(checkResult(200, ok, '0.5.4').state).toEqual({ state: 'upToDate' })
+  })
+  it('실패 이유를 구분한다', () => {
+    expect(checkResult(403, { message: 'API rate limit exceeded' }, '0.5.3').state).toMatchObject({ state: 'failed', message: expect.stringContaining('횟수') })
+    expect(checkResult(404, {}, '0.5.3').state).toMatchObject({ state: 'failed' })
+    expect(checkResult(200, {}, '0.5.3').state).toEqual({ state: 'failed', message: '버전 정보를 읽지 못했어요' })
+    expect(checkResult(502, undefined, '0.5.3').state).toEqual({ state: 'failed', message: '버전 확인 실패 (HTTP 502)' })
+  })
+})

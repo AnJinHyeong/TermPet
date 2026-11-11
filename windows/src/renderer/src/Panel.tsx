@@ -207,7 +207,7 @@ export function Panel() {
             로그인 시 실행
           </label>
           <span className="grow" />
-          <button className="version" title="눌러서 새 버전 확인" onClick={() => act({ type: 'checkUpdate' })}>
+          <button className="version" title={s.update.state === 'failed' ? `${s.update.message} · 눌러서 다시 확인` : '눌러서 새 버전 확인'} onClick={() => act({ type: 'checkUpdate' })}>
             {versionLabel(s)}
           </button>
           <button className="quit" onClick={() => act({ type: 'quit' })}>
@@ -271,7 +271,8 @@ function versionLabel(s: PanelState) {
     case 'upToDate':
       return `v${s.version} · 최신`
     case 'failed':
-      return s.update.message ?? '확인 실패'
+      // 확인이 실패해도 지금 버전은 항상 보여 준다 (이유는 마우스를 올리면)
+      return `v${s.version} · 확인 실패`
     default:
       return `v${s.version}`
   }

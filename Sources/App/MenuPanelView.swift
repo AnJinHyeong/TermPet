@@ -408,7 +408,7 @@ struct MenuPanelView: View {
                     .foregroundStyle(Theme.cocoa.opacity(0.55))
             }
             .buttonStyle(.plain)
-            .hint("눌러서 새 버전 확인")
+            .hint(versionHint)
             Button { NSApplication.shared.terminate(nil) } label: {
                 HStack(spacing: 3) {
                     Image(systemName: "power").font(.system(size: 9, weight: .bold))
@@ -459,9 +459,15 @@ struct MenuPanelView: View {
         switch app.updater.state {
         case .checking: return "확인 중…"
         case .upToDate: return "v\(app.updater.current) · 최신"
-        case .failed(let message): return message
+        // 확인이 실패해도 지금 버전은 항상 보여 준다 (이유는 마우스를 올리면)
+        case .failed: return "v\(app.updater.current) · 확인 실패"
         default: return "v\(app.updater.current)"
         }
+    }
+
+    private var versionHint: String {
+        if case .failed(let message) = app.updater.state { return message + " · 눌러서 다시 확인" }
+        return "눌러서 새 버전 확인"
     }
 
     private var serverColor: Color {
