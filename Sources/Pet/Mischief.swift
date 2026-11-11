@@ -10,8 +10,6 @@ struct Mischief {
         var startDelay: TimeInterval = 1
         /// 물고 흔드는 시간
         var biteDuration: TimeInterval = 1.3
-        /// 문 채로 사용자가 포인터를 끌고 다니면, 멈춘 뒤 이만큼 더 물고 있다가 던진다
-        var biteAfterMove: TimeInterval = 0.8
         /// 던진 뒤 숨 고르는 시간 (그다음 다시 쫓아온다)
         var cooldownAfterThrow: TimeInterval = 4
         /// 벽에 막혀 돌아섰거나 클릭으로 놓아줬을 때 잠깐 쉬는 시간
@@ -42,8 +40,6 @@ struct Mischief {
         var wallDirection: Direction? = nil
         /// 몸 위쪽 여유 (화면 천장까지, pt). 높은 데서 몸을 날릴 때 천장에 머리를 박지 않게 낮게 날아간다
         var headroom: CGFloat = .infinity
-        /// 물고 있는 동안 사용자가 마우스를 움직였다 (펫이 문 채로 딸려 가고, 던지기는 멈춘 뒤로 미룬다)
-        var pointerMoved = false
     }
 
     enum Command: Equatable {
@@ -113,8 +109,8 @@ struct Mischief {
                 return .release
             }
             biteLeft -= dt
-            if input.pointerMoved { biteLeft = max(biteLeft, config.biteAfterMove) }
-            if biteLeft <= 0 {
+            // 공중에서 물었으면 문 채로 땅에 떨어진 뒤에 던진다 (너무 오래 걸리면 그냥 던짐)
+            if biteLeft <= 0, input.grounded || phaseTime > 5 {
                 enter(.throwing)
                 return .throwPointer
             }
@@ -264,18 +260,20 @@ struct PointerThrow: Equatable {
     /// 던지는 쪽 (펫이 그쪽을 보게)
     var direction: Direction { velocity.dx < 0 ? .left : .right }
 
-    /// 펫이 바라보는 쪽 앞위로 휙. 그쪽에 날아갈 공간이 모자라면 공간이 더 넓은 반대쪽으로,
-    /// 양쪽 다 좁으면 남은 공간에 맞춰 살살 던진다.
-    static func toss(from start: CGPoint, facing: Direction, screens: [CGRect],
+    /// 매번 다르게 휙: 방향·세기·높이·날아가는 시간이 랜덤. 고른 쪽에 날아갈 공간이 모자라면
+    /// 공간이 더 넓은 반대쪽으로, 양쪽 다 좁으면 남은 공간에 맞춰 살살 던진다.
+    static func toss(from start: CGPoint, screens: [CGRect],
                      using rng: inout some RandomNumberGenerator) -> PointerThrow {
         var path = PointerThrow(start: start, velocity: .zero, screens: screens)
-        let speed = CGFloat.random(in: 750...1050, using: &rng)
+        path.duration = TimeInterval.random(in: 0.5...1.0, using: &rng)
+        let picked: Direction = Bool.random(using: &rng) ? .right : .left
+        let speed = CGFloat.random(in: 350...1300, using: &rng)
         let need = speed * CGFloat(path.duration)
-        let here = room(from: start, toward: facing, screens: screens)
-        let there = room(from: start, toward: facing.flipped, screens: screens)
-        let dir = here >= need || here >= there ? facing : facing.flipped
-        let fit = max(250, min(speed, max(here, there) * 0.9 / CGFloat(path.duration)))
-        path.velocity = CGVector(dx: dir.sign * fit, dy: CGFloat.random(in: 650...900, using: &rng))
+        let here = room(from: start, toward: picked, screens: screens)
+        let there = room(from: start, toward: picked.flipped, screens: screens)
+        let dir = here >= need || here >= there ? picked : picked.flipped
+        let fit = max(200, min(speed, max(here, there) * 0.9 / CGFloat(path.duration)))
+        path.velocity = CGVector(dx: dir.sign * fit, dy: CGFloat.random(in: 300...1000, using: &rng))
         return path
     }
 
