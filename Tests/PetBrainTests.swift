@@ -53,12 +53,53 @@ final class PetBrainTests: XCTestCase {
         XCTAssertEqual(brain.action, .sleep)
     }
 
-    func testClickWhileSleepingWakesUpToIdle() {
+    func testClickWhileSleepingDoesNotWake() {
         var brain = makeBrain()
         brain.handle(.sleep, using: &rng)
         brain.handle(.clicked, using: &rng)
+        XCTAssertEqual(brain.action, .sleep)
+        XCTAssertTrue(brain.isAsleep)
+        brain.handle(.wake, using: &rng) // 깨우기 토글로만 깬다
         XCTAssertEqual(brain.action, .idle)
-        XCTAssertEqual(brain.inactivity, 0)
+        XCTAssertFalse(brain.isAsleep)
+    }
+
+    func testCarryingSleepingPetKeepsItAsleep() {
+        var brain = makeBrain()
+        brain.handle(.sleep, using: &rng)
+        brain.handle(.dragStarted, using: &rng)
+        XCTAssertEqual(brain.action, .dragged)  // 물리상으론 들린 상태
+        XCTAssertTrue(brain.isAsleep)           // 하지만 계속 자는 중
+        run(&brain, for: 5)
+        brain.handle(.startFall, using: &rng)
+        brain.handle(.landed, using: &rng)
+        XCTAssertEqual(brain.action, .sleep)
+        run(&brain, for: 60)
+        XCTAssertEqual(brain.action, .sleep)
+    }
+
+    func testSleepingPetClimbingOutOfDockStaysAsleep() {
+        var brain = makeBrain()
+        brain.handle(.sleep, using: &rng)
+        brain.handle(.climbOutOfDock, using: &rng)
+        brain.handle(.climbedUp, using: &rng)
+        XCTAssertEqual(brain.action, .sleep)
+    }
+
+    func testEventsDoNotWakeUserPutToSleepButWakeAutoSleep() {
+        var put = makeBrain()
+        put.handle(.sleep, using: &rng)
+        put.handle(.react(.happy), using: &rng)
+        XCTAssertEqual(put.action, .sleep)
+
+        var auto = makeBrain(sleepAfter: 10)
+        run(&auto, for: 11)
+        XCTAssertEqual(auto.action, .sleep)
+        auto.handle(.clicked, using: &rng)
+        XCTAssertEqual(auto.action, .sleep, "클릭으론 안 깬다")
+        auto.handle(.react(.happy), using: &rng)
+        XCTAssertEqual(auto.action, .happy, "저절로 잠든 건 알림에 깬다")
+        XCTAssertFalse(auto.isAsleep)
     }
 
     func testClickTriggersShortHappy() {

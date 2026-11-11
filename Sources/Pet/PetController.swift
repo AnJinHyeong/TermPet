@@ -195,7 +195,8 @@ final class PetController: NSObject {
 
     // MARK: - 외부 API (메뉴바/우클릭 메뉴에서 호출)
 
-    var isSleeping: Bool { brain.action == .sleep }
+    /// 잠든 상태 (들려서 옮겨지는 중에도 true)
+    var isSleeping: Bool { brain.isAsleep }
 
     func toggleSleep() {
         brain.handle(isSleeping ? .wake : .sleep, using: &rng)
@@ -417,7 +418,9 @@ final class PetController: NSObject {
     /// 두뇌 상태 → 뷰 모델 복사 (SwiftUI 재렌더 트리거)
     private func syncModel() {
         var changed = false
-        if model.action != brain.action { model.action = brain.action; changed = true }
+        // 잠든 채 들려 있거나 떨어지는 중에도 자는 모습 그대로 (물리는 brain.action으로 따로 돈다)
+        let shown: PetAction = brain.isAsleep ? .sleep : brain.action
+        if model.action != shown { model.action = shown; changed = true }
         if model.facing != brain.direction { model.facing = brain.direction }
         if model.variant != brain.variant { model.variant = brain.variant; changed = true }
         publishClock(force: changed)
@@ -624,7 +627,7 @@ final class PetController: NSObject {
             cursor: NSEvent.mouseLocation,
             facing: brain.direction,
             canPlay: mischiefEnabled && model.isVisible && !isDragging && !bubble.isShowing
-                && brain.action != .sleep && brain.action != .dragged && risingOutOf == nil,
+                && !brain.isAsleep && brain.action != .dragged && risingOutOf == nil,
             mouseDown: NSEvent.pressedMouseButtons != 0,
             grounded: !brain.action.isPhysicsControlled)
         switch mischief.tick(dt, input, using: &rng) {
@@ -832,7 +835,7 @@ final class PetController: NSObject {
             bubble.activateCurrent()
         } else if bubble.hasUnread {
             bubble.show()
-        } else {
+        } else if !brain.isAsleep { // 자는 중엔 클릭해도 안 깨고 말도 안 한다
             brain.handle(.clicked, using: &rng)
             bubble.say(stats.today.speech) // "오늘 12번 끝냈어요!"
         }

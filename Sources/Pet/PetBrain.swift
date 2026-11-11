@@ -58,6 +58,11 @@ struct PetBrain {
     private(set) var inactivity: TimeInterval = 0
     /// 상태에 들어올 때마다 새로 뽑는 난수 → 같은 동작이라도 그림(포즈)을 골라 쓴다 (캐릭터 팩의 idle.2 등)
     private(set) var variant: Int = 0
+    /// 잠든 상태. 들어서 옮기거나 떨어지는 동안(action은 dragged/fall)에도 유지되고, 착지하면 다시 sleep.
+    /// 깨는 건 `.wake`(재우기/깨우기 토글)뿐. 클릭·드래그로는 안 깬다.
+    private(set) var isAsleep = false
+    /// 사용자가 '재우기'로 재웠음 → 알림(이벤트)이 와도 안 깬다. 오래 쉬어서 저절로 잠든 거면 알림에 깬다.
+    private(set) var sleptByUser = false
 
     init(config: Config = Config()) {
         self.config = config
@@ -73,7 +78,7 @@ struct PetBrain {
         case .idle, .walk:
             inactivity += dt
             if inactivity >= config.sleepAfter {
-                enter(.sleep, for: .infinity, using: &rng)
+                fallAsleep(byUser: false, using: &rng)
                 return
             }
             guard elapsed >= duration else { return }
@@ -95,10 +100,10 @@ struct PetBrain {
     mutating func handle(_ input: Input, using rng: inout some RandomNumberGenerator) {
         switch input {
         case .clicked:
+            guard !isAsleep else { return }               // 자고 있으면 클릭해도 안 깬다 (토글로만)
             inactivity = 0
             switch action {
-            case .sleep: enterIdle(using: &rng)          // 자고 있으면 깨어나기만
-            case .dragged, .fall, .climb: break
+            case .dragged, .fall, .climb, .sleep: break
             default: enter(.happy, for: config.clickReactionDuration, using: &rng)
             }
 
@@ -111,7 +116,7 @@ struct PetBrain {
 
         case .landed:
             guard action == .fall else { return }
-            enterIdle(using: &rng)
+            if isAsleep { enter(.sleep, for: .infinity, using: &rng) } else { enterIdle(using: &rng) } // 옮겨져도 계속 잔다
 
         case let .hitWall(window):
             guard action == .walk else { direction = direction.flipped; return }
@@ -162,6 +167,7 @@ struct PetBrain {
 
         case .climbedUp:
             guard action == .climb else { return }
+            if isAsleep { enter(.sleep, for: .infinity, using: &rng); return } // Dock 위로 올라온 뒤에도 계속 잔다
             enter(.walk, for: .random(in: config.walkDuration, using: &rng), using: &rng)
 
         case .letGo:
@@ -170,18 +176,30 @@ struct PetBrain {
             enter(.fall, for: .infinity, using: &rng)
 
         case let .react(reaction, customDuration):
+            if isAsleep {
+                guard !sleptByUser else { return }        // 재워 둔 거면 알림에도 계속 잔다
+                isAsleep = false                          // 저절로 잠든 거면 알림에 깬다
+            }
             inactivity = 0
             guard !action.isPhysicsControlled else { return }
             enter(reaction, for: customDuration ?? config.reactionDuration, using: &rng)
 
         case .sleep:
             guard !action.isPhysicsControlled else { return }
-            enter(.sleep, for: .infinity, using: &rng)
+            fallAsleep(byUser: true, using: &rng)
 
         case .wake:
             inactivity = 0
+            isAsleep = false
+            sleptByUser = false
             if action == .sleep { enterIdle(using: &rng) }
         }
+    }
+
+    private mutating func fallAsleep(byUser: Bool, using rng: inout some RandomNumberGenerator) {
+        isAsleep = true
+        sleptByUser = byUser
+        enter(.sleep, for: .infinity, using: &rng)
     }
 
     // MARK: - private
