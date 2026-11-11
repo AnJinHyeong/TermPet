@@ -251,7 +251,7 @@ final class MischiefTests: XCTestCase {
         XCTAssertLessThan(apexes.min()!, 300)
         // 천장 바로 아래면 낮게
         let low = PointerThrow.toss(from: CGPoint(x: 900, y: 1100), screens: one, using: &rng)
-        XCTAssertLessThanOrEqual(low.velocity.dy * low.velocity.dy / (2 * low.gravity), 61)
+        XCTAssertLessThanOrEqual(low.velocity.dy * low.velocity.dy / (2 * low.gravity), 69 * 0.9 + 0.5) // 위로 69 남음
         // 맥북 왼쪽 끝이어도 LG가 같은 높이로 이어져 있으면 왼쪽으로 던질 수 있다
         let two = one + [CGRect(x: -1920, y: 764, width: 1920, height: 1080)]
         XCTAssertEqual(PointerThrow.room(from: CGPoint(x: 50, y: 900), toward: .left, screens: two), 1970)
