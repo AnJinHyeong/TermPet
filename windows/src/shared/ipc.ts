@@ -14,6 +14,8 @@ export interface PetFrameState {
   actionSerial: number
   anim: Animation
   flip: boolean
+  /** 장난꾸러기 모드: 포인터를 물고 흔드는 중 (몸 흔들기 + "앙!/으르릉") */
+  biting: boolean
   pixelArt: boolean
   width: number
   height: number
@@ -84,6 +86,8 @@ export interface PanelState {
   sleeping: boolean
   walkOnWindows: boolean
   walkOnWindowsAvailable: boolean
+  /** 장난꾸러기 모드 (포인터 쫓기·물기·던지기) */
+  mischief: boolean
   layer: PetLayer
   mood: PetMood
   server: { ok: boolean; text: string }
@@ -107,6 +111,7 @@ export type PanelAction =
   | { type: 'setVisible'; visible: boolean }
   | { type: 'toggleSleep' }
   | { type: 'toggleWalkOnWindows' }
+  | { type: 'toggleMischief' }
   | { type: 'dropFromTop' }
   | { type: 'testNotification' }
   | { type: 'toggleIntegration'; kind: IntegrationKind; remove: boolean }

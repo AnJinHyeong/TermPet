@@ -1,7 +1,8 @@
 // 캐릭터 팩(character.json) 해석 — 맥 앱 Sources/Character/CharacterPack.swift 와 같은 규칙.
 // UI·Electron 비의존 순수 로직이라 main(Node)·renderer(React) 양쪽에서 쓰고 Vitest로 테스트한다.
 
-export const ACTIONS = ['idle', 'walk', 'talk', 'happy', 'angry', 'ask', 'sleep', 'dragged', 'fall', 'climb'] as const
+// bite: 장난꾸러기 모드에서 포인터를 물고 흔들 때(없으면 angry), throw: 포인터를 던진 직후(없으면 happy)
+export const ACTIONS = ['idle', 'walk', 'talk', 'happy', 'angry', 'ask', 'sleep', 'dragged', 'fall', 'climb', 'bite', 'throw'] as const
 export type PetAction = (typeof ACTIONS)[number]
 
 /** 스프라이트가 바라보는 방향. front = 좌우 반전 안 함 */
@@ -111,6 +112,8 @@ export function animations(pack: CharacterPack, sheetWidths: Record<string, numb
 /** 없는 동작을 무엇으로 대신할지 (벽 오르기 그림이 없으면 잡힌 그림 → 가만히) */
 export function fallbacks(action: PetAction): PetAction[] {
   if (action === 'climb') return ['climb', 'dragged', 'idle']
+  if (action === 'bite') return ['bite', 'angry', 'idle']
+  if (action === 'throw') return ['throw', 'happy', 'idle']
   if (action === 'idle') return ['idle']
   return [action, 'idle']
 }

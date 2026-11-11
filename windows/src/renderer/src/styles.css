@@ -929,3 +929,47 @@ button {
   border: 1px solid rgba(92, 64, 51, 0.2);
   box-shadow: 0 1px 2px rgba(92, 64, 51, 0.3);
 }
+
+/* 장난꾸러기: 포인터를 물고 개가 장난감 흔들듯 좌우로 (맥: 발 기준 ±9° 회전) */
+.pet.biting > .sprite-wrap {
+  transform-origin: 50% 100%;
+  animation: bite-shake 0.165s ease-in-out infinite alternate;
+}
+@keyframes bite-shake {
+  from { transform: rotate(-9deg); }
+  to { transform: rotate(9deg); }
+}
+.bite-mark {
+  position: absolute;
+  top: 2px;
+  left: 50%;
+  pointer-events: none;
+  font-weight: 900;
+  color: #d94040;
+  text-shadow: 0 0 2px #fff, 0 0 2px #fff;
+  white-space: nowrap;
+}
+/* "앙!"과 "으르릉"을 같은 자리에 겹쳐 두고 0.35초에 바꿔 보인다 */
+.bite-mark b,
+.bite-mark i {
+  position: absolute;
+  top: 0;
+  font-style: normal;
+  transform: translateX(-50%);
+}
+.bite-mark b {
+  font-size: 13px;
+  animation: bite-first 0.35s steps(1, end) forwards;
+}
+.bite-mark i {
+  font-size: 9.5px;
+  opacity: 0;
+  animation: bite-growl 0.1s 0.35s ease-in-out infinite alternate;
+}
+@keyframes bite-first {
+  to { opacity: 0; }
+}
+@keyframes bite-growl {
+  from { opacity: 1; transform: translateX(calc(-50% - 1.5px)); }
+  to { opacity: 1; transform: translateX(calc(-50% + 1.5px)); }
+}

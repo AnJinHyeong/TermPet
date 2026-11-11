@@ -238,6 +238,20 @@ final class MischiefTests: XCTestCase {
         XCTAssertEqual(directions.count, 2)
         XCTAssertGreaterThan(durations.count, 10)
         XCTAssertGreaterThan(speeds.count, 10)
+        // 높이도 랜덤: 위쪽 공간이 넉넉하면 높이 솟구치기도 하고, 천장은 넘지 않는다
+        var apexes: [CGFloat] = []
+        for _ in 0..<60 {
+            let path = PointerThrow.toss(from: CGPoint(x: 900, y: 100), screens: one, using: &rng)
+            let apex = path.velocity.dy * path.velocity.dy / (2 * path.gravity)
+            XCTAssertLessThanOrEqual(apex, 1069 * 0.9 + 1)
+            XCTAssertGreaterThan(path.duration, Double(path.velocity.dy / path.gravity), "꼭대기까지는 날아간다")
+            apexes.append(apex)
+        }
+        XCTAssertGreaterThan(apexes.max()!, 600)
+        XCTAssertLessThan(apexes.min()!, 300)
+        // 천장 바로 아래면 낮게
+        let low = PointerThrow.toss(from: CGPoint(x: 900, y: 1100), screens: one, using: &rng)
+        XCTAssertLessThanOrEqual(low.velocity.dy * low.velocity.dy / (2 * low.gravity), 61)
         // 맥북 왼쪽 끝이어도 LG가 같은 높이로 이어져 있으면 왼쪽으로 던질 수 있다
         let two = one + [CGRect(x: -1920, y: 764, width: 1920, height: 1080)]
         XCTAssertEqual(PointerThrow.room(from: CGPoint(x: 50, y: 900), toward: .left, screens: two), 1970)

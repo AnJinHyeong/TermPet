@@ -228,6 +228,7 @@ function panelState(): PanelState {
     sleeping: pet.isSleeping,
     walkOnWindows: pet.walkOnWindows,
     walkOnWindowsAvailable: win32Available(),
+    mischief: pet.mischiefEnabled,
     layer: pet.layer,
     mood: pet.mood,
     server: panelServer(),
@@ -347,6 +348,8 @@ ipcMain.on('panel:action', (_e, a: PanelAction) => {
       return pet.toggleSleep()
     case 'toggleWalkOnWindows':
       return pet.setWalkOnWindows(!pet.walkOnWindows)
+    case 'toggleMischief':
+      return pet.setMischief(!pet.mischiefEnabled)
     case 'dropFromTop':
       return pet.dropFromTop()
     case 'testNotification':

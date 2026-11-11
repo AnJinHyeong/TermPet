@@ -260,21 +260,31 @@ struct PointerThrow: Equatable {
     /// 던지는 쪽 (펫이 그쪽을 보게)
     var direction: Direction { velocity.dx < 0 ? .left : .right }
 
-    /// 매번 다르게 휙: 방향·세기·높이·날아가는 시간이 랜덤. 고른 쪽에 날아갈 공간이 모자라면
-    /// 공간이 더 넓은 반대쪽으로, 양쪽 다 좁으면 남은 공간에 맞춰 살살 던진다.
+    /// 매번 다르게 휙: 방향·거리·높이·날아가는 시간이 랜덤.
+    /// - 높이: 위쪽 공간 안에서 60~900pt (공간이 넉넉하면 하늘 높이 솟구치기도). 날아가는 시간은 꼭대기까지 오른 뒤
+    ///   조금 떨어지는 동안(꼭대기 시간의 1.3~2배)
+    /// - 가로: 고른 쪽에 공간이 모자라면 넓은 반대쪽으로, 양쪽 다 좁으면 남은 공간 안에 떨어지게
     static func toss(from start: CGPoint, screens: [CGRect],
                      using rng: inout some RandomNumberGenerator) -> PointerThrow {
         var path = PointerThrow(start: start, velocity: .zero, screens: screens)
-        path.duration = TimeInterval.random(in: 0.5...1.0, using: &rng)
+        let up = roomAbove(start, screens: screens)
+        let height = CGFloat.random(in: 60...max(60, min(900, up * 0.9)), using: &rng)
+        let vy = sqrt(2 * path.gravity * height)
+        let apexTime = Double(vy / path.gravity)
+        path.duration = min(1.6, max(0.45, apexTime * Double.random(in: 1.3...2.0, using: &rng)))
         let picked: Direction = Bool.random(using: &rng) ? .right : .left
-        let speed = CGFloat.random(in: 350...1300, using: &rng)
-        let need = speed * CGFloat(path.duration)
+        var distance = CGFloat.random(in: 150...1000, using: &rng)
         let here = room(from: start, toward: picked, screens: screens)
         let there = room(from: start, toward: picked.flipped, screens: screens)
-        let dir = here >= need || here >= there ? picked : picked.flipped
-        let fit = max(200, min(speed, max(here, there) * 0.9 / CGFloat(path.duration)))
-        path.velocity = CGVector(dx: dir.sign * fit, dy: CGFloat.random(in: 300...1000, using: &rng))
+        let dir = here >= distance || here >= there ? picked : picked.flipped
+        distance = min(distance, max(here, there) * 0.9)
+        path.velocity = CGVector(dx: dir.sign * distance / CGFloat(path.duration), dy: vy)
         return path
+    }
+
+    /// 점 위로 화면 천장까지 남은 높이
+    static func roomAbove(_ p: CGPoint, screens: [CGRect]) -> CGFloat {
+        screens.filter { $0.minX <= p.x && p.x < $0.maxX && $0.minY <= p.y && p.y < $0.maxY }.map { $0.maxY - p.y }.max() ?? 0
     }
 
     /// 점에서 그쪽 화면 끝까지 가로 공간 (같은 높이로 이어진 옆 모니터까지 포함)

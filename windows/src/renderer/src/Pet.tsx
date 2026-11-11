@@ -11,7 +11,7 @@ export function Pet() {
   if (!s) return null
   return (
     <div
-      className="pet"
+      className={s.biting ? 'pet biting' : 'pet'}
       style={{ width: s.width, height: s.height }}
       onPointerDown={(e) => {
         if (e.button !== 0) return
@@ -25,19 +25,29 @@ export function Pet() {
         window.termpet.petPointer('context')
       }}
     >
-      <Sprite
-        packKey={s.packKey}
-        file={s.anim.file}
-        frames={s.anim.frames}
-        fps={s.anim.fps}
-        loop={s.anim.loop}
-        width={s.width}
-        height={s.height}
-        pixelArt={s.pixelArt}
-        flip={s.flip}
-        restartKey={s.actionSerial}
-      />
+      {/* 감싸는 div: 물고 흔들 때 회전 (Sprite 자체의 좌우 반전 transform 과 겹치지 않게) */}
+      <div className="sprite-wrap">
+        <Sprite
+          packKey={s.packKey}
+          file={s.anim.file}
+          frames={s.anim.frames}
+          fps={s.anim.fps}
+          loop={s.anim.loop}
+          width={s.width}
+          height={s.height}
+          pixelArt={s.pixelArt}
+          flip={s.flip}
+          restartKey={s.actionSerial}
+        />
+      </div>
       <Badge s={s} />
+      {s.biting && (
+        // 장난꾸러기: 포인터를 물고 흔드는 중 — 처음엔 "앙!", 이어서 "으르릉" (CSS 애니메이션으로 바꿔 보인다)
+        <span className="bite-mark" key={s.actionSerial}>
+          <b>앙!</b>
+          <i>으르릉</i>
+        </span>
+      )}
       {s.mood === 'cheerful' && <span className="mood cheerful">✨</span>}
       {s.mood === 'gloomy' && <span className="mood gloomy">🌧</span>}
       {s.action === 'sleep' && (

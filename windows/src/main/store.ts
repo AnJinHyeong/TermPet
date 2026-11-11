@@ -10,6 +10,8 @@ export interface Settings {
   selected?: string
   layer?: PetLayer
   walkOnWindows?: boolean
+  /** 장난꾸러기 모드 (기본 꺼짐) */
+  mischief?: boolean
   quietDuringMeetings?: boolean
   soundOnAsk?: boolean
   port?: number

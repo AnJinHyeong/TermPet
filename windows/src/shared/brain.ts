@@ -47,6 +47,12 @@ export type BrainInput =
   | { type: 'react'; action: PetAction; duration?: number }
   | { type: 'sleep' }
   | { type: 'wake' }
+  /** 장난꾸러기 모드: 포인터 쪽으로 달린다 */
+  | { type: 'chase'; direction: Direction }
+  /** 장난꾸러기 모드: 쫓다가 벽에 막힘 → 확률 없이 바로 타고 오른다 */
+  | { type: 'climbNow' }
+  /** 그쪽을 바라본다 (점프·던지기 방향) */
+  | { type: 'face'; direction: Direction }
 
 const isReaction = (a: PetAction) => a === 'talk' || a === 'happy' || a === 'angry' || a === 'ask'
 /** 사용자가 잡고 있거나 떨어지는 중 → 다른 입력으로 끊으면 안 되는 상태 */
@@ -144,6 +150,22 @@ export class PetBrain {
       case 'wake':
         this.inactivity = 0
         if (this.action === 'sleep') this.enterIdle(rng)
+        return
+      case 'chase':
+        this.inactivity = 0
+        if (this.action === 'walk') {
+          this.direction = input.direction
+          this.duration = Math.max(this.duration, this.elapsed + 1) // 계속 쫓는 동안은 걷기가 끝나지 않게
+        } else if (this.action === 'idle' || this.action === 'talk' || this.action === 'happy' || this.action === 'ask') {
+          this.direction = input.direction
+          this.enter('walk', 1, rng)
+        } // 자는 중·떨어지는 중·벽 타기는 그대로
+        return
+      case 'climbNow':
+        if (this.action === 'walk') this.enter('climb', Infinity, rng)
+        return
+      case 'face':
+        if (this.action !== 'dragged') this.direction = input.direction
         return
     }
   }

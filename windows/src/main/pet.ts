@@ -4,10 +4,11 @@ import { BrowserWindow, ipcMain, screen } from 'electron'
 import { PetBrain, isPhysicsControlled } from '../shared/brain'
 import { animationFor, shouldFlip, type PetAction } from '../shared/characterPack'
 import { isNotification, moodOf, type PetEvent } from '../shared/events'
-import { petOriginY, petScreenTop, sign, toModelRect, type Point, type Vector } from '../shared/geometry'
+import { petOriginY, petScreenTop, sign, toModelRect, type Direction, type Point, type Vector } from '../shared/geometry'
 import type { PetFrameState } from '../shared/ipc'
 import { effectiveLayer, type PetLayer } from '../shared/misc'
 import { currentStats, isSticky, moodFrom, packMessages, recordStats, statsSpeech, walkFactor, type DailyStats, type PetMood } from '../shared/notifications'
+import { Mischief, PointerThrow, userMove } from '../shared/mischief'
 import { loopFPS, PetPhysics, throwVelocity } from '../shared/physics'
 import { NotificationHistory } from '../shared/history'
 import { normalizePrefs, scaledSize, type PetPrefs } from '../shared/prefs'
@@ -18,7 +19,7 @@ import { focusEvent } from './focus'
 import type { LoadedPack } from './packs'
 import { QuietMode } from './quiet'
 import { saveSettings, settings } from './store'
-import { leftButtonDown, listWindows, win32Available } from './win32'
+import { anyMouseButtonDown, leftButtonDown, listWindows, setCursorPos, win32Available } from './win32'
 import { applyLayer, loadView, pushToBottom, transparentWindowOptions } from './windows'
 
 const DRAG_THRESHOLD = 4
@@ -39,6 +40,8 @@ export class PetController {
   mood: PetMood = 'normal'
   layer: PetLayer = settings().layer ?? 'aboveApps'
   walkOnWindows = settings().walkOnWindows ?? true
+  /** 장난꾸러기 모드: 마우스 포인터를 쫓아와 물고 흔들다 던진다 (기본 꺼짐) */
+  mischiefEnabled = settings().mischief ?? false
   visible = true
   /** 패널 등 다른 화면에 "상태가 바뀌었다"고 알림 */
   onChange?: () => void
@@ -70,6 +73,22 @@ export class PetController {
   private dragOffset = { x: 0, y: 0 } // 커서 - 창 왼쪽 위
   private dragging = false
   private dragTrail: [number, Point][] = []
+  // 장난꾸러기 모드 (포인터 쫓기·물기·던지기)
+  private mischief = new Mischief()
+  /** 던져진 포인터가 날아가는 중 (경로, 지난 시간) */
+  private flyingPointer?: { path: PointerThrow; t: number }
+  /** 마지막으로 포인터를 옮겨 둔 곳 (모델 좌표) — 날아가는 중 사용자가 마우스를 움직였는지 비교 */
+  private lastWarp?: Point
+  /** 포인터를 물고 흔드는 중 → 물기 그림 + 몸 흔들기 + "앙!/으르릉" */
+  private biting = false
+  /** 포인터를 던진 직후 이 시각까지 던지기 그림 */
+  private tossUntil = 0
+  /** 쫓는 포인터까지 가로 거리 (멀면 더 빨리 달린다) */
+  private chaseDistance = 0
+  /** 포인터 쫓는 중 (빨리 달리고, 벽은 무조건 타고, 끝에선 포인터 쪽으로 뛴다) */
+  private get chasing() {
+    return this.mischiefEnabled && this.mischief.phase === 'chasing'
+  }
 
   constructor() {
     this.bubble.displayMs = this.prefs.bubbleSeconds * 1000
@@ -179,6 +198,7 @@ export class PetController {
       this.applyEffectiveLayer()
     } else {
       if (!this.win?.isDestroyed()) this.win?.hide()
+      this.stopMischief()
       this.bubble.hide() // 미확인 알림은 큐에 남아 있다가 다시 보이면 "!"로
     }
     this.onChange?.()
@@ -191,6 +211,13 @@ export class PetController {
     this.rescanWindows(true)
     // 바탕화면 층에선 창 뒤라 창 위를 다니지 않는다 → 창 위에 있었다면 내려온다
     if (!this.dragging && (this.physics.standingOn !== null || this.brain.action === 'climb')) this.beginFall()
+    this.onChange?.()
+  }
+
+  setMischief(v: boolean) {
+    this.mischiefEnabled = v
+    saveSettings({ mischief: v })
+    if (!v) this.stopMischief()
     this.onChange?.()
   }
 
@@ -265,6 +292,9 @@ export class PetController {
       console.warn('[TermPet] 루프 오류', e)
     }
     let fps = this.dragging || this.mouseDownAt ? 60 : loopFPS(this.brain.action)
+    // 포인터를 물고 흔들거나 던지는 중엔 포인터가 매끄럽게 움직이도록 최대로, 쫓는 중엔 반응 빠르게
+    if (this.mischief.phase === 'biting' || this.mischief.phase === 'throwing') fps = 60
+    else if (this.chasing) fps = Math.max(fps, 30)
     if (this.isRidingWindow) fps = Math.max(fps, 20) // 서 있는 창을 끄는 중이면 매끄럽게 따라가게
     if (!this.visible) fps = 2
     this.schedule(fps)
@@ -279,12 +309,19 @@ export class PetController {
       case 'walk': {
         const r = this.physics.walk(this.brain.direction, this.walkSpeed, dt, this.terrain)
         if (r.type === 'hitWall') {
-          this.brain.handle({ type: 'hitWall', window: r.wall.windowID !== null }, rng)
+          if (this.chaseClimbs(r.wall)) this.brain.handle({ type: 'climbNow' }, rng)
+          else this.brain.handle({ type: 'hitWall', window: r.wall.windowID !== null }, rng)
           if (this.currentAction() === 'climb') this.startClimbing(r.wall)
+          else this.giveUpChase()
         } else if (r.type === 'reachedEdge') {
-          this.brain.handle({ type: 'reachedEdge' }, rng)
-          // 선반 끝에서 폴짝 뛰어내리기
-          if (this.currentAction() === 'fall') this.physics.prepareFall(this.terrain, { dx: sign(this.brain.direction) * 110, dy: 420 })
+          if (this.chaseJumpsOff(this.brain.direction)) {
+            this.beginFall({ dx: sign(this.brain.direction) * 140, dy: 400 }) // 포인터 쪽으로 뛰어내린다
+          } else {
+            this.brain.handle({ type: 'reachedEdge' }, rng)
+            // 선반 끝에서 폴짝 뛰어내리기
+            if (this.currentAction() === 'fall') this.physics.prepareFall(this.terrain, { dx: sign(this.brain.direction) * 110, dy: 420 })
+            else this.giveUpChase()
+          }
         } else if (r.type === 'startFalling') {
           this.beginFall()
         }
@@ -303,6 +340,7 @@ export class PetController {
         }
     }
 
+    this.stepMischief(dt)
     if (!this.dragging) this.placeWindow()
     if (this.lastTick - this.lastPrune > 10) {
       this.lastPrune = this.lastTick
@@ -327,7 +365,10 @@ export class PetController {
 
   /** 걷기 속도: 기분 반영 + 달리기 포즈(walk.2)가 뽑히면 빠르게 */
   private get walkSpeed() {
-    let speed = (this.pack?.pack.walkSpeed ?? 40) * this.prefs.speedScale * walkFactor(this.mood)
+    const base = (this.pack?.pack.walkSpeed ?? 40) * this.prefs.speedScale
+    // 포인터 쫓을 땐 달린다 (멀리 있으면 전력 질주)
+    if (this.chasing) return Math.max(base * 2.4, 90) * (this.chaseDistance > 500 ? 1.7 : 1)
+    let speed = base * walkFactor(this.mood)
     const walks = this.pack?.anims.walk?.length ?? 0
     if (walks > 1 && this.brain.variant % walks === 1) speed *= 1.9
     return speed
@@ -361,16 +402,19 @@ export class PetController {
   /** 지금 모습 → 펫 화면(React)에 전달 (바뀌었을 때만) */
   private sendFrame() {
     if (!this.win || !this.pack) return
-    if (this.brain.action !== this.lastAction || this.brain.variant !== this.lastVariant) {
+    // 물고 있을 땐 공중에서도 물기 그림(없으면 화남), 던진 직후엔 던지기 그림(없으면 신남)
+    const action: PetAction = this.biting ? 'bite' : now() < this.tossUntil ? 'throw' : this.brain.action
+    if (action !== this.lastAction || this.brain.variant !== this.lastVariant) {
       this.actionSerial++
-      this.lastAction = this.brain.action
+      this.lastAction = action
       this.lastVariant = this.brain.variant
     }
-    const anim = animationFor(this.pack.anims, this.brain.action, this.brain.variant)
+    const anim = animationFor(this.pack.anims, action, this.brain.variant)
     if (!anim) return
     const state: PetFrameState = {
       packKey: this.pack.key,
-      action: this.brain.action,
+      action,
+      biting: this.biting,
       actionSerial: this.actionSerial,
       anim,
       flip: shouldFlip(anim.facing, this.brain.direction),
@@ -475,12 +519,21 @@ export class PetController {
     this.physics.standingOn = null
     if (wall.windowID !== null && this.terrain.ledgeAfterClimbing(wall)) {
       this.climbLimitY = Infinity // 창 꼭대기까지 올라가서 올라선다
+    } else if (this.chasing) {
+      this.climbLimitY = this.chaseClimbLimit(wall) // 포인터 높이까지 (stepClimb 이 매 프레임 포인터를 따라 고친다)
     } else {
       // 올라설 곳이 없는 벽(화면 끝): 적당히 오르다 뛰어내린다
       const top = Math.min(wall.top, this.terrain.ceiling(this.physics.centerX) ?? wall.top) - this.physics.size.height
       const room = Math.max(0, top - this.physics.origin.y)
       this.climbLimitY = this.physics.origin.y + room * (0.25 + rng() * 0.45)
     }
+    if (this.chasing) this.mischief.didStartClimbing()
+  }
+
+  /** 쫓는 중 벽을 오를 높이(발): 몸 가운데가 포인터 높이에 오도록, 화면 천장 아래까지만 */
+  private chaseClimbLimit(wall: Wall): number {
+    const top = Math.min(wall.top, this.terrain.ceiling(this.physics.centerX) ?? wall.top) - this.physics.size.height
+    return Math.min(top, this.cursor().y - this.physics.size.height * 0.5)
   }
 
   private stepClimb(dt: number) {
@@ -491,16 +544,136 @@ export class PetController {
       this.brain.handle({ type: 'letGo' }, rng)
       return this.beginFall({ dx: -sign(wall.side) * 60, dy: 0 })
     }
+    // 쫓는 중 올라설 곳 없는 벽: 오르는 높이를 지금 포인터 높이에 맞춘다 (포인터가 내려가면 바로 몸을 날린다)
+    if (this.chasing && Number.isFinite(this.climbLimitY)) this.climbLimitY = this.chaseClimbLimit(wall)
     const limit = Math.min(this.climbLimitY, this.terrain.climbCeiling(wall, this.physics.origin.y) ?? Infinity)
-    const speed = Math.max((this.pack?.pack.walkSpeed ?? 40) * this.prefs.speedScale * 1.3, 50)
+    const speed = Math.max((this.pack?.pack.walkSpeed ?? 40) * this.prefs.speedScale * 1.3, 50) * (this.chasing ? 2 : 1)
     const r = this.physics.climb(wall, speed, dt, this.terrain, limit)
     if (r.type === 'reachedTop') {
       this.climbingWall = undefined
       this.brain.handle({ type: 'climbedUp' }, rng)
     } else if (r.type === 'letGo') {
       this.brain.handle({ type: 'letGo' }, rng)
-      this.beginFall({ dx: -sign(wall.side) * 180, dy: 380 }) // 벽을 차고 반대쪽으로 폴짝
+      const frame = this.petFrame()
+      const headroom = (this.terrain.ceiling(this.physics.centerX) ?? Infinity) - frame.y - frame.height
+      const cursor = this.cursor()
+      const v = this.chasing ? (Mischief.leapVelocity(frame, cursor, headroom) ?? Mischief.wallLeap(frame, cursor, headroom)) : undefined
+      if (v && v.dx * sign(wall.side) <= 0) this.beginFall(v) // 포인터 쪽으로 몸을 날린다
+      else this.beginFall({ dx: -sign(wall.side) * 180, dy: 380 }) // 벽을 차고 반대쪽으로 폴짝
     }
+  }
+
+  // MARK: - 장난꾸러기 (포인터 쫓기·물기·던지기)
+
+  /** 지금 마우스 포인터 (모델 좌표: y 위로) */
+  private cursor(): Point {
+    const p = screen.getCursorScreenPoint()
+    return { x: p.x, y: -p.y }
+  }
+
+  private petFrame() {
+    return { x: this.physics.origin.x, y: this.physics.origin.y, width: this.physics.size.width, height: this.physics.size.height }
+  }
+
+  /** 포인터를 모델 좌표 p 로 옮긴다 (DIP → 물리 픽셀로 바꿔 SetCursorPos) */
+  private warpPointer(p: Point) {
+    const physical = screen.dipToScreenPoint({ x: Math.round(p.x), y: Math.round(-p.y) })
+    setCursorPos(physical.x, physical.y)
+    this.lastWarp = p
+  }
+
+  private stepMischief(dt: number) {
+    // 던진 포인터 날리기 (날아가는 동안 사용자가 마우스를 움직인 만큼 길을 옮긴다)
+    const flying = this.flyingPointer
+    if (flying) {
+      // 화면 배율 때문에 옮긴 자리와 읽은 자리가 1~2 어긋날 수 있어 2 이상만 사용자 움직임으로 본다
+      const moved = userMove(this.lastWarp, this.cursor(), 2)
+      flying.path.offset = { dx: flying.path.offset.dx + moved.dx, dy: flying.path.offset.dy + moved.dy }
+      flying.t += dt
+      if (flying.path.isFinished(flying.t)) {
+        this.flyingPointer = undefined
+        this.lastWarp = undefined
+        this.mischief.finishThrow()
+      } else {
+        this.warpPointer(flying.path.position(flying.t))
+      }
+      return
+    }
+    if (!this.mischiefEnabled && this.mischief.phase === 'ready') return
+    const frame = this.petFrame()
+    const cursor = this.cursor()
+    const grounded = !isPhysicsControlled(this.brain.action)
+    this.chaseDistance = Math.abs(cursor.x - this.physics.centerX)
+    const cmd = this.mischief.tick(dt, {
+      petFrame: frame,
+      cursor,
+      facing: this.brain.direction,
+      canPlay:
+        this.mischiefEnabled && this.visible && !this.dragging && !this.mouseDownAt && !this.bubble.isShowing && this.brain.action !== 'sleep' && this.brain.action !== 'dragged',
+      mouseDown: anyMouseButtonDown(),
+      grounded,
+      climbingSide: this.brain.action === 'climb' ? this.climbingWall?.side : undefined,
+      wallDirection: this.physics.standingOn === null && grounded ? this.terrain.nearestWallDirection(frame.x, frame.y, cursor.x) : undefined,
+      headroom: (this.terrain.ceiling(this.physics.centerX) ?? Infinity) - frame.y - frame.height,
+    })
+    switch (cmd.type) {
+      case 'chase':
+        this.brain.handle({ type: 'chase', direction: cmd.direction }, rng)
+        break
+      case 'jump':
+        // 포인터 쪽으로 몸을 날린다 (바닥에서 점프 / 벽을 차고)
+        this.beginFall(cmd.velocity)
+        if (Math.abs(cmd.velocity.dx) > 20) this.brain.handle({ type: 'face', direction: cmd.velocity.dx > 0 ? 'right' : 'left' }, rng)
+        break
+      case 'startBite':
+        this.biting = true
+        // 벽에 매달린 채 물었으면 손을 놓고 문 채로 떨어진다 (땅에 닿은 뒤 던진다)
+        if (this.brain.action === 'climb') this.beginFall()
+        this.brain.handle({ type: 'react', action: 'angry', duration: this.mischief.config.biteDuration + 0.4 }, rng)
+        break
+      case 'holdPointer':
+        this.warpPointer(cmd.point)
+        break
+      case 'throwPointer': {
+        this.biting = false
+        const screens = screen.getAllDisplays().map((d) => toModelRect(d.bounds))
+        const path = PointerThrow.toss(cursor, screens, rng)
+        this.flyingPointer = { path, t: 0 }
+        this.brain.handle({ type: 'face', direction: path.direction }, rng) // 공간이 넓은 쪽으로 돌아서 던진다
+        this.tossUntil = now() + 0.8
+        this.brain.handle({ type: 'react', action: 'happy', duration: 1.2 }, rng) // 뿌듯
+        break
+      }
+      case 'release':
+        this.biting = false
+        this.lastWarp = undefined
+        break
+    }
+  }
+
+  /** 쫓다가 벽·끝에 막혀 돌아섰으면 포기 (안 그러면 벽 앞에서 좌우로 떨게 된다) */
+  private giveUpChase() {
+    if (this.chasing) this.mischief.giveUp()
+  }
+
+  /** 쫓는 중 벽에 막힘: 창이거나 포인터가 머리 위면 확률 없이 바로 타고 오른다 */
+  private chaseClimbs(wall: Wall): boolean {
+    if (!this.chasing) return false
+    return wall.windowID !== null || this.cursor().y > this.physics.origin.y + this.physics.size.height
+  }
+
+  /** 쫓는 중 끝(창 끝)에 닿음: 포인터가 그쪽이거나 아래면 바로 뛰어내린다 */
+  private chaseJumpsOff(dir: Direction): boolean {
+    if (!this.chasing) return false
+    const p = this.cursor()
+    return (p.x - this.physics.centerX) * sign(dir) > 0 || p.y < this.physics.origin.y
+  }
+
+  private stopMischief() {
+    this.biting = false
+    this.flyingPointer = undefined
+    this.lastWarp = undefined
+    this.mischief.reset()
   }
 
   // MARK: - 마우스

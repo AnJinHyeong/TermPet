@@ -193,6 +193,30 @@ export class Terrain {
     return ys.length ? Math.min(...ys) : undefined
   }
 
+  /**
+   * 화면 바닥에 서 있을 때 기어오를 벽 쪽: 창 옆면, 또는 옆 화면으로 안 이어지는 화면 끝.
+   * targetX 를 주면 그 x(포인터)에 가장 가까운 벽 (장난꾸러기 모드: 포인터가 너무 높으면 거기로 달려가 타고 오른다).
+   * 지금 화면 끝이나 그 너머의 창 옆면은 벽이 아니다 (모니터 경계는 화면 끝 처리가 맡는다).
+   */
+  nearestWallDirection(originX: number, feetY: number, targetX?: number): Direction | undefined {
+    const w = this.petSize.width
+    const i = this.screens.indexContaining(originX + w / 2, feetY)
+    if (i === undefined) return undefined
+    const f = this.screens.frames[i]
+    let best: { dir: Direction; distance: number } | undefined
+    for (const dir of ['left', 'right'] as Direction[]) {
+      const edgeX = dir === 'left' ? minX(f) : maxX(f) - w
+      // 벽에 붙었을 때 몸 가운데 x
+      let wallX = this.screens.neighbor(i, dir, feetY) === undefined ? edgeX + w / 2 : undefined
+      const wall = this.windowWall(originX, edgeX, feetY, dir)
+      if (wall && (dir === 'right' ? wall.x < maxX(f) - 0.5 : wall.x > minX(f) + 0.5)) wallX = wall.x - (sign(dir) * w) / 2
+      if (wallX === undefined) continue
+      const distance = Math.abs(wallX - (targetX ?? originX + w / 2))
+      if (!best || distance < best.distance) best = { dir, distance }
+    }
+    return best?.dir
+  }
+
   /** 화면 위쪽 끝 */
   ceiling(x: number): number | undefined {
     const ys = this.screens.indicesInColumn(x).map((i) => maxY(this.screens.frames[i]))

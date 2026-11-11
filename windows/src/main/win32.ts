@@ -26,6 +26,7 @@ interface Api {
   IsWindow: (h: bigint) => boolean
   ShowWindow: (h: bigint, cmd: number) => boolean
   GetAsyncKeyState: (key: number) => number
+  SetCursorPos: (x: number, y: number) => boolean
   OpenProcess: (access: number, inherit: boolean, pid: number) => bigint | number
   QueryFullProcessImageNameW: (h: bigint | number, flags: number, buf: Buffer, size: number[]) => boolean
   CloseHandle: (h: bigint | number) => boolean
@@ -62,6 +63,7 @@ function load(): Api | null {
       IsWindow: user32.func('bool __stdcall IsWindow(intptr_t hwnd)'),
       ShowWindow: user32.func('bool __stdcall ShowWindow(intptr_t hwnd, int cmd)'),
       GetAsyncKeyState: user32.func('short __stdcall GetAsyncKeyState(int key)'),
+      SetCursorPos: user32.func('bool __stdcall SetCursorPos(int x, int y)'),
       keybd_event: user32.func('void __stdcall keybd_event(uint8_t vk, uint8_t scan, uint32_t flags, uintptr_t extra)'),
       OpenProcess: kernel32.func('intptr_t __stdcall OpenProcess(uint32_t access, bool inherit, uint32_t pid)'),
       QueryFullProcessImageNameW: kernel32.func('bool __stdcall QueryFullProcessImageNameW(intptr_t h, uint32_t flags, _Out_ void *buf, _Inout_ uint32_t *size)'),
@@ -161,6 +163,20 @@ export function leftButtonDown(): boolean | undefined {
 const nameCache = new Map<number, string>()
 
 /** 프로세스 실행 파일 이름 (소문자, 예: windowsterminal.exe) */
+/** 마우스 버튼(왼쪽·오른쪽·가운데) 중 하나라도 누르고 있는지 (장난꾸러기: 드래그·선택 중엔 안 문다). 모르면 false */
+export function anyMouseButtonDown(): boolean {
+  const a = load()
+  if (!a) return false
+  return [0x01, 0x02, 0x04].some((vk) => (a.GetAsyncKeyState(vk) & 0x8000) !== 0)
+}
+
+/** 마우스 포인터를 화면 좌표(물리 픽셀)로 옮긴다 (장난꾸러기: 물고 흔들기·던지기). 권한 필요 없음 */
+export function setCursorPos(x: number, y: number): boolean {
+  const a = load()
+  if (!a) return false
+  return a.SetCursorPos(Math.round(x), Math.round(y))
+}
+
 export function processName(pid: number): string {
   const cached = nameCache.get(pid)
   if (cached !== undefined) return cached

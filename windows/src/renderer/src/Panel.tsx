@@ -306,6 +306,9 @@ function SettingsTab({ s }: { s: PanelState }) {
         >
           창 위 산책
         </Chip>
+        <Chip icon="🖱️" on={s.mischief} disabled={!s.walkOnWindowsAvailable} hint="마우스 포인터를 쫓아와 물고 흔들다 휙 던져요 (클릭하면 놓아줘요)" onClick={() => act({ type: 'toggleMischief' })}>
+          장난꾸러기
+        </Chip>
       </div>
       <div className="note">펫을 잡아서 휙 던져 보세요</div>
 
