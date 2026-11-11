@@ -211,6 +211,52 @@ final class MischiefTests: XCTestCase {
         XCTAssertEqual(m.tick(dt, input(cursor: CGPoint(x: 1400, y: 900), frame: pet, wallDirection: .right)), .chase(.right))
     }
 
+    /// 문 채로 끌고 다니면 계속 물고 있고, 멈춘 뒤 잠깐(0.8초) 있다가 던진다
+    func testDraggingWhileBittenKeepsBiting() {
+        var m = eager()
+        let cursor = CGPoint(x: 540, y: 40)
+        _ = m.tick(dt, input(cursor: CGPoint(x: 700, y: 40)))
+        XCTAssertEqual(m.tick(dt, input(cursor: cursor)), .startBite)
+        var moved = input(cursor: cursor); moved.pointerMoved = true
+        for _ in 0..<90 { // 3초 동안 끌고 다님 (원래는 1.3초에 던짐)
+            guard case .holdPointer = m.tick(dt, moved) else { return XCTFail("계속 물고 있어야") }
+        }
+        var ticks = 0
+        while m.tick(dt, input(cursor: cursor)) != .throwPointer, ticks < 100 { ticks += 1 }
+        XCTAssertEqual(Double(ticks + 1) * dt, 0.8, accuracy: 0.1)
+    }
+
+    /// 던질 쪽 공간이 모자라면 반대쪽으로, 옆 모니터로 이어지면 그쪽 공간도 센다
+    func testThrowPicksSideWithRoom() {
+        var rng = SystemRandomNumberGenerator()
+        let one = [CGRect(x: 0, y: 0, width: 1800, height: 1169)]
+        for _ in 0..<20 {
+            XCTAssertEqual(PointerThrow.toss(from: CGPoint(x: 1700, y: 300), facing: .right, screens: one, using: &rng).direction, .left)
+            XCTAssertEqual(PointerThrow.toss(from: CGPoint(x: 100, y: 300), facing: .left, screens: one, using: &rng).direction, .right)
+            XCTAssertEqual(PointerThrow.toss(from: CGPoint(x: 900, y: 300), facing: .right, screens: one, using: &rng).direction, .right)
+        }
+        // 맥북 왼쪽 끝이어도 LG가 같은 높이로 이어져 있으면 왼쪽으로 던질 수 있다
+        let two = one + [CGRect(x: -1920, y: 764, width: 1920, height: 1080)]
+        XCTAssertEqual(PointerThrow.room(from: CGPoint(x: 50, y: 900), toward: .left, screens: two), 1970)
+        XCTAssertEqual(PointerThrow.room(from: CGPoint(x: 50, y: 300), toward: .left, screens: two), 50)
+        XCTAssertEqual(PointerThrow.toss(from: CGPoint(x: 50, y: 900), facing: .left, screens: two, using: &rng).direction, .left)
+        // 양쪽 다 좁으면 남은 공간 안에 떨어지게 살살
+        let narrow = [CGRect(x: 0, y: 0, width: 600, height: 1000)]
+        let soft = PointerThrow.toss(from: CGPoint(x: 300, y: 500), facing: .right, screens: narrow, using: &rng)
+        XCTAssertLessThanOrEqual(abs(soft.velocity.dx) * CGFloat(soft.duration), 300)
+    }
+
+    /// 던지는 중에 마우스를 움직이면 그만큼 옮겨진 길로 날아간다
+    func testThrowFollowsUserMove() {
+        var path = PointerThrow(start: CGPoint(x: 500, y: 500), velocity: CGVector(dx: 100, dy: 0), gravity: 0,
+                                screens: [CGRect(x: 0, y: 0, width: 2000, height: 1000)])
+        path.offset = CGVector(dx: -200, dy: 50)
+        XCTAssertEqual(path.position(at: 0.5), CGPoint(x: 350, y: 550))
+        XCTAssertEqual(PointerControl.userMove(since: CGPoint(x: 10, y: 10), now: CGPoint(x: 10.4, y: 10)), .zero)
+        XCTAssertEqual(PointerControl.userMove(since: CGPoint(x: 10, y: 10), now: CGPoint(x: 30, y: 5)), CGVector(dx: 20, dy: -5))
+        XCTAssertEqual(PointerControl.userMove(since: nil, now: CGPoint(x: 30, y: 5)), .zero)
+    }
+
     func testNearestWallDirection() {
         let screens = ScreenLayout(frames: [CGRect(x: 0, y: 0, width: 1600, height: 1000)])
         let t = Terrain(screens: screens, windows: [WindowBox(id: 1, frame: CGRect(x: 900, y: 0, width: 300, height: 500))])
@@ -253,8 +299,9 @@ final class MischiefTests: XCTestCase {
             XCTAssertTrue(screens.contains { $0.contains(p) }, "\(p) off screen")
         }
         XCTAssertTrue(path.isFinished(at: path.duration))
-        // 화면 오른쪽 끝에 막혀 붙는다
-        XCTAssertEqual(path.position(at: path.duration).x, 1799)
+        // 오른쪽 끝이라 공간이 없으니 왼쪽으로 던진다
+        XCTAssertEqual(path.direction, .left)
+        XCTAssertLessThan(path.position(at: path.duration).x, start.x - 400)
 
         let left = PointerThrow.toss(from: CGPoint(x: 900, y: 300), facing: .left, screens: screens, using: &rng)
         XCTAssertLessThan(left.position(at: left.duration).x, 900)

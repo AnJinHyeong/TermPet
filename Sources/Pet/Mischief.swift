@@ -10,6 +10,8 @@ struct Mischief {
         var startDelay: TimeInterval = 1
         /// 물고 흔드는 시간
         var biteDuration: TimeInterval = 1.3
+        /// 문 채로 사용자가 포인터를 끌고 다니면, 멈춘 뒤 이만큼 더 물고 있다가 던진다
+        var biteAfterMove: TimeInterval = 0.8
         /// 던진 뒤 숨 고르는 시간 (그다음 다시 쫓아온다)
         var cooldownAfterThrow: TimeInterval = 4
         /// 벽에 막혀 돌아섰거나 클릭으로 놓아줬을 때 잠깐 쉬는 시간
@@ -40,6 +42,8 @@ struct Mischief {
         var wallDirection: Direction? = nil
         /// 몸 위쪽 여유 (화면 천장까지, pt). 높은 데서 몸을 날릴 때 천장에 머리를 박지 않게 낮게 날아간다
         var headroom: CGFloat = .infinity
+        /// 물고 있는 동안 사용자가 마우스를 움직였다 (펫이 문 채로 딸려 가고, 던지기는 멈춘 뒤로 미룬다)
+        var pointerMoved = false
     }
 
     enum Command: Equatable {
@@ -58,6 +62,8 @@ struct Mischief {
     /// 지금 단계에 들어온 뒤 지난 시간
     private(set) var phaseTime: TimeInterval = 0
     private var cooldown: TimeInterval
+    /// 던지기까지 남은 시간 (물고 있는 동안)
+    private var biteLeft: TimeInterval = 0
     /// 바닥에 내려선 뒤 지난 시간 (점프 사이에 잠깐 웅크리는 박자)
     private var groundedTime: TimeInterval = 0
     /// 포인터가 너무 높아서 벽을 찾아 달려가는 방향 (벽에 붙으면 끝)
@@ -96,6 +102,7 @@ struct Mischief {
         case .chasing:
             if !input.mouseDown, Self.catches(petFrame: input.petFrame, cursor: input.cursor) {
                 enter(.biting)
+                biteLeft = config.biteDuration
                 return .startBite
             }
             return chase(input)
@@ -105,7 +112,9 @@ struct Mischief {
                 rest(config.cooldownAfterGiveUp)
                 return .release
             }
-            if phaseTime >= config.biteDuration {
+            biteLeft -= dt
+            if input.pointerMoved { biteLeft = max(biteLeft, config.biteAfterMove) }
+            if biteLeft <= 0 {
                 enter(.throwing)
                 return .throwPointer
             }
@@ -249,21 +258,45 @@ struct PointerThrow: Equatable {
     var duration: TimeInterval = 0.75
     /// 포인터가 갈 수 있는 화면들 (NSScreen.frame, AppKit 좌표)
     var screens: [CGRect]
+    /// 날아가는 동안 사용자가 마우스를 움직인 만큼 (길 전체가 그만큼 옮겨진다 → 던지는 중에도 마우스가 먹힌다)
+    var offset: CGVector = .zero
 
-    /// 펫이 바라보는 쪽 앞위로 휙
+    /// 던지는 쪽 (펫이 그쪽을 보게)
+    var direction: Direction { velocity.dx < 0 ? .left : .right }
+
+    /// 펫이 바라보는 쪽 앞위로 휙. 그쪽에 날아갈 공간이 모자라면 공간이 더 넓은 반대쪽으로,
+    /// 양쪽 다 좁으면 남은 공간에 맞춰 살살 던진다.
     static func toss(from start: CGPoint, facing: Direction, screens: [CGRect],
                      using rng: inout some RandomNumberGenerator) -> PointerThrow {
-        PointerThrow(start: start,
-                     velocity: CGVector(dx: facing.sign * CGFloat.random(in: 750...1050, using: &rng),
-                                        dy: CGFloat.random(in: 650...900, using: &rng)),
-                     screens: screens)
+        var path = PointerThrow(start: start, velocity: .zero, screens: screens)
+        let speed = CGFloat.random(in: 750...1050, using: &rng)
+        let need = speed * CGFloat(path.duration)
+        let here = room(from: start, toward: facing, screens: screens)
+        let there = room(from: start, toward: facing.flipped, screens: screens)
+        let dir = here >= need || here >= there ? facing : facing.flipped
+        let fit = max(250, min(speed, max(here, there) * 0.9 / CGFloat(path.duration)))
+        path.velocity = CGVector(dx: dir.sign * fit, dy: CGFloat.random(in: 650...900, using: &rng))
+        return path
+    }
+
+    /// 점에서 그쪽 화면 끝까지 가로 공간 (같은 높이로 이어진 옆 모니터까지 포함)
+    static func room(from p: CGPoint, toward dir: Direction, screens: [CGRect]) -> CGFloat {
+        var x = p.x
+        for _ in 0..<screens.count {
+            guard let s = screens.first(where: { $0.minY <= p.y && p.y < $0.maxY
+                && (dir == .right ? $0.minX <= x + 0.5 && x + 0.5 < $0.maxX : $0.minX < x - 0.5 && x - 0.5 <= $0.maxX) })
+            else { break }
+            x = dir == .right ? s.maxX : s.minX
+        }
+        return abs(x - p.x)
     }
 
     func isFinished(at t: TimeInterval) -> Bool { t >= duration }
 
     func position(at t: TimeInterval) -> CGPoint {
         let t = CGFloat(min(max(t, 0), duration))
-        let p = CGPoint(x: start.x + velocity.dx * t, y: start.y + velocity.dy * t - gravity * t * t / 2)
+        let p = CGPoint(x: start.x + velocity.dx * t + offset.dx,
+                        y: start.y + velocity.dy * t - gravity * t * t / 2 + offset.dy)
         return Self.clamp(p, into: screens)
     }
 

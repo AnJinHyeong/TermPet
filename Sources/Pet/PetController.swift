@@ -86,6 +86,10 @@ final class PetController: NSObject {
     private var chaseDistance: CGFloat = 0
     /// 던져진 포인터가 날아가는 중 (경로, 지난 시간)
     private var flyingPointer: (path: PointerThrow, t: TimeInterval)?
+    /// 마지막으로 포인터를 옮겨 둔 곳 (다음 프레임에 사용자가 마우스를 얼마나 움직였는지 비교)
+    private var lastWarp: CGPoint?
+    /// 물고 있는 동안 사용자가 포인터를 끌어서 펫이 문 채로 딸려 가는 중 (공중에 매달림)
+    private var carriedByBite = false
 
     private var window: PetWindow?
     /// 캐릭터 팩에 walkSpeed가 있으면 그 값, 없으면 설정값
@@ -624,32 +628,51 @@ final class PetController: NSObject {
 
     private func stepMischief(_ dt: TimeInterval) {
         // 던진 포인터 날리기
-        if let flying = flyingPointer {
-            let t = flying.t + dt
-            PointerControl.move(to: flying.path.position(at: t))
-            if flying.path.isFinished(at: t) {
+        // 물고 있거나 던지는 동안 사용자가 마우스를 움직인 만큼 (막지 않고 반영한다)
+        let moved = PointerControl.userMove(since: lastWarp, now: NSEvent.mouseLocation)
+        if var flying = flyingPointer {
+            flying.t += dt
+            flying.path.offset.dx += moved.dx
+            flying.path.offset.dy += moved.dy
+            if flying.path.isFinished(at: flying.t) {
                 flyingPointer = nil
+                lastWarp = nil
                 PointerControl.finish()
                 mischief.finishThrow()
             } else {
-                flyingPointer = (flying.path, t)
+                flyingPointer = flying
+                warpPointer(to: flying.path.position(at: flying.t))
             }
             return
         }
         guard mischiefEnabled || mischief.phase != .ready else { return }
+        // 문 채로 끌려감: 펫도 포인터를 따라 같이 움직인다 (물기 그림 그대로, 공중에 매달려서)
+        let carried = mischief.phase == .biting && moved != .zero
+        if carried {
+            if !carriedByBite {
+                carriedByBite = true
+                climbingWall = nil
+                risingOutOf = nil
+                brain.handle(.dragStarted, using: &rng)
+            }
+            physics.origin.x += moved.dx
+            physics.origin.y += moved.dy
+            physics.standingOn = nil
+        }
         let input = Mischief.Input(
             petFrame: CGRect(origin: physics.origin, size: physics.size),
             cursor: NSEvent.mouseLocation,
             facing: brain.direction,
             canPlay: mischiefEnabled && model.isVisible && !isDragging && !bubble.isShowing
-                && !brain.isAsleep && brain.action != .dragged && risingOutOf == nil,
+                && !brain.isAsleep && (brain.action != .dragged || carriedByBite) && risingOutOf == nil,
             mouseDown: NSEvent.pressedMouseButtons != 0,
             grounded: !brain.action.isPhysicsControlled,
             climbingSide: brain.action == .climb && risingOutOf == nil ? climbingWall?.side : nil,
             wallDirection: physics.standingOn == nil && !brain.action.isPhysicsControlled
                 ? terrain.nearestWallDirection(originX: physics.origin.x, feetY: physics.origin.y,
                                                targetX: NSEvent.mouseLocation.x) : nil,
-            headroom: (terrain.ceiling(atX: physics.centerX) ?? .infinity) - physics.origin.y - physics.size.height)
+            headroom: (terrain.ceiling(atX: physics.centerX) ?? .infinity) - physics.origin.y - physics.size.height,
+            pointerMoved: carried)
         chaseDistance = abs(input.cursor.x - input.petFrame.midX)
         switch mischief.tick(dt, input) {
         case .none:
@@ -668,18 +691,34 @@ final class PetController: NSObject {
             brain.handle(.react(.angry, duration: mischief.config.biteDuration + 0.4), using: &rng)
             syncModel()
         case .holdPointer(let p):
-            PointerControl.move(to: p)
+            warpPointer(to: p)
         case .throwPointer:
             model.biting = false
-            let start = NSEvent.mouseLocation
-            flyingPointer = (PointerThrow.toss(from: start, facing: brain.direction,
-                                               screens: NSScreen.screens.map(\.frame), using: &rng), 0)
+            let path = PointerThrow.toss(from: NSEvent.mouseLocation, facing: brain.direction,
+                                         screens: NSScreen.screens.map(\.frame), using: &rng)
+            flyingPointer = (path, 0)
+            dropIfCarried()
+            brain.handle(.face(path.direction), using: &rng) // 공간이 넓은 쪽으로 돌아서 던진다
             brain.handle(.react(.happy, duration: 1.2), using: &rng) // 뿌듯
             syncModel()
         case .release:
             model.biting = false
+            lastWarp = nil
+            dropIfCarried()
             PointerControl.finish()
         }
+    }
+
+    private func warpPointer(to p: CGPoint) {
+        PointerControl.move(to: p)
+        lastWarp = p
+    }
+
+    /// 문 채로 끌려다니다가 놓으면 그 자리에서 떨어진다
+    private func dropIfCarried() {
+        guard carriedByBite else { return }
+        carriedByBite = false
+        if !isDragging { beginFall() } // 펫을 잡아 들었으면 드래그가 이어받는다
     }
 
     /// 쫓다가 벽·끝에 막혀 돌아섰으면 포기 (안 그러면 벽 앞에서 좌우로 떨게 된다)
@@ -706,6 +745,8 @@ final class PetController: NSObject {
         if model.biting || flyingPointer != nil { PointerControl.finish() }
         model.biting = false
         flyingPointer = nil
+        lastWarp = nil
+        dropIfCarried()
         mischief.reset()
     }
 
