@@ -21,6 +21,26 @@ final class AppUpdaterTests: XCTestCase {
         XCTAssertEqual(AppUpdater.normalized("v0.3.2"), "0.3.2")
     }
 
+    func testOutcomeAfterBrewFinishesWhileAppStillRuns() {
+        // 디스크엔 새 버전, 도는 건 예전 것 → 다시 켜기 (brew가 앱을 못 끄고 끝났거나 다른 앱이 켜진 경우)
+        XCTAssertEqual(AppUpdater.outcome(exitCode: 0, running: "0.5.1", installed: "0.5.2"), .restart)
+        // 이미 최신이라 아무것도 안 함 → 다시 확인해서 "업데이트 중" 표시를 치운다
+        XCTAssertEqual(AppUpdater.outcome(exitCode: 0, running: "0.5.2", installed: "0.5.2"), .recheck)
+        // brew 실패
+        XCTAssertEqual(AppUpdater.outcome(exitCode: 1, running: "0.5.1", installed: "0.5.1"), .failed)
+        XCTAssertEqual(AppUpdater.outcome(exitCode: 1, running: "0.5.1", installed: nil), .failed)
+    }
+
+    func testInstalledVersionReadsPlistFromDisk() throws {
+        let app = FileManager.default.temporaryDirectory.appendingPathComponent("Fake-\(UUID().uuidString).app")
+        let contents = app.appendingPathComponent("Contents")
+        try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: app) }
+        XCTAssertNil(AppUpdater.installedVersion(at: app))
+        (["CFBundleShortVersionString": "0.5.2"] as NSDictionary).write(to: contents.appendingPathComponent("Info.plist"), atomically: true)
+        XCTAssertEqual(AppUpdater.installedVersion(at: app), "0.5.2")
+    }
+
     func testShellQuoteSurvivesQuotes() {
         XCTAssertEqual(AppUpdater.shellQuote("a'b"), #"'a'\''b'"#)
     }

@@ -24,6 +24,7 @@ final class AppUpdater {
     private(set) var state: State = .idle
     let current: String
     private var timer: Timer?
+    private var watchTask: Task<Void, Never>?
 
     init(current: String = AppInfo.version) {
         self.current = current
@@ -46,7 +47,8 @@ final class AppUpdater {
         guard state != .updating, state != .checking else { return }
         state = .checking
         do {
-            var request = URLRequest(url: Self.latestReleaseURL, timeoutInterval: 10)
+            // 캐시 무시: 새 릴리스 직후에도 바로 보이게 (URLSession 기본 캐시가 예전 응답을 돌려줄 수 있음)
+            var request = URLRequest(url: Self.latestReleaseURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
             request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
             request.setValue("TermPet", forHTTPHeaderField: "User-Agent")
             let (data, _) = try await URLSession.shared.data(for: request)
@@ -64,7 +66,11 @@ final class AppUpdater {
             return
         }
         state = .updating
-        let log = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".termpet/update.log").path
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let log = home.appendingPathComponent(".termpet/update.log").path
+        // 끝 표시 파일: brew가 끝나면 종료 코드를 적는다. 앱이 아직 살아 있으면(= brew가 앱을 끄지 않았으면) 이걸 보고 마무리
+        let done = home.appendingPathComponent(".termpet/update.done")
+        try? FileManager.default.removeItem(at: done)
         // 다시 열 앱: 이름("open -a TermPet")이 아니라 지금 실행 중인 앱의 경로로.
         // 이름으로 열면 같은 Mac에 있는 다른 TermPet.app(개발 빌드 등)이 열려서 예전 버전이 뜰 수 있다 (실제로 겪은 버그).
         // brew는 같은 자리(/Applications)에 새 버전을 넣으므로 이 경로가 곧 새 버전이다.
@@ -73,7 +79,8 @@ final class AppUpdater {
         let script = """
         export PATH="\((brew as NSString).deletingLastPathComponent):/usr/bin:/bin:/usr/sbin:/sbin"
         export HOMEBREW_NO_ENV_HINTS=1
-        { date; '\(brew)' update --quiet; '\(brew)' upgrade --cask termpet; echo "exit $?"; } >> '\(log)' 2>&1
+        { date; '\(brew)' update --quiet; '\(brew)' upgrade --cask termpet; rc=$?; echo "exit $rc"; } >> '\(log)' 2>&1
+        echo "$rc" > '\(done.path)'
         sleep 1
         open \(Self.shellQuote(appPath))
         """
@@ -84,10 +91,72 @@ final class AppUpdater {
             try p.run()
         } catch {
             state = .failed("업데이트를 시작하지 못했어요")
+            return
+        }
+        watchForFinish(done)
+    }
+
+    /// brew가 앱을 끄고 새 버전을 켜면 이 감시는 앱과 함께 사라진다.
+    /// 앱이 계속 살아 있는 채로 brew가 끝났으면(이미 최신·실패·다른 앱이 켜짐 등) 여기서 결과를 정리한다.
+    /// → "업데이트 중" 표시가 영원히 남지 않게. (Task 반복 ≈ setInterval 폴링)
+    private func watchForFinish(_ done: URL) {
+        watchTask?.cancel()
+        watchTask = Task { [weak self] in
+            for _ in 0..<450 { // 2초 × 450 = 15분
+                try? await Task.sleep(for: .seconds(2))
+                guard let self, !Task.isCancelled else { return }
+                if let text = try? String(contentsOf: done, encoding: .utf8),
+                   let code = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                    self.finish(exitCode: code)
+                    return
+                }
+            }
+            self?.state = .failed("업데이트가 끝나지 않았어요")
         }
     }
 
+    private func finish(exitCode: Int32) {
+        let installed = Self.installedVersion(at: Bundle.main.bundleURL)
+        switch Self.outcome(exitCode: exitCode, running: current, installed: installed) {
+        case .restart:
+            relaunch()
+        case .failed:
+            state = .failed("업데이트하지 못했어요 (~/.termpet/update.log)")
+        case .recheck:
+            state = .idle
+            Task { await check() }
+        }
+    }
+
+    /// 디스크의 앱은 새 버전인데 지금 도는 건 예전 것 → 스스로 껐다 켜기 (켜는 쉘은 앱과 떨어져서 계속 돈다)
+    private func relaunch() {
+        let inner = "sleep 1; open " + Self.shellQuote(Bundle.main.bundlePath)
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/sh")
+        p.arguments = ["-c", "nohup /bin/sh -c \(Self.shellQuote(inner)) >/dev/null 2>&1 &"]
+        try? p.run()
+        NSApp.terminate(nil)
+    }
+
     // MARK: - 순수 함수 (테스트용)
+
+    enum Outcome: Equatable {
+        case restart   // 디스크에 새 버전이 깔렸는데 예전 것이 돌고 있음 → 다시 켜기
+        case failed    // brew 실패
+        case recheck   // 바뀐 게 없음 (이미 최신 등) → 다시 확인해서 표시를 맞춘다
+    }
+
+    /// brew가 끝났는데 앱이 아직 살아 있을 때 할 일
+    nonisolated static func outcome(exitCode: Int32, running: String, installed: String?) -> Outcome {
+        if let installed, isNewer(installed, than: running) { return .restart }
+        return exitCode == 0 ? .recheck : .failed
+    }
+
+    /// 디스크에 있는 앱의 버전 (Bundle.main은 처음 읽은 값을 캐시하므로 Info.plist를 직접 읽는다)
+    nonisolated static func installedVersion(at bundleURL: URL) -> String? {
+        let plist = bundleURL.appendingPathComponent("Contents/Info.plist")
+        return (NSDictionary(contentsOf: plist)?["CFBundleShortVersionString"]) as? String
+    }
 
     /// GitHub 응답 JSON에서 tag_name
     nonisolated static func tagName(from data: Data) -> String? {
