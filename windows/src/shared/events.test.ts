@@ -194,6 +194,7 @@ describe('checkResult (버전 확인)', () => {
   it('새 버전 / 최신', () => {
     expect(checkResult(200, ok, '0.5.3').state).toEqual({ state: 'available', version: '0.5.4' })
     expect(checkResult(200, ok, '0.5.4').state).toEqual({ state: 'upToDate' })
+    expect(checkResult(200, ok, '0.5.4').latest).toBe('0.5.4') // 패널 안내에 "GitHub 최신 v…" 로 보여 줌
   })
   it('실패 이유를 구분한다', () => {
     expect(checkResult(403, { message: 'API rate limit exceeded' }, '0.5.3').state).toMatchObject({ state: 'failed', message: expect.stringContaining('횟수') })

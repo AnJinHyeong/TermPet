@@ -96,12 +96,12 @@ export function safeFolderName(id: string): string {
 export type CheckState = { state: 'upToDate' } | { state: 'available'; version: string } | { state: 'failed'; message: string }
 
 /** GitHub 최신 릴리스 응답 → 상태 (맥 AppUpdater.checkResult 와 같은 규칙). 순수 함수 */
-export function checkResult(status: number, body: unknown, current: string): { state: CheckState; installerUrl?: string } {
+export function checkResult(status: number, body: unknown, current: string): { state: CheckState; installerUrl?: string; latest?: string } {
   if (status === 403 || status === 429) return { state: { state: 'failed', message: 'GitHub 확인 횟수 초과 · 잠시 뒤 다시 확인해요' } }
   if (status === 404) return { state: { state: 'failed', message: '릴리스 정보를 찾지 못했어요' } }
   if (status !== 200) return { state: { state: 'failed', message: `버전 확인 실패 (HTTP ${status})` } }
   const rel = parseRelease(body)
   if (!rel) return { state: { state: 'failed', message: '버전 정보를 읽지 못했어요' } }
   const state: CheckState = isNewer(rel.tag, current) ? { state: 'available', version: normalizeVersion(rel.tag) } : { state: 'upToDate' }
-  return { state, installerUrl: rel.installerUrl }
+  return { state, installerUrl: rel.installerUrl, latest: normalizeVersion(rel.tag) }
 }

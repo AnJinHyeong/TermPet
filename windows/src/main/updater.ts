@@ -17,6 +17,9 @@ export class Updater {
   status: UpdateState = { state: 'idle' }
   onChange?: () => void
   private installerUrl?: string
+  /** 마지막으로 GitHub 이 알려 준 최신 버전·확인 시각 (패널 버전 글씨에 마우스를 올리면 보임 → "최신"이 맞는지 바로 확인) */
+  latest?: string
+  checkedAt?: number
   readonly current = app.getVersion()
 
   startPeriodicChecks() {
@@ -33,10 +36,18 @@ export class Updater {
     if (this.status.state === 'updating' || this.status.state === 'checking') return
     this.set({ state: 'checking' })
     try {
-      const res = await net.fetch(LATEST, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'TermPet' }, cache: 'no-store' })
+      // 예전 응답이 캐시에서 나와 "최신"으로 잘못 보이지 않게: 캐시 금지 + 요청마다 다른 주소
+      const res = await net.fetch(`${LATEST}?t=${Date.now()}`, {
+        headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'TermPet', 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
+        cache: 'no-store',
+      })
       const body = await res.json().catch(() => undefined)
       const out = checkResult(res.status, body, this.current)
       if (out.installerUrl) this.installerUrl = out.installerUrl
+      if (out.latest) {
+        this.latest = out.latest
+        this.checkedAt = Date.now()
+      }
       this.set(out.state)
     } catch {
       this.set({ state: 'failed', message: '인터넷 연결을 확인해 주세요' })

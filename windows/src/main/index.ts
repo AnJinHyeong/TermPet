@@ -251,7 +251,7 @@ function panelState(): PanelState {
     integrations: INTEGRATIONS.map((i) => ({ ...i, ...integrationStatus(i.kind), available: isAvailable(i.kind), check: checks.get(i.kind) })),
     quiet: { manualOn: pet.quiet.manualOn, duringMeetings: pet.quiet.duringMeetings, soundOnAsk: pet.quiet.soundOnAsk, isQuiet: pet.quiet.quiet },
     launchAtLogin: app.getLoginItemSettings().openAtLogin,
-    update: { state: st.state, version: st.state === 'available' ? st.version : undefined, message: st.state === 'failed' ? st.message : undefined },
+    update: { state: st.state, version: st.state === 'available' ? st.version : undefined, message: st.state === 'failed' ? st.message : undefined, latest: updater.latest, checkedAt: updater.checkedAt },
     isDev: !app.isPackaged,
   }
 }

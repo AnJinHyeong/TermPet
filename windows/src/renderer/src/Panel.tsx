@@ -141,7 +141,7 @@ export function Panel() {
             로그인 시 실행
           </label>
           <span className="grow" />
-          <button className="version" title={s.update.state === 'failed' ? `${s.update.message} · 눌러서 다시 확인` : '눌러서 새 버전 확인'} onClick={() => act({ type: 'checkUpdate' })}>
+          <button className="version" title={versionHint(s)} onClick={() => act({ type: 'checkUpdate' })}>
             {versionLabel(s)}
           </button>
           <button className="quit" onClick={() => act({ type: 'quit' })}>
@@ -426,6 +426,16 @@ const RECENT_STATE: Partial<Record<EventKind, 'done' | 'error' | 'waiting'>> = {
 function elapsed(ms: number) {
   const s = Math.max(0, ms / 1000)
   return s < 60 ? '방금' : formatDuration(Math.floor(s / 60) * 60)
+}
+
+/** 버전 글씨에 마우스를 올리면: 실패 이유, 또는 GitHub 이 알려 준 최신 버전과 확인 시각 */
+function versionHint(s: PanelState) {
+  if (s.update.state === 'failed') return `${s.update.message} · 눌러서 다시 확인`
+  if (s.update.latest && s.update.checkedAt) {
+    const t = new Date(s.update.checkedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+    return `GitHub 최신 v${s.update.latest} · ${t} 확인 · 눌러서 다시 확인`
+  }
+  return '눌러서 새 버전 확인'
 }
 
 function versionLabel(s: PanelState) {

@@ -95,7 +95,7 @@ export interface PanelState {
   integrations: { kind: IntegrationKind; title: string; subtitle: string; installed: boolean; needsUpdate: boolean; available: boolean; check?: CheckResult }[]
   quiet: { manualOn: boolean; duringMeetings: boolean; soundOnAsk: boolean; isQuiet: boolean }
   launchAtLogin: boolean
-  update: { state: 'idle' | 'checking' | 'upToDate' | 'available' | 'updating' | 'failed'; version?: string; message?: string }
+  update: { state: 'idle' | 'checking' | 'upToDate' | 'available' | 'updating' | 'failed'; version?: string; message?: string; latest?: string; checkedAt?: number }
   isDev: boolean
 }
 
