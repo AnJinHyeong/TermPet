@@ -6,6 +6,7 @@ import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { isAbsolute } from 'node:path'
 import type { PetEvent } from '../shared/events'
+import { CHATGPT_HOST } from '../shared/chatgptLog'
 import { editorCandidates, findProjectRoot, planFocus, processNamesFor } from '../shared/hostApp'
 import { focusProcessWindow, focusWindow, foregroundWindow } from './win32'
 
@@ -18,6 +19,7 @@ const keyOf = (e: PetEvent) => e.sessionId ?? e.terminal ?? e.cwd
 /** 이벤트를 받을 때마다 호출. 프롬프트 제출 시점(또는 처음 보는 세션)의 맨 앞 창을 기억 */
 export function rememberWindow(e: PetEvent) {
   if (process.platform !== 'win32') return
+  if (e.host === CHATGPT_HOST) return // 로그 감시로 알게 된 것이라 그 순간 맨 앞 창이 ChatGPT 창이라는 보장이 없다
   const key = keyOf(e)
   if (!key) return
   const isPromptSubmit = e.source === 'claude' && e.kind === 'working' && !e.detail

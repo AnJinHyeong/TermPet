@@ -638,6 +638,10 @@ button {
 .int-icon.codex {
   background: #809ecc;
 }
+.int-icon.chatgptApp {
+  background: #6bb8b3;
+  font-size: 11px;
+}
 .int-icon.powershell {
   background: #80c79e;
 }

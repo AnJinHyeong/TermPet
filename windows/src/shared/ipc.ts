@@ -59,7 +59,7 @@ export interface PanelFriend {
   selected: boolean
 }
 
-export type IntegrationKind = 'claude' | 'claudeApp' | 'codex' | 'powershell'
+export type IntegrationKind = 'claude' | 'claudeApp' | 'codex' | 'chatgptApp' | 'powershell'
 
 /** [연결 확인] 한 단계: ok=true ✓ / false ✗ / null 참고 정보 */
 export interface CheckStep {

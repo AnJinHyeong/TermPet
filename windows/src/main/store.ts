@@ -12,6 +12,8 @@ export interface Settings {
   walkOnWindows?: boolean
   /** 장난꾸러기 모드 (기본 꺼짐) */
   mischief?: boolean
+  /** "GPT 앱 채팅" 연결 (ChatGPT 앱 로그 읽기, 기본 꺼짐) */
+  chatgptApp?: boolean
   quietDuringMeetings?: boolean
   soundOnAsk?: boolean
   port?: number

@@ -2,6 +2,7 @@
 // 설정 파일만 보는 게 아니라, 훅 명령을 Claude Code·Codex 가 하는 것과 같은 방식으로 직접 실행해서
 // 앱 서버까지 도착하는지(한글 인코딩 포함) 본다. 실패하면 단계별로 이유와 해결 방법을 알려 준다.
 // React 비유: 버튼 클릭 → async 함수가 단계별 결과 배열을 만들어 상태로 돌려주는 것.
+import { chatgptLogRoots } from './chatgptWatcher'
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -133,6 +134,10 @@ export async function diagnose(kind: IntegrationKind, ctx: DiagnoseContext): Pro
       return diagnoseClaudeApp(ctx)
     case 'codex':
       return diagnoseCodex(ctx)
+    case 'chatgptApp': {
+      const roots = chatgptLogRoots()
+      return finish([step('ChatGPT 앱 로그 폴더', roots.length > 0, roots[0] ?? 'ChatGPT 앱을 한 번 켜 주세요'), step('일반 채팅 답변이 끝나면 알림이 와요', null)])
+    }
     case 'powershell':
       return diagnosePowerShell(ctx)
   }

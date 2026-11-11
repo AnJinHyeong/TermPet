@@ -70,7 +70,8 @@ enum FocusAction: Equatable {
         guard let app = HostApp.resolve(bundleId: event.hostBundleId, termProgram: event.termProgram) else {
             return .none
         }
-        if app == .chatgpt, let sid = event.sessionId, !sid.isEmpty,
+        // Codex 대화만 딥링크가 있다 (일반 GPT 채팅은 링크로 못 열어서 앱만 앞으로)
+        if app == .chatgpt, let sid = event.sessionId, ChatGPTAppLog.isCodexThread(sid),
            let id = sid.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) {
             return .openURL(url: "codex://threads/\(id)", bundleId: app.bundleId)
         }

@@ -12,6 +12,7 @@ import { currentStats, statsSummary } from '../shared/notifications'
 import { allowScripts, diagnose, takeSelfTest } from './diagnose'
 import { focusEvent, rememberWindow } from './focus'
 import { importPacks } from './importer'
+import { ChatGPTWatcher } from './chatgptWatcher'
 import { INTEGRATIONS, isAvailable, status as integrationStatus, toggle as toggleIntegration } from './integrations'
 import { loadFriends, loadPack, type LoadedPack } from './packs'
 import { installBundledScripts, loadOrCreateToken, resourcesPath, writePort } from './paths'
@@ -54,6 +55,12 @@ let panel: BrowserWindow | undefined
 let panelHeight = 600
 let serverState: ServerState = { type: 'stopped' }
 const pet = new PetController()
+/** "GPT 앱 채팅" 연결: ChatGPT 앱 로그를 읽어 일반 채팅 답변 완료를 알림 */
+const chatgptWatcher = new ChatGPTWatcher((e) => pet.receive(e))
+function syncChatGPTWatcher() {
+  if (settings().chatgptApp === true && isAvailable('chatgptApp')) chatgptWatcher.start()
+  else chatgptWatcher.stop()
+}
 const updater = new Updater()
 
 // MARK: - 친구 팩
@@ -193,6 +200,15 @@ function onToggleIntegration(kind: IntegrationKind, remove: boolean) {
     return refreshUI()
   }
   const on = integrationStatus(kind).installed
+  if (kind === 'chatgptApp') {
+    syncChatGPTWatcher()
+    if (on && !before.installed) {
+      void alert(
+        'GPT 앱 채팅을 연결했어요 (실험)',
+        "ChatGPT 앱에서 일반 채팅 답변이 끝나면 알려 줘요. 앱이 남기는 기록(로그)을 읽는 방식이라 설정 파일은 건드리지 않고, ChatGPT 앱이 업데이트되면 알림이 멈출 수 있어요.\n\n· 말풍선을 누르면 ChatGPT 앱이 앞으로 와요\n· 다른 기기(폰)에서 한 채팅도 앱이 켜져 있으면 알림이 올 수 있어요\n· Codex 대화는 'Codex' 연결이 알려 줘요",
+      )
+    }
+  }
   if (kind === 'claudeApp' && on !== before.installed) {
     void alert(
       on ? 'Claude 앱 채팅을 연결했어요' : 'Claude 앱 채팅 연결을 해제했어요',
@@ -581,6 +597,7 @@ if (!app.requestSingleInstanceLock({ version: app.getVersion() })) {
     createTray()
     createPanel()
     startEventServer()
+    syncChatGPTWatcher()
     updater.startPeriodicChecks()
     if (!app.isPackaged && process.env.TERMPET_SNAPSHOT) void devSnapshot(process.env.TERMPET_SNAPSHOT)
   })

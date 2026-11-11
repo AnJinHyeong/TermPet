@@ -738,6 +738,7 @@ private struct IntegrationRow: View {
         case .claude: return "sparkles"
         case .claudeApp: return "bubble.left.and.text.bubble.right.fill"
         case .codex: return "chevron.left.forwardslash.chevron.right"
+        case .chatgptApp: return "bubble.left.fill"
         case .zsh: return "terminal.fill"
         }
     }
@@ -747,6 +748,7 @@ private struct IntegrationRow: View {
         case .claude: return Color(red: 0.93, green: 0.58, blue: 0.45)
         case .claudeApp: return Color(red: 0.85, green: 0.52, blue: 0.62)
         case .codex: return Color(red: 0.50, green: 0.62, blue: 0.80)
+        case .chatgptApp: return Color(red: 0.42, green: 0.72, blue: 0.70)
         case .zsh: return Color(red: 0.50, green: 0.78, blue: 0.62)
         }
     }

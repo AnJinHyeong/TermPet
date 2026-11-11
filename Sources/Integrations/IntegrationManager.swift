@@ -6,7 +6,7 @@ import Observation
 @Observable
 final class IntegrationManager {
     enum Kind: String, CaseIterable, Identifiable {
-        case claude, claudeApp, codex, zsh
+        case claude, claudeApp, codex, chatgptApp, zsh
         var id: String { rawValue }
 
         var title: String {
@@ -14,6 +14,7 @@ final class IntegrationManager {
             case .claude: return "Claude Code"
             case .claudeApp: return "Claude 앱 채팅"
             case .codex: return "Codex"
+            case .chatgptApp: return "GPT 앱 채팅"
             case .zsh: return "터미널 명령"
             }
         }
@@ -23,6 +24,7 @@ final class IntegrationManager {
             case .claude: return "응답 완료 · 권한 요청"
             case .claudeApp: return "답변 완료"
             case .codex: return "응답 완료 · 작업 중"
+            case .chatgptApp: return "답변 완료 (실험)"
             case .zsh: return "30초 넘게 걸린 명령"
             }
         }
@@ -33,8 +35,13 @@ final class IntegrationManager {
     /// 연결은 돼 있지만 새 기능용 항목이 빠진 경우 (예: Claude "작업 중" 표시용 훅) → 패널에 "업데이트" 버튼
     private(set) var needsUpdate: [Kind: Bool] = [:]
 
-    init(home: URL = FileManager.default.homeDirectoryForCurrentUser) {
+    /// GPT 앱 채팅은 설정 파일을 고치지 않고 앱 로그를 읽기만 한다 → 켜짐 여부는 텀펫 설정에 저장
+    static let chatgptAppKey = "chatgptAppWatch"
+    let defaults: UserDefaults
+
+    init(home: URL = FileManager.default.homeDirectoryForCurrentUser, defaults: UserDefaults = .standard) {
         self.home = home
+        self.defaults = defaults
         refresh()
     }
 
@@ -43,6 +50,7 @@ final class IntegrationManager {
         case .claude: return home.appendingPathComponent(".claude/settings.json")
         case .claudeApp: return home.appendingPathComponent("Library/Application Support/Claude/claude_desktop_config.json")
         case .codex: return home.appendingPathComponent(".codex/config.toml")
+        case .chatgptApp: return home.appendingPathComponent("Library/Logs/com.openai.codex") // 읽기만 함
         case .zsh: return home.appendingPathComponent(".zshrc")
         }
     }
@@ -59,6 +67,7 @@ final class IntegrationManager {
         switch kind {
         case .codex: return FileManager.default.fileExists(atPath: home.appendingPathComponent(".codex").path)
         case .claudeApp: return FileManager.default.fileExists(atPath: file(for: kind).deletingLastPathComponent().path)
+        case .chatgptApp: return FileManager.default.fileExists(atPath: file(for: kind).path)
         default: return true
         }
     }
@@ -80,6 +89,7 @@ final class IntegrationManager {
                 state[kind] = CodexNotifyConfig.isInstalled(text)
                 update[kind] = state[kind] == true
                     && !CodexHooksConfig.isInstalled(try? Data(contentsOf: codexHooksFile))
+            case .chatgptApp: state[kind] = defaults.bool(forKey: Self.chatgptAppKey)
             case .zsh: state[kind] = ZshrcConfig.isInstalled(text)
             }
         }
@@ -90,6 +100,11 @@ final class IntegrationManager {
     /// 연결 ↔ 해제 (업데이트가 필요하면 해제 대신 빠진 항목만 추가). 성공하면 백업 파일 경로를 돌려준다.
     @discardableResult
     func toggle(_ kind: Kind, remove: Bool = false) throws -> URL? {
+        if kind == .chatgptApp {
+            defaults.set(!(installed[kind] == true), forKey: Self.chatgptAppKey)
+            refresh()
+            return nil
+        }
         let url = file(for: kind).resolvingSymlinksInPath() // dotfiles 심볼릭 링크면 실제 파일을 고친다
         // 파일이 없을 때만 "빈 파일"로 본다. 권한 문제 등으로 못 읽으면 덮어쓰지 않고 멈춘다
         // (예전엔 못 읽으면 백업 없이 텀펫 줄만 남기고 덮어쓸 수 있었다)
@@ -120,6 +135,8 @@ final class IntegrationManager {
                                : try CodexNotifyConfig.install(into: text, hookPath: hookPath)).utf8)
         case .zsh:
             updated = Data((on ? ZshrcConfig.uninstall(from: text ?? "") : ZshrcConfig.install(into: text)).utf8)
+        case .chatgptApp:
+            return nil // 위에서 처리 (파일을 고치지 않음)
         }
 
         var backup = try write(updated, to: url, original: original)

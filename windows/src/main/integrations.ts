@@ -6,7 +6,9 @@ import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type { IntegrationKind } from '../shared/ipc'
 import { backupStamp, claudeHookCommands, ClaudeDesktop, ClaudeHooks, CodexNotify, IntegrationError, PowerShellProfile, type McpLaunch } from '../shared/integrations'
+import { chatgptLogRoots } from './chatgptWatcher'
 import { hookClaudePs1, hookPs1, mcpScript } from './paths'
+import { saveSettings, settings } from './store'
 
 export const claudeCmds = () => claudeHookCommands(hookClaudePs1)
 /** Claude 앱이 MCP 서버로 실행할 것: 설치된 TermPet.exe 를 Node 모드로 + 스크립트 */
@@ -16,6 +18,7 @@ export const INTEGRATIONS: { kind: IntegrationKind; title: string; subtitle: str
   { kind: 'claude', title: 'Claude Code', subtitle: '응답 완료 · 권한 요청' },
   { kind: 'claudeApp', title: 'Claude 앱 채팅', subtitle: '답변 완료 (Claude 앱 재시작 필요)' },
   { kind: 'codex', title: 'Codex', subtitle: '응답 완료' },
+  { kind: 'chatgptApp', title: 'GPT 앱 채팅', subtitle: '답변 완료 (실험)' },
   { kind: 'powershell', title: '터미널 명령', subtitle: '30초 넘게 걸린 PowerShell 명령' },
 ]
 
@@ -79,6 +82,8 @@ export function filesFor(kind: IntegrationKind): string[] {
       return claudeDesktopConfigFiles()
     case 'codex':
       return [join(home, '.codex', 'config.toml')]
+    case 'chatgptApp':
+      return [] // 설정 파일을 고치지 않는다 (앱 로그를 읽기만)
     case 'powershell': {
       const docs = app.getPath('documents') // OneDrive 로 옮긴 문서 폴더도 정확히
       return [join(docs, 'WindowsPowerShell', 'Microsoft.PowerShell_profile.ps1'), join(docs, 'PowerShell', 'Microsoft.PowerShell_profile.ps1')]
@@ -112,7 +117,8 @@ export function readText(path: string): FileText {
 /** 맥에서 개발 실행할 땐 실제 설정 파일(맥 앱이 쓰는)에 윈도우용 명령을 넣지 않게 막는다 */
 export function isAvailable(kind: IntegrationKind): boolean {
   if (process.platform !== 'win32') return false
-  if (kind === 'claudeApp') return claudeDesktopConfigFiles().length > 0 // Claude 앱을 한 번이라도 켰으면 폴더가 있다
+  if (kind === 'claudeApp') return claudeDesktopConfigFiles().length > 0
+  if (kind === 'chatgptApp') return chatgptLogRoots().length > 0 // ChatGPT 앱을 한 번이라도 켰으면 로그 폴더가 있다 // Claude 앱을 한 번이라도 켰으면 폴더가 있다
   return kind !== 'codex' || existsSync(join(home, '.codex'))
 }
 
@@ -131,6 +137,8 @@ export function status(kind: IntegrationKind): { installed: boolean; needsUpdate
       }
       case 'codex':
         return { installed: CodexNotify.isInstalled(files[0].text), needsUpdate: false }
+      case 'chatgptApp':
+        return { installed: settings().chatgptApp === true, needsUpdate: false }
       case 'powershell': {
         const states = files.map((f) => PowerShellProfile.isInstalled(f.text))
         return { installed: states.some(Boolean), needsUpdate: states.some(Boolean) && !states.every(Boolean) }
@@ -145,6 +153,10 @@ export function status(kind: IntegrationKind): { installed: boolean; needsUpdate
 export function toggle(kind: IntegrationKind, remove: boolean): string[] {
   if (!isAvailable(kind)) throw new IntegrationError('이 환경에서는 연결할 수 없어요')
   const { installed, needsUpdate } = status(kind)
+  if (kind === 'chatgptApp') {
+    saveSettings({ chatgptApp: !installed })
+    return []
+  }
   const on = installed && (remove || !needsUpdate)
   const files = filesFor(kind).map(readText) // 모두 먼저 읽어서 하나라도 못 읽으면 아무것도 안 바꾼다
   const updates: [FileText, string][] = files.map((f) => {

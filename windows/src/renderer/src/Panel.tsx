@@ -243,7 +243,7 @@ function ConnectTab({ s }: { s: PanelState }) {
         <div key={i.kind}>
           <div className={`integration ${i.available ? '' : 'disabled'}`}>
             <span className={`int-icon ${i.kind}`} title={`${i.subtitle} 알림`}>
-              {i.kind === 'claude' ? '✳' : i.kind === 'claudeApp' ? '💬' : i.kind === 'codex' ? '</>' : '>_'}
+              {i.kind === 'claude' ? '✳' : i.kind === 'claudeApp' ? '💬' : i.kind === 'codex' ? '</>' : i.kind === 'chatgptApp' ? '🗨' : '>_'}
             </span>
             <span className="grow">
               <span className="strong">{i.title}</span>

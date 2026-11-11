@@ -37,6 +37,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let updater = AppUpdater()
     #endif
     private var server: LocalHTTPServer?
+    /// "GPT 앱 채팅" 연결: ChatGPT 앱 로그를 읽어 일반 채팅 답변 완료를 알림
+    private let chatgptWatcher = ChatGPTAppWatcher()
 
     var port: UInt16 {
         let stored = UserDefaults.standard.integer(forKey: Self.portDefaultsKey)
@@ -166,6 +168,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let updating = integrations.needsUpdate[kind] == true && !remove
         do {
             try integrations.toggle(kind, remove: remove)
+            if kind == .chatgptApp { syncChatGPTWatcher() }
             if kind == .zsh && !wasOn {
                 showAlert("터미널 명령 알림을 연결했어요", "새로 여는 터미널부터 적용돼요.")
             } else if kind == .claudeApp && (updating || !wasOn) {
@@ -176,6 +179,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                           + "\"답변을 마칠 때마다 termpet_notify 도구로 한 줄 요약을 보내줘\"를 적어 두면 더 잘 불러요.")
             } else if kind == .claudeApp && wasOn {
                 showAlert("Claude 앱 채팅 연결을 해제했어요", "Claude 앱을 다시 켜면 적용돼요.")
+            } else if kind == .chatgptApp && !wasOn {
+                showAlert("GPT 앱 채팅을 연결했어요 (실험)",
+                          "ChatGPT 앱에서 일반 채팅 답변이 끝나면 알려 줘요. 앱이 남기는 기록(로그)을 읽는 방식이라 "
+                          + "설정 파일은 건드리지 않고, ChatGPT 앱이 업데이트되면 알림이 멈출 수 있어요.\n\n"
+                          + "· 말풍선을 누르면 ChatGPT 앱이 앞으로 와요 (일반 채팅은 그 대화로 바로 가는 링크가 없어요)\n"
+                          + "· 다른 기기(폰)에서 한 채팅도 앱이 켜져 있으면 알림이 올 수 있어요\n"
+                          + "· Codex 대화는 'Codex' 연결이 알려 줘요")
             } else if kind == .codex && (updating || !wasOn) {
                 showAlert("Codex를 연결했어요",
                           "답이 끝나면 알림이 오고, 질문을 보내면 펫 머리 위에 작업 중(…)이 표시돼요.\n\n"
@@ -220,5 +230,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         server.start()
         self.server = server
+
+        chatgptWatcher.onEvent = { [weak self] event in
+            log.append(RequestLog.line(date: Date(), method: "LOG", path: "chatgpt-app", status: 200, body: "", event: event))
+            self?.petController.receive(event)
+        }
+        syncChatGPTWatcher()
+    }
+
+    /// 연결 탭의 "GPT 앱 채팅" 스위치에 맞춰 로그 감시를 켜고 끈다
+    private func syncChatGPTWatcher() {
+        if integrations.installed[.chatgptApp] == true { chatgptWatcher.start() } else { chatgptWatcher.stop() }
     }
 }
