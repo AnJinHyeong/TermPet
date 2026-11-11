@@ -126,6 +126,18 @@ describe('SessionTracker', () => {
     expect(t.prune(5 * 60_000 + 1)).toBe(true)
     expect(t.sessions.size).toBe(1)
   })
+  it('Claude 앱 Code 탭 세션이 작업 중이면 "Claude 채팅" 신호는 중복으로 버림', () => {
+    const t = new SessionTracker()
+    const chat = decodeStandard(JSON.stringify({ source: 'claude', kind: 'done', sessionId: 'claude-app-chat', host: 'claude.exe' }))
+    expect(t.isDuplicateChatSignal(chat, 0)).toBe(false)
+    t.apply(ev('working', { sessionId: 'cursor-1', host: 'Cursor.exe' }), 0)
+    expect(t.isDuplicateChatSignal(chat, 0)).toBe(false)
+    t.apply(ev('working', { sessionId: 'code-1', host: 'claude.exe' }), 0)
+    expect(t.isDuplicateChatSignal(chat, 4_000)).toBe(true)
+    expect(t.isDuplicateChatSignal(chat, 3 * 60_000)).toBe(false)
+    t.apply(ev('done', { sessionId: 'code-1', host: 'claude.exe' }), 10_000)
+    expect(t.isDuplicateChatSignal(chat, 11_000)).toBe(false)
+  })
   it('배지 우선순위', () => {
     expect(pickBadge(1, 2, true)).toEqual({ type: 'waiting', count: 1 })
     expect(pickBadge(0, 2, true)).toEqual({ type: 'unread' })

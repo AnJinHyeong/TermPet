@@ -50,11 +50,13 @@ export class BubbleController {
     else if (this.hasUnread) this.show()
   }
 
-  enqueue(e: PetEvent) {
+  /** 알림 넣기. 실제로 들어갔으면 보여 줄 내용(최근 알림 기록용)을, 무시됐으면 undefined */
+  enqueue(e: PetEvent): BubbleContent | undefined {
     const content = makeContent(e, this.messages, Math.random)
-    if (this.queue.push({ id: e.id, event: e, content }) === 'ignored') return
+    if (this.queue.push({ id: e.id, event: e, content }) === 'ignored') return undefined
     this.onChange?.()
     if (!this.quiet) this.show()
+    return content
   }
 
   /** 알림이 아닌 펫의 혼잣말 (오늘 기록). 미확인 알림이 있으면 그걸 먼저 */

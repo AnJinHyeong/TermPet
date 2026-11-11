@@ -21,6 +21,7 @@ export const KEEP_FINISHED_FOR = 10 * 60_000
 /** Claude 앱 채팅은 Claude가 끝 신호를 빠뜨릴 수 있어서 "답변 중"을 더 빨리 지운다 (termpet-mcp.js 의 sessionId) */
 export const CLAUDE_CHAT_SESSION = 'claude-app-chat'
 export const CLAUDE_CHAT_STALE_AFTER = 5 * 60_000
+export const CHAT_SHADOW_WINDOW = 2 * 60_000
 
 export function sessionKey(e: PetEvent): string | undefined {
   if (!e.sessionId) return undefined
@@ -71,6 +72,19 @@ export class SessionTracker {
   stateOf(e: PetEvent): SessionState | undefined {
     const k = sessionKey(e)
     return k ? this.sessions.get(k)?.state : undefined
+  }
+
+  /**
+   * Claude 앱 Code 탭(= Claude Code)은 훅 신호가 오는데, Claude가 텀펫 MCP 도구까지 불러 "Claude 채팅" 알림이 한 번 더 올 수 있다
+   * → Claude 앱(claude.exe)에서 돌고 있는 Claude Code 세션이 작업 중이면 MCP 신호는 버린다 (맥 SessionTracker 와 같은 규칙)
+   */
+  isDuplicateChatSignal(e: PetEvent, now = Date.now()): boolean {
+    if (e.sessionId !== CLAUDE_CHAT_SESSION) return false
+    for (const s of this.sessions.values()) {
+      if (s.source === 'claude' && s.focusEvent.sessionId !== CLAUDE_CHAT_SESSION && s.focusEvent.host?.toLowerCase() === 'claude.exe'
+        && s.state === 'working' && now - s.lastSeen < CHAT_SHADOW_WINDOW) return true
+    }
+    return false
   }
 
   /** 오래된 세션 정리. 바뀐 게 있으면 true */

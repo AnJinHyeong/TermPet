@@ -239,6 +239,15 @@ function panelState(): PanelState {
       state: s.state,
       since: s.since,
     })),
+    recent: pet.history.entries.slice(0, 4).map((h) => ({
+      id: h.id,
+      title: h.title,
+      body: h.body,
+      kind: h.event.kind,
+      date: h.date,
+      hasTarget: !!h.event.cwd,
+    })),
+    prefs: pet.prefs,
     integrations: INTEGRATIONS.map((i) => ({ ...i, ...integrationStatus(i.kind), available: isAvailable(i.kind), check: checks.get(i.kind) })),
     quiet: { manualOn: pet.quiet.manualOn, duringMeetings: pet.quiet.duringMeetings, soundOnAsk: pet.quiet.soundOnAsk, isQuiet: pet.quiet.quiet },
     launchAtLogin: app.getLoginItemSettings().openAtLogin,
@@ -365,6 +374,17 @@ ipcMain.on('panel:action', (_e, a: PanelAction) => {
       if (s) focusEvent(s.focusEvent)
       return
     }
+    case 'focusRecent': {
+      const h = pet.history.entries.find((x) => x.id === a.id)
+      hidePanel()
+      if (h) focusEvent(h.event)
+      return
+    }
+    case 'clearRecent':
+      pet.history.clear()
+      return refreshUI()
+    case 'setPrefs':
+      return pet.setPrefs(a.prefs)
     case 'setLaunchAtLogin':
       app.setLoginItemSettings({ openAtLogin: a.on })
       return refreshUI()

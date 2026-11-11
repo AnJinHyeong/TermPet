@@ -8,9 +8,9 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import { SELF_TEST_CWD, SELF_TEST_EVENT, type PetEvent } from '../shared/events'
-import { executionPolicyBlocksProfile, hooksBlockedBy } from '../shared/integrations'
+import { ClaudeDesktop, executionPolicyBlocksProfile, hooksBlockedBy } from '../shared/integrations'
 import type { CheckResult, CheckStep, IntegrationKind } from '../shared/ipc'
-import { claudeCmds, claudeDesktopConfigFiles, claudeSettingsFile, mcpLaunch, readText, status } from './integrations'
+import { activeClaudeDesktopDir, claudeCmds, claudeDesktopConfigFiles, claudeSettingsFile, mcpLaunch, readText, status } from './integrations'
 import { hookPs1 } from './paths'
 
 const SELF_TEST_PREFIX = 'termpet-selftest-'
@@ -151,6 +151,25 @@ async function diagnoseClaudeApp(ctx: DiagnoseContext): Promise<CheckResult> {
   else if (!st.installed) steps.push(step('설정 파일', false, '텀펫이 아직 등록되지 않았어요. [연결]을 눌러 주세요'))
   else if (st.needsUpdate) steps.push(step('설정 파일', false, '텀펫 위치가 바뀌었어요. [업데이트]를 눌러 주세요 (백업 후)'))
   else steps.push(step('설정 파일', true, files.join(' · ')))
+
+  // Claude 앱이 실제로 읽는 폴더(로그가 가장 최근에 바뀐 곳)에도 텀펫이 들어 있는지
+  const active = activeClaudeDesktopDir()
+  if (active) {
+    const activeFile = join(active, 'claude_desktop_config.json')
+    let ok = false
+    try {
+      ok = ClaudeDesktop.isInstalled(readText(activeFile).text)
+    } catch {
+      /* 못 읽으면 아래에서 알림 */
+    }
+    steps.push(
+      ok
+        ? step('Claude 앱이 읽는 파일', true, activeFile)
+        : step('Claude 앱이 읽는 파일', false, `${activeFile} 에 텀펫이 없어요. [연결]을 다시 눌러 주세요 (Claude 앱을 켠 상태에서)`),
+    )
+  } else if (files.length) {
+    steps.push(step('Claude 앱이 읽는 파일', null, 'Claude 앱 로그를 찾지 못해 어느 파일을 읽는지 모르겠어요. Claude 앱을 한 번 켠 뒤 다시 확인해 주세요'))
+  }
 
   steps.push(step('알림 서버', ctx.serverOk, ctx.serverOk ? undefined : ctx.serverText))
   if (!ctx.serverOk || !st.installed) return finish(steps)

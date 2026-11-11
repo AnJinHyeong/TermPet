@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { PetLayer } from '../shared/misc'
 import type { DailyStats } from '../shared/notifications'
+import type { PetPrefs } from '../shared/prefs'
 
 export interface Settings {
   selected?: string
@@ -13,6 +14,8 @@ export interface Settings {
   soundOnAsk?: boolean
   port?: number
   dailyStats?: DailyStats
+  /** 크기·걷기 속도·말풍선 유지 시간 */
+  prefs?: Partial<PetPrefs>
 }
 
 let cache: Settings | undefined

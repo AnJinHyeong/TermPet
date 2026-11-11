@@ -9,6 +9,8 @@ import type { PetFrameState } from '../shared/ipc'
 import { effectiveLayer, type PetLayer } from '../shared/misc'
 import { currentStats, isSticky, moodFrom, packMessages, recordStats, statsSpeech, walkFactor, type DailyStats, type PetMood } from '../shared/notifications'
 import { loopFPS, PetPhysics, throwVelocity } from '../shared/physics'
+import { NotificationHistory } from '../shared/history'
+import { normalizePrefs, scaledSize, type PetPrefs } from '../shared/prefs'
 import { pickBadge, SessionTracker, type PetBadge } from '../shared/sessions'
 import { hasFullscreenWindow, ScreenLayout, Terrain, type Wall, type WindowBox } from '../shared/terrain'
 import { BubbleController } from './bubble'
@@ -29,6 +31,10 @@ export class PetController {
   readonly bubble = new BubbleController()
   readonly sessions = new SessionTracker()
   readonly quiet = new QuietMode()
+  /** 최근 알림 (패널 "최근 알림") */
+  readonly history = new NotificationHistory()
+  /** 크기·걷기 속도·말풍선 유지 시간 (패널 "설정·알림" 탭) */
+  prefs: PetPrefs = normalizePrefs(settings().prefs)
   stats: DailyStats = currentStats(settings().dailyStats)
   mood: PetMood = 'normal'
   layer: PetLayer = settings().layer ?? 'aboveApps'
@@ -66,6 +72,7 @@ export class PetController {
   private dragTrail: [number, Point][] = []
 
   constructor() {
+    this.bubble.displayMs = this.prefs.bubbleSeconds * 1000
     this.bubble.onActivate = (n) => focusEvent(n.event)
     this.bubble.onVisibilityChange = () => this.applyEffectiveLayer()
     this.bubble.onChange = () => this.onChange?.()
@@ -128,7 +135,22 @@ export class PetController {
   setPack(pack: LoadedPack) {
     this.pack = pack
     this.bubble.messages = packMessages(pack.pack.messages)
-    const size = pack.size
+    this.applySize()
+  }
+
+  /** 설정 바꾸기 (패널 슬라이더) → 저장하고 바로 반영 */
+  setPrefs(patch: Partial<PetPrefs>) {
+    this.prefs = normalizePrefs({ ...this.prefs, ...patch })
+    saveSettings({ prefs: this.prefs })
+    this.bubble.displayMs = this.prefs.bubbleSeconds * 1000
+    this.applySize()
+    this.onChange?.()
+  }
+
+  /** 캐릭터 원래 크기 × 크기 설정 → 펫 창 크기 */
+  private applySize() {
+    if (!this.pack) return
+    const size = scaledSize(this.pack.size, this.prefs.sizeScale)
     if (size.width === this.physics.size.width && size.height === this.physics.size.height) return
     // 발 위치와 가로 중심은 유지한 채 크기만 바꾼다
     this.physics.origin.x += (this.physics.size.width - size.width) / 2
@@ -194,6 +216,8 @@ export class PetController {
 
   /** 외부 이벤트 수신 → 감정 + 말풍선 */
   receive(incoming: PetEvent) {
+    // Code 탭에서 훅 알림과 겹치는 "Claude 채팅" 알림은 버린다 (두 번 뜨지 않게)
+    if (this.sessions.isDuplicateChatSignal(incoming)) return
     const e = { ...incoming }
     this.sessions.apply(e)
     if (!isNotification(e)) {
@@ -215,7 +239,8 @@ export class PetController {
       }
     }
     this.brain.handle({ type: 'react', action: moodOf(e), duration: 3 }, rng)
-    this.bubble.enqueue(e)
+    const content = this.bubble.enqueue(e)
+    if (content) this.history.record(e, content)
     if (!this.visible) this.bubble.hide()
     // 권한 요청은 작업이 멈춘 상태라 소리로 한 번 더
     if (isSticky(e) && this.quiet.soundOnAsk && !this.quiet.quiet && this.visible) this.bubble.chime()
@@ -302,7 +327,7 @@ export class PetController {
 
   /** 걷기 속도: 기분 반영 + 달리기 포즈(walk.2)가 뽑히면 빠르게 */
   private get walkSpeed() {
-    let speed = (this.pack?.pack.walkSpeed ?? 40) * walkFactor(this.mood)
+    let speed = (this.pack?.pack.walkSpeed ?? 40) * this.prefs.speedScale * walkFactor(this.mood)
     const walks = this.pack?.anims.walk?.length ?? 0
     if (walks > 1 && this.brain.variant % walks === 1) speed *= 1.9
     return speed
@@ -467,7 +492,7 @@ export class PetController {
       return this.beginFall({ dx: -sign(wall.side) * 60, dy: 0 })
     }
     const limit = Math.min(this.climbLimitY, this.terrain.climbCeiling(wall, this.physics.origin.y) ?? Infinity)
-    const speed = Math.max((this.pack?.pack.walkSpeed ?? 40) * 1.3, 50)
+    const speed = Math.max((this.pack?.pack.walkSpeed ?? 40) * this.prefs.speedScale * 1.3, 50)
     const r = this.physics.climb(wall, speed, dt, this.terrain, limit)
     if (r.type === 'reachedTop') {
       this.climbingWall = undefined

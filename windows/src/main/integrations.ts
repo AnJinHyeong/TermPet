@@ -1,7 +1,7 @@
 // 패널의 "AI 연결" 버튼: 설정 파일을 백업한 뒤 텀펫 항목만 추가/삭제 (맥 IntegrationManager.swift 대응).
 // 사용자가 버튼을 눌렀을 때만 파일을 바꾼다. 해석할 수 없는 파일이면 손대지 않고 에러.
 import { app } from 'electron'
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type { IntegrationKind } from '../shared/ipc'
@@ -25,19 +25,50 @@ const home = homedir()
 export const claudeSettingsFile = () => join(process.env.CLAUDE_CONFIG_DIR || join(home, '.claude'), 'settings.json')
 
 /**
- * Claude 데스크톱 앱 설정 파일. 공식 위치는 %APPDATA%\Claude, 스토어(MSIX) 설치판은 앱 전용 폴더로 바뀌어 쓰이는 경우가 있어서
- * %LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\Claude 도 (폴더가 있으면) 같이 고친다.
+ * Claude 데스크톱 앱이 쓸 수 있는 설정 폴더 후보 (있는 것만).
+ * - %APPDATA%\Claude: 예전 .exe 설치판 (공식 문서 위치)
+ * - %LOCALAPPDATA%\Packages\<Claude 패키지>\LocalCache\Roaming\Claude: 스토어·MSIX 설치판은 %APPDATA% 읽기·쓰기가 여기로 바뀌어
+ *   들어가서, Claude 앱은 이 파일만 읽는다 (설정 → 개발자 → "구성 편집"은 엉뚱하게 %APPDATA% 파일을 연다).
+ *   패키지 이름은 보통 Claude_pzs8sxrjxfjjc 지만 다른 이름(Anthropic.ClaudeDesktop_… 등)도 보고돼 있어서,
+ *   이름에 claude 가 들어가고 그 안에 Roaming\Claude 가 있는 패키지는 모두 본다.
+ * - %LOCALAPPDATA%\Claude-3p: 회사용(3P) 모드
  */
-export function claudeDesktopConfigFiles(): string[] {
+export function claudeDesktopDirs(): string[] {
   const appData = process.env.APPDATA ?? join(home, 'AppData', 'Roaming')
+  const localAppData = process.env.LOCALAPPDATA ?? join(home, 'AppData', 'Local')
   const dirs = [join(appData, 'Claude')]
-  const packages = join(process.env.LOCALAPPDATA ?? join(home, 'AppData', 'Local'), 'Packages')
+  const packages = join(localAppData, 'Packages')
   try {
-    for (const d of readdirSync(packages)) if (/^Claude_/i.test(d)) dirs.push(join(packages, d, 'LocalCache', 'Roaming', 'Claude'))
+    for (const d of readdirSync(packages)) if (/claude/i.test(d)) dirs.push(join(packages, d, 'LocalCache', 'Roaming', 'Claude'))
   } catch {
     /* Packages 폴더 없음 */
   }
-  return dirs.filter((d) => existsSync(d)).map((d) => join(d, 'claude_desktop_config.json'))
+  dirs.push(join(localAppData, 'Claude-3p'))
+  return dirs.filter((d) => existsSync(d))
+}
+
+/** 후보 폴더마다 설정 파일 — 어느 쪽을 읽는 설치판이든 되도록 모두 같이 고친다 */
+export function claudeDesktopConfigFiles(): string[] {
+  return claudeDesktopDirs().map((d) => join(d, 'claude_desktop_config.json'))
+}
+
+/**
+ * 지금 Claude 앱이 실제로 쓰고 있는 폴더: 로그(logs\main.log 등)가 가장 최근에 바뀐 곳.
+ * (Claude 앱이 켜져 있으면 계속 로그를 쓰므로 그 폴더의 설정 파일이 실제로 읽히는 파일)
+ */
+export function activeClaudeDesktopDir(): string | undefined {
+  let best: { dir: string; t: number } | undefined
+  for (const dir of claudeDesktopDirs()) {
+    for (const f of ['main.log', 'mcp.log']) {
+      try {
+        const t = statSync(join(dir, 'logs', f)).mtimeMs
+        if (!best || t > best.t) best = { dir, t }
+      } catch {
+        /* 로그 없음 */
+      }
+    }
+  }
+  return best?.dir
 }
 
 export function filesFor(kind: IntegrationKind): string[] {

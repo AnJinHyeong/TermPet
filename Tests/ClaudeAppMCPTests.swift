@@ -64,6 +64,24 @@ final class ClaudeAppMCPTests: XCTestCase {
         XCTAssertEqual(tracker.workingCount, 1) // Claude Code 세션은 남음
     }
 
+    /// Code 탭: 훅 세션이 작업 중일 때 같이 온 MCP 신호는 중복 → 버림. 일반 채팅만 있을 땐 그대로.
+    func testChatSignalIgnoredWhileClaudeAppCodeSessionWorks() throws {
+        let t0 = Date()
+        let chatDone = try EventDecoder.decodeStandard(ClaudeAppMCP.eventBody(.init(kind: "done", summary: "x")))
+        var tracker = SessionTracker()
+        XCTAssertFalse(tracker.isDuplicateChatSignal(chatDone, now: t0))
+        // 다른 앱(Cursor)의 Claude Code 는 상관없음
+        tracker.apply(PetEvent(source: .claude, kind: .working, sessionId: "cursor-1", hostBundleId: "com.todesktop.230313mzl4w4u92"), now: t0)
+        XCTAssertFalse(tracker.isDuplicateChatSignal(chatDone, now: t0))
+        // Claude 앱 Code 탭 세션이 작업 중 → 중복
+        tracker.apply(PetEvent(source: .claude, kind: .working, sessionId: "code-1", hostBundleId: ClaudeAppMCP.hostBundleId), now: t0)
+        XCTAssertTrue(tracker.isDuplicateChatSignal(chatDone, now: t0 + 4))
+        XCTAssertFalse(tracker.isDuplicateChatSignal(chatDone, now: t0 + 3 * 60)) // 오래 소식 없으면 다시 받음
+        // Code 탭 세션이 끝나면 다시 받음
+        tracker.apply(PetEvent(source: .claude, kind: .done, sessionId: "code-1", hostBundleId: ClaudeAppMCP.hostBundleId), now: t0 + 10)
+        XCTAssertFalse(tracker.isDuplicateChatSignal(chatDone, now: t0 + 11))
+    }
+
     func testUnknownMethodAndToolAndGarbage() {
         XCTAssertEqual((json(ClaudeAppMCP.handle(#"{"jsonrpc":"2.0","id":5,"method":"server/discover"}"#).reply)["error"] as? [String: Any])?["code"] as? Int, -32601)
         XCTAssertEqual((json(ClaudeAppMCP.handle(#"{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"nope"}}"#).reply)["error"] as? [String: Any])?["code"] as? Int, -32602)

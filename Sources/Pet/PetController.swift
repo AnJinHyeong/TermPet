@@ -207,6 +207,8 @@ final class PetController: NSObject {
 
     /// 외부 이벤트(Claude 완료, 쉘 명령 실패 등) 수신 → 감정 표현 + 말풍선
     func receive(_ incoming: PetEvent) {
+        // Code 탭에서 훅 알림과 겹치는 "Claude 채팅" 알림은 버린다 (두 번 뜨지 않게)
+        if sessions.tracker.isDuplicateChatSignal(incoming) { return }
         var event = incoming
         sessions.apply(event)
         guard event.isNotification else {

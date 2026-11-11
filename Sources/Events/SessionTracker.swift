@@ -87,6 +87,20 @@ struct SessionTracker {
         return previous?.state
     }
 
+    /// Claude 앱 Code 탭(= Claude Code)에서는 훅 신호가 오는데, Claude가 텀펫 MCP 도구(termpet_notify)까지 불러서
+    /// "Claude 채팅" 알림이 한 번 더 올 수 있다 → Claude 앱에서 돌고 있는 Claude Code 세션이 작업 중이면 MCP 신호는 버린다.
+    /// (부작용: Code 탭 작업 중에 일반 채팅을 같이 하면 그동안 일반 채팅 알림은 안 뜬다)
+    static let chatShadowWindow: TimeInterval = 2 * 60
+
+    func isDuplicateChatSignal(_ event: PetEvent, now: Date = Date()) -> Bool {
+        guard event.sessionId == ClaudeAppMCP.sessionId else { return false }
+        return sessions.values.contains { s in
+            s.source == .claude && s.focusEvent.sessionId != ClaudeAppMCP.sessionId
+                && s.focusEvent.hostBundleId == ClaudeAppMCP.hostBundleId
+                && s.state == .working && now.timeIntervalSince(s.lastSeen) < Self.chatShadowWindow
+        }
+    }
+
     /// 오래된 세션 정리. 바뀐 게 있으면 true.
     @discardableResult
     mutating func prune(now: Date = Date()) -> Bool {

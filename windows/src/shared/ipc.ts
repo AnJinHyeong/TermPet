@@ -2,6 +2,7 @@
 import type { Animation, PetAction } from './characterPack'
 import type { EventKind, EventSource } from './events'
 import type { PetLayer } from './misc'
+import type { PetPrefs } from './prefs'
 import type { BubbleContent, PetMood } from './notifications'
 import type { PetBadge, SessionState } from './sessions'
 
@@ -36,6 +37,17 @@ export interface PanelSession {
   source: EventSource
   state: SessionState
   since: number
+}
+
+/** 최근 알림 한 줄 (패널 "최근 알림") */
+export interface PanelRecent {
+  id: string
+  title: string
+  body: string
+  kind: EventKind
+  date: number
+  /** 누르면 갈 프로젝트 창이 있는지 (없으면 마우스를 올렸을 때 본문 전체를 보여 줌) */
+  hasTarget: boolean
 }
 
 export interface PanelFriend {
@@ -77,6 +89,9 @@ export interface PanelState {
   server: { ok: boolean; text: string }
   statsLine?: string
   sessions: PanelSession[]
+  /** 최근 알림 (최신 4개) */
+  recent: PanelRecent[]
+  prefs: PetPrefs
   integrations: { kind: IntegrationKind; title: string; subtitle: string; installed: boolean; needsUpdate: boolean; available: boolean; check?: CheckResult }[]
   quiet: { manualOn: boolean; duringMeetings: boolean; soundOnAsk: boolean; isQuiet: boolean }
   launchAtLogin: boolean
@@ -102,6 +117,9 @@ export type PanelAction =
   | { type: 'soundOnAsk' }
   | { type: 'setLayer'; layer: PetLayer }
   | { type: 'focusSession'; id: string }
+  | { type: 'focusRecent'; id: string }
+  | { type: 'clearRecent' }
+  | { type: 'setPrefs'; prefs: Partial<PetPrefs> }
   | { type: 'setLaunchAtLogin'; on: boolean }
   | { type: 'checkUpdate' }
   | { type: 'update' }
