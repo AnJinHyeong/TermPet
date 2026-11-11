@@ -40,7 +40,8 @@ struct PetPhysics {
         let newX = origin.x + dx
 
         // 1) 창 옆면에 부딪힘
-        if let wall = terrain.windowWall(fromX: origin.x, toX: newX, feetY: origin.y, direction: direction) {
+        if let wall = terrain.windowWall(fromX: origin.x, toX: newX, feetY: origin.y, direction: direction,
+                                         onScreenFloor: standingOn == nil) {
             origin.x = direction == .right ? wall.x - size.width : wall.x
             // 발목 높이 정도의 낮은 턱은 그냥 올라선다
             if wall.top - origin.y < size.height * 0.22, let ledge = terrain.ledgeAfterClimbing(wall) {

@@ -115,9 +115,13 @@ struct Terrain {
     /// 몸 왼쪽 x가 `oldX` → `newX`로 움직일 때 부딪히는 첫 창 옆면.
     /// 발 높이에서 펫 키의 60% 안쪽으로 시작해 발보다 4pt 이상 솟은 창만 벽이다
     /// (창 아래를 지나가거나, 이미 창 앞에 겹쳐 있으면 벽 아님).
-    func windowWall(fromX oldX: CGFloat, toX newX: CGFloat, feetY: CGFloat, direction: Direction) -> Wall? {
+    /// `onScreenFloor`: 화면 바닥을 걷는 중이면 지금 모니터 끝(경계)이나 그 너머의 창 옆면은 벽이 아니다
+    /// → 옆 모니터 왼쪽 끝에 붙은 창 때문에 경계를 못 넘고 그 벽만 타던 문제. 경계는 화면 끝 처리가 맡는다.
+    func windowWall(fromX oldX: CGFloat, toX newX: CGFloat, feetY: CGFloat, direction: Direction,
+                    onScreenFloor: Bool = false) -> Wall? {
         let w = petSize.width
         var hit: Wall?
+        let screen = onScreenFloor ? screens.index(containingX: oldX + w / 2, y: feetY).map { screens.frames[$0] } : nil
         for (i, box) in windows.enumerated() {
             let f = box.frame
             guard f.minY < feetY + petSize.height * 0.6, f.maxY > feetY + 4 else { continue }
@@ -130,6 +134,7 @@ struct Terrain {
                 sideX = f.maxX
                 guard oldX >= sideX - 0.5, newX < sideX else { continue }
             }
+            if let screen, direction == .right ? sideX >= screen.maxX - 0.5 : sideX <= screen.minX + 0.5 { continue }
             // 벽 중간이 앞 창에 가려 있으면 안 보이는 벽 → 무시
             let probe = CGPoint(x: sideX, y: min(f.maxY, feetY + petSize.height / 2))
             if isCovered(probe, frontOf: i) { continue }
@@ -179,7 +184,7 @@ struct Terrain {
         for dir in [Direction.left, .right] {
             let edgeX = dir == .left ? f.minX : f.maxX - petSize.width
             var distance: CGFloat? = screens.neighbor(of: i, side: dir, atY: y) == nil ? abs(edgeX - x) : nil
-            if let wall = windowWall(fromX: x, toX: edgeX, feetY: y, direction: dir) {
+            if let wall = windowWall(fromX: x, toX: edgeX, feetY: y, direction: dir, onScreenFloor: true) {
                 let d = dir == .left ? x - wall.x : wall.x - (x + petSize.width)
                 distance = min(distance ?? .infinity, max(0, d))
             }

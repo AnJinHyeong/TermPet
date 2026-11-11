@@ -54,6 +54,21 @@ final class MultiMonitorTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(p.origin.x, 0)
     }
 
+    /// 맥북 왼쪽 끝(x=0)에 붙은 창(최대화 창 등)이 있어도 LG → 맥북 경계에서 그 창 옆면을 벽으로 타지 않고 건너뛴다
+    func testWindowAtNeighborEdgeIsNotAWallAcrossTheBoundary() {
+        let t = Terrain(screens: layout, windows: [WindowBox(id: 1, frame: CGRect(x: 0, y: 70, width: 1800, height: 1060))],
+                        petSize: pet)
+        var p = PetPhysics(origin: CGPoint(x: -100, y: 764), size: pet)
+        XCTAssertEqual(p.walk(direction: .right, speed: 50, dt: 1, terrain: t), .reachedScreenEdge)
+        XCTAssertNil(t.nearestWallDirection(originX: -100, feetY: 764).flatMap { $0 == .right ? $0 : nil })
+        p.prepareFall(terrain: t, velocity: p.screenHop(.right))
+        for _ in 0..<3000 where !p.fall(dt: 1.0 / 60, terrain: t) {}
+        XCTAssertEqual(p.origin.y, 0)
+        XCTAssertGreaterThanOrEqual(p.origin.x, 0)
+        // 맥북 쪽에서 그 창 앞을 지나 걷는 건 그대로 (이미 겹쳐 있으니 벽 아님)
+        XCTAssertEqual(p.walk(direction: .right, speed: 50, dt: 0.5, terrain: t), .moved)
+    }
+
     func testBigPetHopClearsTheBoundaryToo() {
         let big = CGSize(width: 160, height: 160)
         var p = PetPhysics(origin: CGPoint(x: -160, y: 764), size: big)
