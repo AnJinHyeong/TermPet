@@ -65,13 +65,17 @@ final class AppUpdater {
         }
         state = .updating
         let log = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".termpet/update.log").path
+        // 다시 열 앱: 이름("open -a TermPet")이 아니라 지금 실행 중인 앱의 경로로.
+        // 이름으로 열면 같은 Mac에 있는 다른 TermPet.app(개발 빌드 등)이 열려서 예전 버전이 뜰 수 있다 (실제로 겪은 버그).
+        // brew는 같은 자리(/Applications)에 새 버전을 넣으므로 이 경로가 곧 새 버전이다.
+        let appPath = Bundle.main.bundlePath
         // 앱이 brew에 의해 종료돼도 계속 돌도록 nohup + 백그라운드. 성공·실패와 상관없이 마지막에 앱을 다시 연다.
         let script = """
         export PATH="\((brew as NSString).deletingLastPathComponent):/usr/bin:/bin:/usr/sbin:/sbin"
         export HOMEBREW_NO_ENV_HINTS=1
         { date; '\(brew)' update --quiet; '\(brew)' upgrade --cask termpet; echo "exit $?"; } >> '\(log)' 2>&1
         sleep 1
-        open -a TermPet
+        open \(Self.shellQuote(appPath))
         """
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/sh")
