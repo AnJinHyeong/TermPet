@@ -36,6 +36,23 @@ final class ClaudeAppMCPTests: XCTestCase {
         XCTAssertEqual(ClaudeAppMCP.handle(#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"termpet_notify","arguments":{"summary":"x","kind":"weird"}}}"#).notify?.kind, "done")
     }
 
+    /// 답변 시작 신호 → 요약은 버리고, 머리 위 "…"(작업 중)로 이어졌다가 끝 신호에서 사라진다
+    func testWorkingStartSignalShowsWorkingBadgeUntilDone() throws {
+        let start = ClaudeAppMCP.handle(#"{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"termpet_notify","arguments":{"kind":"working","summary":"생각 중"}}}"#)
+        XCTAssertEqual(start.notify, .init(kind: "working", summary: ""))
+        XCTAssertNotNil(json(start.reply)["result"])
+
+        var tracker = SessionTracker()
+        let working = try EventDecoder.decodeStandard(ClaudeAppMCP.eventBody(start.notify!))
+        XCTAssertEqual(working.kind, .working)
+        XCTAssertFalse(working.isNotification) // 말풍선 아님, 머리 위 표시만
+        tracker.apply(working)
+        XCTAssertEqual(PetBadge.pick(waiting: tracker.waitingCount, working: tracker.workingCount, hasUnread: false), .working(1))
+
+        tracker.apply(try EventDecoder.decodeStandard(ClaudeAppMCP.eventBody(.init(kind: "done", summary: "답했어"))))
+        XCTAssertEqual(tracker.workingCount, 0)
+    }
+
     func testUnknownMethodAndToolAndGarbage() {
         XCTAssertEqual((json(ClaudeAppMCP.handle(#"{"jsonrpc":"2.0","id":5,"method":"server/discover"}"#).reply)["error"] as? [String: Any])?["code"] as? Int, -32601)
         XCTAssertEqual((json(ClaudeAppMCP.handle(#"{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"nope"}}"#).reply)["error"] as? [String: Any])?["code"] as? Int, -32602)

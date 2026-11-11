@@ -44,6 +44,14 @@ describe('termpet-mcp.js', () => {
     expect(r.notify).toEqual({ kind: 'done', summary: '요약' })
   })
 
+  it('답변 시작 신호(working) → 요약 없이 작업 중 이벤트', () => {
+    const r = mcp.handle(JSON.stringify({ jsonrpc: '2.0', id: 6, method: 'tools/call', params: { name: 'termpet_notify', arguments: { kind: 'working', summary: '생각 중' } } }), '1')
+    expect(r.notify).toEqual({ kind: 'working', summary: '' })
+    const e = decodeStandard(mcp.eventBody(r.notify!))
+    expect(e.kind).toBe('working')
+    expect(e.detail).toBeUndefined()
+  })
+
   it('보내는 이벤트 → "Claude 채팅" 제목, 누르면 Claude 앱 창으로', () => {
     const e = decodeStandard(mcp.eventBody({ kind: 'ask', summary: '골라 줘' }))
     expect(e.kind).toBe('ask')

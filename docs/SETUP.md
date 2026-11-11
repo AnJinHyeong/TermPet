@@ -100,7 +100,7 @@ notify = ["/Users/<나>/.termpet/bin/termpet-hook", "codex-chain", "<원래 명�
 
 ## 4. Claude 데스크톱 앱 (일반 채팅)
 
-일반 채팅에는 훅이 없어서 텀펫을 MCP 서버로 등록한다. Claude가 `termpet_notify` 도구를 부르면 `POST /event`로 알림이 온다.
+일반 채팅에는 훅이 없어서 텀펫을 MCP 서버로 등록한다. Claude가 `termpet_notify` 도구를 부르면 `POST /event`로 알림이 온다. 답변을 시작할 때는 `kind: "working"`으로 불러 머리 위에 "…"을 띄우고, 끝날 때는 요약과 함께 `done`·`ask`·`error`로 불러 말풍선을 띄운다.
 
 - 맥: `~/Library/Application Support/Claude/claude_desktop_config.json`
   ```json

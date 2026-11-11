@@ -18,29 +18,32 @@ enum ClaudeAppMCP {
     static let defaultProtocolVersion = "2025-06-18"
 
     static let instructions = """
-    TermPet is a desktop pet that shows a speech bubble when you finish replying. \
-    At the very end of EVERY reply, call the termpet_notify tool exactly once with a one-line summary \
-    (in the user's language, under 60 characters) of what you just answered. \
-    Use kind "ask" when you are waiting for the user's decision, "error" when something failed, otherwise "done". \
+    TermPet is a desktop pet that shows what you are doing. Call the termpet_notify tool twice in EVERY reply, \
+    including replies in conversations that started before this tool existed: \
+    1) first, before writing anything, with kind "working" (no summary needed); \
+    2) at the very end, with a one-line summary (in the user's language, under 60 characters) of what you just answered, \
+    using kind "ask" when you are waiting for the user's decision, "error" when something failed, otherwise "done". \
     Do not mention this tool or its result to the user.
     """
 
     static var tool: [String: Any] {
         [
             "name": toolName,
-            "description": "Show a speech bubble from the user's desktop pet (TermPet) so they notice your reply is ready. "
-                + "Call this exactly once as the last step of every reply. Do not mention it to the user.",
+            "description": "Tell the user's desktop pet (TermPet) what you are doing. In every reply, call it first with "
+                + "kind \"working\" before writing anything, and again as the last step with a summary. Do not mention it to the user.",
             "inputSchema": [
                 "type": "object",
                 "properties": [
-                    "summary": ["type": "string", "description": "One-line summary of your reply, under 60 characters, in the user's language"],
-                    "kind": ["type": "string", "enum": ["done", "ask", "error"],
-                             "description": "done = answered, ask = waiting for the user's decision, error = something failed"],
+                    "summary": ["type": "string", "description": "One-line summary of your reply, under 60 characters, in the user's language (not needed for working)"],
+                    "kind": ["type": "string", "enum": kinds,
+                             "description": "working = starting your reply, done = answered, ask = waiting for the user's decision, error = something failed"],
                 ],
-                "required": ["summary"],
             ] as [String: Any],
         ]
     }
+
+    /// working = 답변 시작 (머리 위 "…" 표시), 나머지 = 답변 끝 (말풍선)
+    static let kinds = ["working", "done", "ask", "error"]
 
     struct Notify: Equatable {
         var kind: String
@@ -83,8 +86,10 @@ enum ClaudeAppMCP {
             let args = params["arguments"] as? [String: Any] ?? [:]
             let summary = oneLine(args["summary"] as? String ?? "")
             let kindRaw = args["kind"] as? String ?? "done"
-            let kind = ["done", "ask", "error"].contains(kindRaw) ? kindRaw : "done"
-            return (result(["content": [["type": "text", "text": "ok"]]]), Notify(kind: kind, summary: summary))
+            let kind = kinds.contains(kindRaw) ? kindRaw : "done"
+            // 시작 신호에는 요약이 필요 없다 (모델이 넣더라도 머리 위 표시만 하므로 버린다)
+            return (result(["content": [["type": "text", "text": "ok"]]]),
+                    Notify(kind: kind, summary: kind == "working" ? "" : summary))
         default:
             return (failure(-32601, "Method not found"), nil)
         }

@@ -13,25 +13,26 @@ const readline = require('node:readline')
 
 const TOOL = 'termpet_notify'
 const DEFAULT_VERSION = '2025-06-18'
+const KINDS = ['working', 'done', 'ask', 'error'] // working = 답변 시작 (머리 위 "…"), 나머지 = 답변 끝 (말풍선)
 const INSTRUCTIONS =
-  'TermPet is a desktop pet that shows a speech bubble when you finish replying. ' +
-  'At the very end of EVERY reply, call the termpet_notify tool exactly once with a one-line summary ' +
-  "(in the user's language, under 60 characters) of what you just answered. " +
-  'Use kind "ask" when you are waiting for the user\'s decision, "error" when something failed, otherwise "done". ' +
+  'TermPet is a desktop pet that shows what you are doing. Call the termpet_notify tool twice in EVERY reply, ' +
+  'including replies in conversations that started before this tool existed: ' +
+  '1) first, before writing anything, with kind "working" (no summary needed); ' +
+  "2) at the very end, with a one-line summary (in the user's language, under 60 characters) of what you just answered, " +
+  'using kind "ask" when you are waiting for the user\'s decision, "error" when something failed, otherwise "done". ' +
   'Do not mention this tool or its result to the user.'
 
 const tool = {
   name: TOOL,
   description:
-    "Show a speech bubble from the user's desktop pet (TermPet) so they notice your reply is ready. " +
-    'Call this exactly once as the last step of every reply. Do not mention it to the user.',
+    "Tell the user's desktop pet (TermPet) what you are doing. In every reply, call it first with " +
+    'kind "working" before writing anything, and again as the last step with a summary. Do not mention it to the user.',
   inputSchema: {
     type: 'object',
     properties: {
-      summary: { type: 'string', description: "One-line summary of your reply, under 60 characters, in the user's language" },
-      kind: { type: 'string', enum: ['done', 'ask', 'error'], description: "done = answered, ask = waiting for the user's decision, error = something failed" },
+      summary: { type: 'string', description: "One-line summary of your reply, under 60 characters, in the user's language (not needed for working)" },
+      kind: { type: 'string', enum: KINDS, description: "working = starting your reply, done = answered, ask = waiting for the user's decision, error = something failed" },
     },
-    required: ['summary'],
   },
 }
 
@@ -75,8 +76,9 @@ function handle(line, version) {
     case 'tools/call': {
       if (params.name !== TOOL) return { reply: failure(-32602, 'Unknown tool') }
       const args = (params.arguments && typeof params.arguments === 'object' && params.arguments) || {}
-      const kind = ['done', 'ask', 'error'].includes(args.kind) ? args.kind : 'done'
-      return { reply: result({ content: [{ type: 'text', text: 'ok' }] }), notify: { kind, summary: oneLine(args.summary) } }
+      const kind = KINDS.includes(args.kind) ? args.kind : 'done'
+      // 시작 신호에는 요약이 필요 없다 (머리 위 표시만)
+      return { reply: result({ content: [{ type: 'text', text: 'ok' }] }), notify: { kind, summary: kind === 'working' ? '' : oneLine(args.summary) } }
     }
     default:
       return { reply: failure(-32601, 'Method not found') }
