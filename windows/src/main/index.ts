@@ -101,6 +101,42 @@ async function importFriends(folder = false) {
   }
 }
 
+/** 친구 타일 우클릭 메뉴 → 삭제 */
+function showFriendMenu(key: string) {
+  const p = packs.find((x) => x.key === key)
+  if (!p || !key.startsWith('friend.')) return
+  Menu.buildFromTemplate([{ label: `'${p.name}' 지우기…`, click: () => void deleteFriend(key) }]).popup({ window: panel })
+}
+
+/** 확인 후 친구 폴더를 휴지통으로. 지금 친구였으면 첫 친구로 바꾼다 */
+async function deleteFriend(key: string) {
+  const p = packs.find((x) => x.key === key)
+  if (!p) return
+  hidePanel()
+  const r = await dialog.showMessageBox({
+    type: 'question',
+    title: '텀펫',
+    message: `'${p.name}'을(를) 지울까요?`,
+    detail: '휴지통으로 옮겨져요. 잘못 지웠다면 휴지통에서 복원하면 돼요.',
+    buttons: ['지우기', '취소'],
+    defaultId: 1,
+    cancelId: 1,
+  })
+  if (r.response !== 0) return
+  try {
+    await shell.trashItem(p.folder)
+  } catch (e) {
+    return void alert('지우지 못했어요', (e as Error).message)
+  }
+  const wasCurrent = current?.key === key
+  reloadPacks()
+  if (wasCurrent && current) {
+    saveSettings({ selected: current.key })
+    pet.setPack(current)
+  }
+  refreshUI()
+}
+
 function openFriendsFolder() {
   const dir = isWin ? macAppFriends : friendsDir()
   mkdirSync(dir, { recursive: true })
@@ -259,6 +295,10 @@ function positionPanel() {
 function togglePanel() {
   if (!panel || panel.isDestroyed()) createPanel()
   if (panel!.isVisible()) return hidePanel()
+  // 친구 폴더에 새로 넣은 팩이 바로 보이게 (선택한 친구가 그대로면 펫은 다시 불러오지 않음)
+  const before = current?.key
+  reloadPacks()
+  if (current && current.key !== before) pet.setPack(current)
   positionPanel()
   panel!.webContents.send('panel:state', panelState())
   panel!.show()
@@ -280,6 +320,8 @@ ipcMain.on('panel:action', (_e, a: PanelAction) => {
       return selectPack(a.key)
     case 'importFriends':
       return void importFriends()
+    case 'friendMenu':
+      return showFriendMenu(a.key)
     case 'openFriendsFolder':
       return openFriendsFolder()
     case 'setVisible':

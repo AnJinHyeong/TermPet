@@ -167,6 +167,25 @@ final class CharacterLibraryTests: XCTestCase {
         XCTAssertEqual(CharacterLibrary(friendsDirectory: dir, defaults: defaults).selectedId, "friend.b")
     }
 
+    /// 삭제: 휴지통 함수로 폴더를 넘기고, 선택돼 있던 친구면 첫 친구로. 마지막 친구까지 지우면 말랑이
+    func testRemoveFriend() throws {
+        SpriteCharacterTests.makePack(in: dir.appendingPathComponent("a"), id: "a")
+        SpriteCharacterTests.makePack(in: dir.appendingPathComponent("b"), id: "b")
+        let lib = CharacterLibrary(friendsDirectory: dir, defaults: defaults)
+        var trashed: [String] = []
+        lib.trash = { url in trashed.append(url.lastPathComponent); try FileManager.default.removeItem(at: url) }
+        lib.select("friend.b")
+        try lib.remove("friend.b")
+        XCTAssertEqual(trashed, ["b"])
+        XCTAssertEqual(lib.entries.map(\.id), ["friend.a"])
+        XCTAssertEqual(lib.selectedId, "friend.a")
+        XCTAssertEqual(defaults.string(forKey: CharacterLibrary.selectedDefaultsKey), "friend.a")
+        try lib.remove(CharacterLibrary.defaultId) // 목록에 없는/내장 id 는 무시
+        try lib.remove("friend.a")
+        XCTAssertEqual(lib.entries.map(\.id), [CharacterLibrary.defaultId])
+        XCTAssertFalse(lib.canRemove(lib.entries[0]))
+    }
+
     /// 예전에 고른 기본 캐릭터·내 캐릭터(custom)는 첫 친구로 바뀐다
     func testOldSelectionFallsBackToFirstFriend() {
         SpriteCharacterTests.makePack(in: dir.appendingPathComponent("a"), id: "a")

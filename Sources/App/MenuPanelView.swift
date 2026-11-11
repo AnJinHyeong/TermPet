@@ -85,6 +85,7 @@ struct MenuPanelView: View {
         .overlayPreferenceValue(HintPreference.self) { HintLayer(info: $0) }
         .onAppear {
             app.integrations.refresh() // 터미널에서 직접 고쳤을 수도 있으니 열 때마다 다시 확인
+            characters.reload() // Friends 폴더에 새로 만든 친구(캐릭터 만들기 스킬)가 바로 보이게
             launchAtLogin = LoginItem.isEnabled
             prefs = pet.preferences
         }
@@ -341,11 +342,20 @@ struct MenuPanelView: View {
             LazyVGrid(columns: Array(repeating: GridItem(.fixed(48), spacing: 8), count: 5), alignment: .leading, spacing: 8) {
                 ForEach(characters.entries) { entry in
                     let selected = entry.id == characters.selectedId
+                    let removable = characters.canRemove(entry)
                     Button { app.selectCharacter(entry.id) } label: {
                         CharacterThumbnail(entry: entry, selected: selected)
                     }
                     .buttonStyle(PressableStyle())
-                    .hint(entry.name)
+                    .hint(removable ? "\(entry.name) · 우클릭하면 삭제" : entry.name)
+                    // 우클릭 메뉴 (.contextMenu ≈ onContextMenu 로 띄우는 메뉴)
+                    .contextMenu {
+                        if removable {
+                            Button("'\(entry.name)' 지우기…", role: .destructive) {
+                                closePanelThen { app.deleteCharacter(entry.id) }
+                            }
+                        }
+                    }
                 }
                 // 친구 추가하기: zip을 골라 캐릭터 팩 설치
                 Button { closePanelThen { app.importFriends() } } label: {

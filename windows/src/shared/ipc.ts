@@ -87,6 +87,7 @@ export interface PanelState {
 export type PanelAction =
   | { type: 'selectFriend'; key: string }
   | { type: 'importFriends' }
+  | { type: 'friendMenu'; key: string }
   | { type: 'openFriendsFolder' }
   | { type: 'setVisible'; visible: boolean }
   | { type: 'toggleSleep' }

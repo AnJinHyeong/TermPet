@@ -134,6 +134,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// 패널 친구 타일 우클릭 → 삭제: 확인 후 폴더를 휴지통으로. 지금 친구였으면 첫 친구로 바꾼다.
+    func deleteCharacter(_ id: String) {
+        guard let entry = characters.entries.first(where: { $0.id == id }) else { return }
+        NSApp.activate()
+        let alert = NSAlert()
+        alert.messageText = "'\(entry.name)'을(를) 지울까요?"
+        alert.informativeText = "휴지통으로 옮겨져요. 잘못 지웠다면 Finder 휴지통에서 'Friends' 폴더로 되돌려 놓으면 돼요."
+        alert.addButton(withTitle: "지우기")
+        alert.addButton(withTitle: "취소")
+        alert.buttons[0].hasDestructiveAction = true
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let wasSelected = characters.selectedId == id
+        do {
+            try characters.remove(id)
+        } catch {
+            showAlert("지우지 못했어요", error.localizedDescription)
+            return
+        }
+        if wasSelected { selectCharacter(characters.selectedId) }
+    }
+
     /// 패널의 AI 연결 버튼: 설정 파일 백업 → 텀펫 항목 추가/삭제
     /// remove: 스위치를 끈 경우 (업데이트가 필요한 상태여도 해제)
     func toggleIntegration(_ kind: IntegrationManager.Kind, remove: Bool = false) {

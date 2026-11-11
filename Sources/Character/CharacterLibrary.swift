@@ -29,6 +29,8 @@ final class CharacterLibrary {
 
     let friendsDirectory: URL
     private let defaults: UserDefaults
+    /// 삭제 방법: 기본은 휴지통으로 (잘못 지워도 Finder 휴지통에서 되살릴 수 있게). 테스트에서는 바꿔 끼운다.
+    @ObservationIgnored var trash: (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
 
     private(set) var entries: [Entry] = []
     private(set) var selectedId: String
@@ -65,6 +67,23 @@ final class CharacterLibrary {
         }
         .sorted { ($0.0, $0.1.name) < ($1.0, $1.1.name) }
         .map(\.1)
+    }
+
+    // MARK: - 삭제
+
+    /// 친구 팩만 지울 수 있다 (내장 캐릭터는 대체용이라 목록에서 못 지움).
+    func canRemove(_ entry: Entry) -> Bool {
+        if case .pack = entry.source { return true }
+        return false
+    }
+
+    /// 친구 삭제: 폴더를 휴지통으로 옮기고 목록을 다시 읽는다.
+    /// 지운 친구가 선택돼 있었으면 선택이 첫 친구로 바뀐다 (호출 측이 그 캐릭터를 다시 불러와야 함).
+    func remove(_ id: String) throws {
+        guard let entry = entries.first(where: { $0.id == id }), case .pack(let folder) = entry.source else { return }
+        try trash(folder)
+        reload()
+        defaults.set(selectedId, forKey: Self.selectedDefaultsKey)
     }
 
     // MARK: - 선택

@@ -73,7 +73,16 @@ export function Panel() {
         <Card>
           <div className="friends">
             {s.friends.map((f) => (
-              <button key={f.key} className={`friend ${f.selected ? 'selected' : ''}`} title={f.name} onClick={() => act({ type: 'selectFriend', key: f.key })}>
+              <button
+                key={f.key}
+                className={`friend ${f.selected ? 'selected' : ''}`}
+                title={f.key.startsWith('friend.') ? `${f.name} · 우클릭하면 삭제` : f.name}
+                onClick={() => act({ type: 'selectFriend', key: f.key })}
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  act({ type: 'friendMenu', key: f.key })
+                }}
+              >
                 <span className="thumb" style={{ backgroundImage: `url("${packUrl(f.key, f.thumbnail)}")` }} />
                 {f.selected && <span className="heart">♥</span>}
               </button>
