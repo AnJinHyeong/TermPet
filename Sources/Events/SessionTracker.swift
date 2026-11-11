@@ -25,6 +25,9 @@ struct SessionTracker {
 
     /// 이 시간 동안 소식이 없는 "작업 중/권한 대기"는 중단된 것으로 보고 지운다
     static let staleAfter: TimeInterval = 15 * 60
+    /// Claude 앱 채팅은 Claude가 끝 신호(termpet_notify)를 빠뜨릴 수 있어서, "답변 중"을 더 빨리 지운다
+    /// (안 그러면 답이 끝났는데도 "…"이 계속 떠서 아직 답변 중인 것처럼 보인다)
+    static let claudeChatStaleAfter: TimeInterval = 5 * 60
     /// 끝난 세션은 이 시간 동안만 목록에 남긴다
     static let keepFinishedFor: TimeInterval = 10 * 60
 
@@ -91,7 +94,9 @@ struct SessionTracker {
         sessions = sessions.filter { _, s in
             let age = now.timeIntervalSince(s.lastSeen)
             switch s.state {
-            case .working, .waiting: return age < Self.staleAfter
+            case .working, .waiting:
+                let isClaudeChat = s.focusEvent.sessionId == ClaudeAppMCP.sessionId
+                return age < (isClaudeChat ? Self.claudeChatStaleAfter : Self.staleAfter)
             case .done, .error: return age < Self.keepFinishedFor
             }
         }

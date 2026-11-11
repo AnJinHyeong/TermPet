@@ -53,6 +53,17 @@ final class ClaudeAppMCPTests: XCTestCase {
         XCTAssertEqual(tracker.workingCount, 0)
     }
 
+    /// 끝 신호가 빠져도 "답변 중"은 5분 뒤 사라진다 (다른 세션은 15분 그대로)
+    func testClaudeChatWorkingExpiresSooner() throws {
+        let t0 = Date()
+        var tracker = SessionTracker()
+        tracker.apply(try EventDecoder.decodeStandard(ClaudeAppMCP.eventBody(.init(kind: "working", summary: ""))), now: t0)
+        tracker.apply(PetEvent(source: .claude, kind: .working, sessionId: "cli-1"), now: t0)
+        XCTAssertFalse(tracker.prune(now: t0 + 4 * 60))
+        XCTAssertTrue(tracker.prune(now: t0 + 5 * 60 + 1))
+        XCTAssertEqual(tracker.workingCount, 1) // Claude Code 세션은 남음
+    }
+
     func testUnknownMethodAndToolAndGarbage() {
         XCTAssertEqual((json(ClaudeAppMCP.handle(#"{"jsonrpc":"2.0","id":5,"method":"server/discover"}"#).reply)["error"] as? [String: Any])?["code"] as? Int, -32601)
         XCTAssertEqual((json(ClaudeAppMCP.handle(#"{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"nope"}}"#).reply)["error"] as? [String: Any])?["code"] as? Int, -32602)

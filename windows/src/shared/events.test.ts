@@ -118,6 +118,14 @@ describe('SessionTracker', () => {
     t.apply(ev('working'), 0)
     expect(t.prune(16 * 60_000)).toBe(true)
   })
+  it('Claude 앱 채팅의 답변 중은 5분 뒤 정리 (끝 신호가 빠져도 "…"이 오래 남지 않게)', () => {
+    const t = new SessionTracker()
+    t.apply(decodeStandard(JSON.stringify({ source: 'claude', kind: 'working', sessionId: 'claude-app-chat' })), 0)
+    t.apply(ev('working'), 0)
+    expect(t.prune(4 * 60_000)).toBe(false)
+    expect(t.prune(5 * 60_000 + 1)).toBe(true)
+    expect(t.sessions.size).toBe(1)
+  })
   it('배지 우선순위', () => {
     expect(pickBadge(1, 2, true)).toEqual({ type: 'waiting', count: 1 })
     expect(pickBadge(0, 2, true)).toEqual({ type: 'unread' })

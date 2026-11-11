@@ -18,6 +18,9 @@ export interface Session {
 
 export const STALE_AFTER = 15 * 60_000
 export const KEEP_FINISHED_FOR = 10 * 60_000
+/** Claude 앱 채팅은 Claude가 끝 신호를 빠뜨릴 수 있어서 "답변 중"을 더 빨리 지운다 (termpet-mcp.js 의 sessionId) */
+export const CLAUDE_CHAT_SESSION = 'claude-app-chat'
+export const CLAUDE_CHAT_STALE_AFTER = 5 * 60_000
 
 export function sessionKey(e: PetEvent): string | undefined {
   if (!e.sessionId) return undefined
@@ -75,7 +78,8 @@ export class SessionTracker {
     let changed = false
     for (const [k, s] of this.sessions) {
       const age = now - s.lastSeen
-      const keep = s.state === 'working' || s.state === 'waiting' ? age < STALE_AFTER : age < KEEP_FINISHED_FOR
+      const stale = s.focusEvent.sessionId === CLAUDE_CHAT_SESSION ? CLAUDE_CHAT_STALE_AFTER : STALE_AFTER
+      const keep = s.state === 'working' || s.state === 'waiting' ? age < stale : age < KEEP_FINISHED_FOR
       if (!keep) {
         this.sessions.delete(k)
         changed = true
