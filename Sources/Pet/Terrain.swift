@@ -32,6 +32,8 @@ struct Terrain {
         var windowID: Int?
         /// 벽이 펫의 어느 쪽에 있는지 (= 부딪힐 때 걷던 방향)
         var side: Direction
+        /// 옆 모니터로 이어지는 "턱"(옆 모니터 바닥이 더 높음). 꼭대기(`top`)까지 오르면 옆 모니터로 폴짝 넘어간다
+        var leadsToScreen = false
     }
 
     /// 착지 지점: 화면 바닥이면 windowID nil

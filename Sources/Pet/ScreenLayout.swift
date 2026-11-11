@@ -48,6 +48,21 @@ struct ScreenLayout: Equatable {
         }
     }
 
+    /// i번 화면 `side` 쪽에 붙은, 바닥이 `y`보다 높은 이웃 화면 = 기어올라 넘어갈 수 있는 "턱".
+    /// 턱 꼭대기(이웃 바닥 높이)에 매달렸을 때 몸이 지금 화면 안에 다 보여야 하고(위가 메뉴바·화면 끝에 안 잘림),
+    /// 이웃 화면에도 서 있을 공간이 있어야 한다. 여럿이면 가장 낮은 턱.
+    func stepNeighbor(of i: Int, side: Direction, aboveY y: CGFloat, petHeight: CGFloat) -> Int? {
+        let f = frames[i]
+        return frames.indices.filter { j in
+            guard j != i else { return false }
+            let g = frames[j]
+            let touching = side == .right
+                ? abs(g.minX - f.maxX) < Self.adjacencyTolerance
+                : abs(g.maxX - f.minX) < Self.adjacencyTolerance
+            return touching && g.minY > y + 1 && g.minY + petHeight <= f.maxY && g.minY + petHeight <= g.maxY
+        }.min { frames[$0].minY < frames[$1].minY }
+    }
+
     /// x 위치에서 `fromY` 높이부터 떨어질 때 착지할 바닥 y.
     /// - 아래쪽에 바닥이 있으면 그중 가장 높은 것
     /// - 이미 바닥보다 아래(Dock 위에 놓은 경우 등)면 가장 가까운 위쪽 바닥으로 끌어올림

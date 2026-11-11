@@ -28,6 +28,9 @@ struct PetPhysics {
         case hitWall(Terrain.Wall)   // 창 옆면 또는 화면 끝 → 기어오르거나 돌아선다
         case reachedEdge             // 창 위에서 끝에 닿음 → 뛰어내리거나 돌아선다
         case startFalling            // 발밑에 바닥이 없음
+        /// 화면 바닥에서 같은 높이이거나 더 낮은 옆 모니터와의 경계에 닿음 → 폴짝 건너뛰거나 돌아선다.
+        /// (걸어서 천천히 넘으면 몸이 두 모니터에 걸친 동안 macOS가 한쪽에만 그려서 반쯤 잘려 보인다)
+        case reachedScreenEdge
     }
 
     // MARK: - 걷기
@@ -67,6 +70,12 @@ struct PetPhysics {
         return walkOnScreenFloor(direction: direction, newX: newX, layout: terrain.screens)
     }
 
+    /// 모니터 경계를 폴짝 건너뛰는 초속. 몸 전체가 경계를 넘은 뒤에 원래 높이로 내려오도록
+    /// (공중 약 0.39초 동안 몸 폭의 1.1배 이상 이동) 크기에 맞춰 키운다.
+    func screenHop(_ direction: Direction) -> CGVector {
+        CGVector(dx: direction.sign * max(200, size.width * 3.3), dy: 350)
+    }
+
     /// 하위 호환: 창 없이 화면만 있는 지형
     mutating func walk(direction: Direction, speed: CGFloat, dt: TimeInterval, layout: ScreenLayout) -> WalkResult {
         walk(direction: direction, speed: speed, dt: dt, terrain: Terrain(screens: layout, petSize: size))
@@ -77,13 +86,28 @@ struct PetPhysics {
             return .startFalling
         }
         let f = layout.frames[current]
-        // 화면 끝을 넘으려 할 때: 같은 높이로 이어지는 이웃 화면이 없으면 벽
         let exceedsRight = direction == .right && newX + size.width > f.maxX
         let exceedsLeft = direction == .left && newX < f.minX
-        if exceedsRight || exceedsLeft,
-           layout.neighbor(of: current, side: direction, atY: origin.y) == nil {
-            origin.x = exceedsRight ? f.maxX - size.width : f.minX
-            return .hitWall(Terrain.Wall(x: exceedsRight ? f.maxX : f.minX, top: f.maxY, windowID: nil, side: direction))
+        if exceedsRight || exceedsLeft {
+            let edgeX = exceedsRight ? f.maxX : f.minX
+            let stopX = exceedsRight ? f.maxX - size.width : f.minX
+            // 이미 몸이 경계를 넘어가 있으면(예전 상태 등) 되돌리지 않고 그대로 걸어 넘어간다
+            let alreadyOver = exceedsRight ? origin.x > stopX + 0.5 : origin.x < stopX - 0.5
+            if layout.neighbor(of: current, side: direction, atY: origin.y) != nil {
+                // 같은 높이이거나 더 낮은 옆 모니터: 경계에 멈춰 서서 건너뛸지 정한다
+                if !alreadyOver {
+                    origin.x = stopX
+                    return .reachedScreenEdge
+                }
+            } else {
+                origin.x = stopX
+                // 옆 모니터 바닥이 더 높으면 그 높이까지만 벽(턱) → 기어올라 넘어간다
+                if let j = layout.stepNeighbor(of: current, side: direction, aboveY: origin.y, petHeight: size.height) {
+                    return .hitWall(Terrain.Wall(x: edgeX, top: layout.frames[j].minY, windowID: nil,
+                                                 side: direction, leadsToScreen: true))
+                }
+                return .hitWall(Terrain.Wall(x: edgeX, top: f.maxY, windowID: nil, side: direction))
+            }
         }
         origin.x = newX
         // 이동 후 발밑 확인 (이웃 화면 바닥이 더 낮으면 떨어진다)
@@ -146,6 +170,8 @@ struct PetPhysics {
         case reachedTop(windowID: Int)
         /// 목표 높이까지 올랐지만 올라설 곳이 없음 → 벽을 차고 뛰어내린다
         case letGo
+        /// 옆 모니터 턱 꼭대기에 닿음 → 옆 모니터로 폴짝 넘어간다 (`screenHop`)
+        case overStep
     }
 
     /// `limitY`: 이 높이(발 기준)까지 오르면 손을 놓는다 (화면 벽처럼 꼭대기가 없을 때)
@@ -158,6 +184,10 @@ struct PetPhysics {
 
         let goal = min(limitY, wall.top)
         guard origin.y >= goal else { return .climbing }
+        if wall.leadsToScreen, origin.y >= wall.top - 0.5 {
+            origin.y = wall.top
+            return .overStep
+        }
         if origin.y >= wall.top - 0.5, let ledge = terrain.ledgeAfterClimbing(wall) {
             origin.y = ledge.y
             // 몸이 창 윗면 안쪽으로 완전히 올라가게
@@ -196,15 +226,18 @@ struct PetPhysics {
     }
 
     /// 보정했으면 true (던져서 화면 끝에 부딪힘)
+    /// 옆 모니터가 있어도 **지금 발 높이에** 그 모니터가 없으면 벽이다 (높이가 다른 모니터 사이의 빈 공간으로
+    /// 몸이 들어가 반쯤 안 보이게 착지하거나, 옆 모니터 바닥으로 순간이동하지 않게).
     private mutating func bounceOffScreenEdges(layout: ScreenLayout) -> Bool {
-        let column = layout.indices(inColumnX: centerX)
-        guard let i = column.first ?? layout.nearestIndex(toX: centerX) else { return false }
+        guard let i = layout.index(containingX: centerX, y: origin.y)
+                ?? layout.indices(inColumnX: centerX).first
+                ?? layout.nearestIndex(toX: centerX) else { return false }
         let f = layout.frames[i]
-        if origin.x + size.width > f.maxX, layout.neighbor(of: i, side: .right) == nil {
+        if origin.x + size.width > f.maxX, layout.neighbor(of: i, side: .right, atY: origin.y) == nil {
             origin.x = f.maxX - size.width
             return true
         }
-        if origin.x < f.minX, layout.neighbor(of: i, side: .left) == nil {
+        if origin.x < f.minX, layout.neighbor(of: i, side: .left, atY: origin.y) == nil {
             origin.x = f.minX
             return true
         }

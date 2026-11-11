@@ -23,6 +23,8 @@ struct PetBrain {
         var climbScreenChance: Double = 0.3
         /// 창 위에서 끝에 닿았을 때 뛰어내릴 확률 (나머지는 돌아선다)
         var edgeJumpChance: Double = 0.4
+        /// 모니터 경계에서 옆 모니터로 넘어갈 확률 (턱을 기어오르거나 폴짝 건너뛴다. 나머지는 돌아선다)
+        var crossScreenChance: Double = 0.7
     }
 
     /// 외부에서 들어오는 입력. TS의 판별 유니온(`{ type: 'react', action, duration }`)과 같다.
@@ -33,6 +35,8 @@ struct PetBrain {
         case landed               // 바닥에 닿음
         case hitWall(window: Bool = false) // 벽에 막힘 → 기어오르거나 돌아선다
         case reachedEdge          // 창 위에서 끝에 닿음 → 뛰어내리거나 돌아선다
+        case hitStep              // 옆 모니터 바닥이 더 높은 경계(턱) → 기어올라 넘어가거나 돌아선다
+        case reachedScreenEdge    // 같은 높이·더 낮은 옆 모니터 경계 → 폴짝 건너뛰거나 돌아선다
         case climbedUp            // 벽을 다 올라 창 위에 올라섬 → 계속 걷기
         case letGo                // 벽에서 손을 놓음 → 반대쪽으로 뛰어내림
         case climbOutOfDock       // Dock 뒤에 가려졌음 → 그 자리에서 Dock 위로 기어 올라온다
@@ -120,6 +124,20 @@ struct PetBrain {
         case .reachedEdge:
             if Double.random(in: 0..<1, using: &rng) < config.edgeJumpChance {
                 enter(.fall, for: .infinity, using: &rng) // 뛰어내리기
+            } else {
+                direction = direction.flipped
+            }
+
+        case .hitStep:
+            if action == .walk, Double.random(in: 0..<1, using: &rng) < config.crossScreenChance {
+                enter(.climb, for: .infinity, using: &rng)
+            } else {
+                direction = direction.flipped
+            }
+
+        case .reachedScreenEdge:
+            if action == .walk, Double.random(in: 0..<1, using: &rng) < config.crossScreenChance {
+                enter(.fall, for: .infinity, using: &rng) // 폴짝 (초속은 컨트롤러가 screenHop으로)
             } else {
                 direction = direction.flipped
             }

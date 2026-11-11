@@ -341,8 +341,14 @@ final class PetController: NSObject {
             switch physics.walk(direction: brain.direction, speed: currentWalkSpeed, dt: dt, terrain: terrain) {
             case .moved: break
             case .hitWall(let wall):
-                brain.handle(.hitWall(window: wall.windowID != nil), using: &rng)
+                brain.handle(wall.leadsToScreen ? .hitStep : .hitWall(window: wall.windowID != nil), using: &rng)
                 if brain.action == .climb { startClimbing(wall) }
+            case .reachedScreenEdge:
+                brain.handle(.reachedScreenEdge, using: &rng)
+                if brain.action == .fall {
+                    // 옆 모니터로 폴짝 (두 모니터에 걸쳐 반쯤 잘려 보이는 시간을 줄인다)
+                    physics.prepareFall(terrain: terrain, velocity: physics.screenHop(brain.direction))
+                }
             case .reachedEdge:
                 brain.handle(.reachedEdge, using: &rng)
                 if brain.action == .fall {
@@ -580,8 +586,8 @@ final class PetController: NSObject {
     private func startClimbing(_ wall: Terrain.Wall) {
         climbingWall = wall
         physics.standingOn = nil
-        if wall.windowID != nil, terrain.ledgeAfterClimbing(wall) != nil {
-            climbLimitY = .infinity            // 창 꼭대기까지 올라가서 올라선다
+        if wall.leadsToScreen || (wall.windowID != nil && terrain.ledgeAfterClimbing(wall) != nil) {
+            climbLimitY = .infinity            // 창 꼭대기(또는 옆 모니터 턱)까지 올라가서 올라선다
         } else {
             // 올라설 곳이 없는 벽(화면 끝, 가려진 창 꼭대기): 적당히 오르다 뛰어내린다
             let top = min(wall.top, terrain.ceiling(atX: physics.centerX) ?? wall.top) - physics.size.height
@@ -610,6 +616,10 @@ final class PetController: NSObject {
             brain.handle(.letGo, using: &rng)
             // 벽을 차고 반대쪽으로 폴짝
             beginFall(velocity: CGVector(dx: -wall.side.sign * 180, dy: 380))
+        case .overStep:
+            // 옆 모니터 턱 꼭대기 → 그쪽으로 폴짝 넘어가서 착지 (방향은 걷던 쪽 그대로)
+            climbingWall = nil
+            beginFall(velocity: physics.screenHop(wall.side))
         }
     }
 

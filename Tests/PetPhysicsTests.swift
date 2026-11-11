@@ -19,6 +19,13 @@ final class PetPhysicsTests: XCTestCase {
         for _ in 0..<2000 where !p.fall(dt: 1.0 / 60, layout: layout) {}
     }
 
+    /// 모니터 경계 폴짝 → 착지할 때까지
+    private func hopUntilLanded(_ p: inout PetPhysics, _ dir: Direction, layout: ScreenLayout) {
+        let t = Terrain(screens: layout, petSize: p.size)
+        p.prepareFall(terrain: t, velocity: p.screenHop(dir))
+        for _ in 0..<2000 where !p.fall(dt: 1.0 / 60, terrain: t) {}
+    }
+
     // MARK: - 걷기
 
     func testWalkMovesHorizontally() {
@@ -46,9 +53,13 @@ final class PetPhysicsTests: XCTestCase {
             CGRect(x: 0, y: 0, width: 1000, height: 800),
             CGRect(x: 1000, y: 0, width: 1000, height: 800),
         ])
-        var p = physics(x: 930, y: 0)
-        XCTAssertEqual(p.walk(direction: .right, speed: 100, dt: 0.5, layout: layout), .moved)
-        XCTAssertEqual(p.origin.x, 980)
+        var p = physics(x: 900, y: 0)
+        // 경계에서 멈춰 서고(건너뛸지 두뇌가 정함) → 폴짝 뛰면 몸 전체가 옆 화면에 착지
+        XCTAssertEqual(p.walk(direction: .right, speed: 100, dt: 0.5, layout: layout), .reachedScreenEdge)
+        XCTAssertEqual(p.origin.x, 920)
+        hopUntilLanded(&p, .right, layout: layout)
+        XCTAssertEqual(p.origin.y, 0)
+        XCTAssertGreaterThanOrEqual(p.origin.x, 1000)
     }
 
     func testAdjacentScreenWithHigherFloorActsAsWall() {
@@ -57,7 +68,9 @@ final class PetPhysicsTests: XCTestCase {
             CGRect(x: 1000, y: 80, width: 1000, height: 720), // Dock 때문에 바닥이 더 높음
         ])
         var p = physics(x: 930, y: 0)
-        XCTAssertTrue(isHitWall(p.walk(direction: .right, speed: 100, dt: 0.5, layout: layout)))
+        // 옆 화면 바닥 높이까지만 벽(턱)
+        XCTAssertEqual(p.walk(direction: .right, speed: 100, dt: 0.5, layout: layout),
+                       .hitWall(Terrain.Wall(x: 1000, top: 80, windowID: nil, side: .right, leadsToScreen: true)))
     }
 
     func testWalkingOntoLowerAdjacentScreenStartsFalling() {
@@ -65,10 +78,11 @@ final class PetPhysicsTests: XCTestCase {
             CGRect(x: 0, y: 80, width: 1000, height: 720),
             CGRect(x: 1000, y: 0, width: 1000, height: 800),
         ])
-        var p = physics(x: 930, y: 80)
-        XCTAssertEqual(p.walk(direction: .right, speed: 100, dt: 0.5, layout: layout), .startFalling)
-        fallUntilLanded(&p, layout: layout)
+        var p = physics(x: 900, y: 80)
+        XCTAssertEqual(p.walk(direction: .right, speed: 100, dt: 0.5, layout: layout), .reachedScreenEdge)
+        hopUntilLanded(&p, .right, layout: layout)
         XCTAssertEqual(p.origin.y, 0)
+        XCTAssertGreaterThanOrEqual(p.origin.x, 1000)
     }
 
     // MARK: - 낙하

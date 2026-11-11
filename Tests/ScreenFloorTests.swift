@@ -155,6 +155,7 @@ final class DockPlaySimulationTests: XCTestCase {
                     if brain.action == .fall { p.prepareFall(terrain: terrain, velocity: CGVector(dx: brain.direction.sign * 110, dy: 420)) }
                 case .startFalling:
                     p.prepareFall(terrain: terrain); brain.handle(.startFall, using: &rng)
+                case .reachedScreenEdge: XCTFail("single screen")
                 }
             case .climb:
                 guard let w = wall else { XCTFail("climb without wall"); return }
@@ -163,6 +164,7 @@ final class DockPlaySimulationTests: XCTestCase {
                 case .reachedTop: brain.handle(.climbedUp, using: &rng); wall = nil
                     if sawFloor, ScreenFloor.isDock(p.standingOn) { climbedBack = true }
                 case .letGo: brain.handle(.letGo, using: &rng); p.prepareFall(terrain: terrain)
+                case .overStep: XCTFail("single screen")
                 }
             case .fall:
                 if p.fall(dt: dt, terrain: terrain) { brain.handle(.landed, using: &rng) }
