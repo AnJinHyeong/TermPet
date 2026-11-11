@@ -39,7 +39,7 @@ enum ClaudeHooksConfig {
     }
 
     private static func hooksObject(_ data: Data?) -> [String: Any]? {
-        guard let data, let root = try? parse(data) else { return nil }
+        guard let data, let root = try? HooksJSON.parse(data, file: "settings.json") else { return nil }
         return root["hooks"] as? [String: Any]
     }
 
@@ -54,20 +54,63 @@ enum ClaudeHooksConfig {
 
     /// 없는 이벤트에만 우리 훅을 추가. 다른 키와 다른 훅은 그대로.
     static func install(into data: Data?) throws -> Data {
-        var root = try data.map(parse) ?? [:]
+        try HooksJSON.add(events, entry: hookEntry, into: data, file: "settings.json")
+    }
+
+    /// 우리 훅만 지운다. 비게 된 그룹/이벤트도 정리.
+    static func uninstall(from data: Data) throws -> Data {
+        try HooksJSON.remove(events, from: data, file: "settings.json")
+    }
+
+    private static func contains(_ groups: Any?) -> Bool { HooksJSON.contains(groups) }
+}
+
+// MARK: - Codex 훅 (~/.codex/hooks.json)
+
+/// Codex 훅은 Claude Code와 같은 모양: {"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":…}]}]}}
+/// (https://learn.chatgpt.com/docs/hooks.md) 질문을 보내면 "작업 중(…)" 표시. 끝은 notify가 알려 준다.
+/// 주의: Codex는 직접 만든 훅을 사용자가 "신뢰"해야 실행한다 (ChatGPT 앱 설정 → 훅).
+enum CodexHooksConfig {
+    static let events = ["UserPromptSubmit"]
+
+    static func entry(hookPath: String) -> [String: Any] {
+        let path = hookPath.contains(" ") ? "'\(hookPath)'" : hookPath
+        return ["type": "command", "command": "\(path) codex-hook", "timeout": 5, "async": true]
+    }
+
+    static func isInstalled(_ data: Data?) -> Bool {
+        guard let data, let root = try? HooksJSON.parse(data, file: "hooks.json"),
+              let hooks = root["hooks"] as? [String: Any] else { return false }
+        return events.allSatisfy { HooksJSON.contains(hooks[$0]) }
+    }
+
+    static func install(into data: Data?, hookPath: String) throws -> Data {
+        try HooksJSON.add(events, entry: { _ in entry(hookPath: hookPath) }, into: data, file: "hooks.json")
+    }
+
+    static func uninstall(from data: Data) throws -> Data {
+        try HooksJSON.remove(events, from: data, file: "hooks.json")
+    }
+}
+
+/// Claude Code settings.json 과 Codex hooks.json 이 같이 쓰는 "hooks" 객체 다루기
+enum HooksJSON {
+    static let marker = "termpet-hook"
+
+    static func add(_ events: [String], entry: (String) -> [String: Any], into data: Data?, file: String) throws -> Data {
+        var root = try data.map { try parse($0, file: file) } ?? [:]
         var hooks = root["hooks"] as? [String: Any] ?? [:]
         for event in events where !contains(hooks[event]) {
             var groups = hooks[event] as? [Any] ?? []
-            groups.append(["hooks": [hookEntry(for: event)]])
+            groups.append(["hooks": [entry(event)]])
             hooks[event] = groups
         }
         root["hooks"] = hooks
         return try serialize(root)
     }
 
-    /// 우리 훅만 지운다. 비게 된 그룹/이벤트도 정리.
-    static func uninstall(from data: Data) throws -> Data {
-        var root = try parse(data)
+    static func remove(_ events: [String], from data: Data, file: String) throws -> Data {
+        var root = try parse(data, file: file)
         guard var hooks = root["hooks"] as? [String: Any] else { return data }
         for event in events {
             guard let groups = hooks[event] as? [Any] else { continue }
@@ -84,7 +127,7 @@ enum ClaudeHooksConfig {
         return try serialize(root)
     }
 
-    private static func contains(_ groups: Any?) -> Bool {
+    static func contains(_ groups: Any?) -> Bool {
         (groups as? [Any] ?? []).contains { group in
             ((group as? [String: Any])?["hooks"] as? [Any] ?? []).contains(where: isOurs)
         }
@@ -94,10 +137,10 @@ enum ClaudeHooksConfig {
         ((hook as? [String: Any])?["command"] as? String)?.contains(marker) == true
     }
 
-    private static func parse(_ data: Data) throws -> [String: Any] {
+    static func parse(_ data: Data, file: String) throws -> [String: Any] {
         if data.isEmpty { return [:] }
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw IntegrationError.unreadable("settings.json 이 올바른 JSON 객체가 아니에요")
+            throw IntegrationError.unreadable("\(file) 이 올바른 JSON 객체가 아니에요")
         }
         return obj
     }

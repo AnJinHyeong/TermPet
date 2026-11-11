@@ -122,6 +122,30 @@ final class EventDecoderTests: XCTestCase {
         XCTAssertEqual(e.detail, "{괄호로 시작하는 답}")
     }
 
+    /// Codex 훅: 질문을 보내면 "작업 중", 그 밖의 훅은 무시
+    func testCodexPromptHookMeansWorking() throws {
+        let e = try EventDecoder.decodeCodexNotify(data(#"{"hook_event_name":"UserPromptSubmit","session_id":"t1","cwd":"/p/app","prompt":"hi"}"#),
+                                                   context: .init(termProgram: "iTerm.app"))
+        XCTAssertEqual(e.kind, .working)
+        XCTAssertEqual(e.sessionId, "t1")
+        XCTAssertNil(e.hostBundleId)
+        XCTAssertThrowsError(try EventDecoder.decodeCodexNotify(data(#"{"hook_event_name":"Stop","session_id":"t1"}"#)))
+        // notify 의 thread-id 와 같은 세션으로 묶여서 끝나면 "작업 중"이 풀린다
+        let done = try EventDecoder.decodeCodexNotify(data(#"{"type":"agent-turn-complete","thread-id":"t1","cwd":"/p/app"}"#),
+                                                      context: .init(termProgram: "iTerm.app"))
+        XCTAssertEqual(SessionTracker.key(for: e), SessionTracker.key(for: done))
+    }
+
+    /// 터미널 밖(호스트 정보 없음) = ChatGPT 앱. 앱이 만든 임시 폴더면 제목은 "ChatGPT"
+    func testCodexWithoutHostIsChatGPTApp() throws {
+        let home = NSHomeDirectory()
+        let e = try EventDecoder.decodeCodexNotify(data(#"{"type":"agent-turn-complete","thread-id":"t2","cwd":""# + home + #"/Documents/Codex/2026-11-11/new-chat-2"}"#))
+        XCTAssertEqual(e.hostBundleId, "com.openai.codex")
+        XCTAssertEqual(e.projectName, "ChatGPT")
+        let project = try EventDecoder.decodeCodexNotify(data(#"{"type":"agent-turn-complete","thread-id":"t2","cwd":"/p/app"}"#))
+        XCTAssertEqual(project.projectName, "app")
+    }
+
     func testOneLineTruncates() {
         XCTAssertEqual(EventDecoder.oneLine("\n\n  **Hello**  \nworld"), "Hello")
         XCTAssertEqual(EventDecoder.oneLine(String(repeating: "a", count: 300)).count, 120)

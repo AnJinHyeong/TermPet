@@ -214,3 +214,44 @@ final class ClaudeProgressHooksTests: XCTestCase {
         XCTAssertEqual(manager.installed[.claude], false)
     }
 }
+
+/// Codex "작업 중" 훅 (~/.codex/hooks.json) — notify 와 함께 연결/해제
+final class CodexHooksTests: XCTestCase {
+    func testInstallKeepsOtherHooksAndUninstallRemovesOnlyOurs() throws {
+        let other = Data(#"{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"my-script"}]}]},"x":1}"#.utf8)
+        XCTAssertFalse(CodexHooksConfig.isInstalled(other))
+        let installed = try CodexHooksConfig.install(into: other, hookPath: "/Users/me/.termpet/bin/termpet-hook")
+        XCTAssertTrue(CodexHooksConfig.isInstalled(installed))
+        let again = try JSONSerialization.jsonObject(with: try CodexHooksConfig.install(into: installed, hookPath: "x")) as! [String: Any]
+        XCTAssertEqual(((again["hooks"] as! [String: Any])["UserPromptSubmit"] as! [Any]).count, 2) // 중복 없음
+        let text = String(decoding: installed, as: UTF8.self)
+        XCTAssertTrue(text.contains("my-script"))
+        XCTAssertTrue(text.contains("/Users/me/.termpet/bin/termpet-hook codex-hook"))
+        let removed = try CodexHooksConfig.uninstall(from: installed)
+        XCTAssertFalse(CodexHooksConfig.isInstalled(removed))
+        XCTAssertTrue(String(decoding: removed, as: UTF8.self).contains("my-script"))
+        XCTAssertThrowsError(try CodexHooksConfig.install(into: Data("{oops".utf8), hookPath: "x"))
+    }
+
+    func testManagerAddsHookWithNotifyAndUpdatesOldInstall() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("termpet-codex-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let codex = home.appendingPathComponent(".codex")
+        try FileManager.default.createDirectory(at: codex, withIntermediateDirectories: true)
+        // 예전 버전처럼 notify 만 연결된 상태
+        try #"notify = ["/h/.termpet/bin/termpet-hook", "codex"]"#.write(to: codex.appendingPathComponent("config.toml"), atomically: true, encoding: .utf8)
+
+        let manager = IntegrationManager(home: home)
+        XCTAssertEqual(manager.installed[.codex], true)
+        XCTAssertEqual(manager.needsUpdate[.codex], true)
+        try manager.toggle(.codex)
+        XCTAssertEqual(manager.installed[.codex], true)
+        XCTAssertEqual(manager.needsUpdate[.codex], false)
+        let hooksFile = codex.appendingPathComponent("hooks.json")
+        XCTAssertTrue(CodexHooksConfig.isInstalled(try Data(contentsOf: hooksFile)))
+
+        try manager.toggle(.codex) // 해제: notify 도 훅도 빠짐
+        XCTAssertEqual(manager.installed[.codex], false)
+        XCTAssertFalse(CodexHooksConfig.isInstalled(try Data(contentsOf: hooksFile)))
+    }
+}

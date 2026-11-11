@@ -5,6 +5,8 @@ import Foundation
 enum HostApp: Equatable {
     case cursor, vscode, vscodeInsiders, windsurf, zed
     case iterm, terminal, warp, ghostty, wezterm, kitty
+    /// ChatGPT 데스크톱 앱 (Codex 대화 포함). 번들 ID가 com.openai.codex
+    case chatgpt
     case other(bundleId: String)
 
     static let knownBundleIds: [String: HostApp] = [
@@ -19,6 +21,7 @@ enum HostApp: Equatable {
         "com.mitchellh.ghostty": .ghostty,
         "com.github.wez.wezterm": .wezterm,
         "net.kovidgoyal.kitty": .kitty,
+        "com.openai.codex": .chatgpt,
     ]
 
     /// knownBundleIds 표 하나만 관리 (같은 값을 두 군데 적지 않도록 역으로 찾는다)
@@ -59,11 +62,17 @@ enum FocusAction: Equatable {
     case openFolder(bundleId: String, path: String)
     /// 앱 활성화만
     case activate(bundleId: String)
+    /// 앱 딥링크 열기 (예: ChatGPT 앱의 그 대화 `codex://threads/<id>`). 링크가 안 먹으면 앱만 앞으로
+    case openURL(url: String, bundleId: String)
     case none
 
     static func plan(for event: PetEvent, projectRoot: (String) -> String) -> FocusAction {
         guard let app = HostApp.resolve(bundleId: event.hostBundleId, termProgram: event.termProgram) else {
             return .none
+        }
+        if app == .chatgpt, let sid = event.sessionId, !sid.isEmpty,
+           let id = sid.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) {
+            return .openURL(url: "codex://threads/\(id)", bundleId: app.bundleId)
         }
         if app.opensProjectFolder, let cwd = event.cwd, !cwd.isEmpty {
             return .openFolder(bundleId: app.bundleId, path: projectRoot(cwd))

@@ -156,24 +156,40 @@ enum EventDecoder {
 
     // MARK: - Codex notify (POST /hook/codex)
 
-    /// TODO(Phase 5): Codex 공식 문서 확인 후 보강. 현재는 알려진 형태만 방어적으로 처리.
-    /// 예상 형식: {"type":"agent-turn-complete","turn-id":..., "last-assistant-message":..., "cwd":...}
+    /// Codex notify: {"type":"agent-turn-complete","thread-id":..,"last-assistant-message":..,"cwd":..}
+    /// 같은 경로로 Codex 훅(hooks.json)의 stdin JSON도 온다: {"hook_event_name":"UserPromptSubmit","session_id":..,"cwd":..}
+    /// (https://learn.chatgpt.com/docs/hooks.md)
     static func decodeCodexNotify(_ data: Data, context: Context = Context()) throws -> PetEvent {
         let obj = try jsonObject(data)
-        let type = obj.string("type") ?? ""
-        guard type == "agent-turn-complete" else { throw DecodeError.ignored("type=\(type)") }
-        // ChatGPT(Codex) 앱이 대화 제목을 지으려고 몰래 돌리는 작업도 끝나면 notify가 온다 → 알림 아님
-        if let last = obj.string("last-assistant-message"), isTitleJSON(last) { throw DecodeError.ignored("title") }
-        return PetEvent(
-            source: .codex,
-            kind: .done,
-            detail: obj.string("last-assistant-message").map(oneLine).flatMap(nonEmpty),
-            cwd: obj.string("cwd"),
-            sessionId: obj.string("thread-id") ?? obj.string("session-id"),
-            hostBundleId: context.hostBundleId,
-            termProgram: context.termProgram
-        )
+        var event = PetEvent(source: .codex, kind: .done, cwd: obj.string("cwd"),
+                             hostBundleId: context.hostBundleId, termProgram: context.termProgram)
+
+        if let hookEvent = obj.string("hook_event_name") {
+            // 훅은 "작업 시작" 신호만 쓴다 (끝은 notify가 알려 줌)
+            guard hookEvent == "UserPromptSubmit" else { throw DecodeError.ignored("hook_event_name=\(hookEvent)") }
+            event.kind = .working
+            event.sessionId = obj.string("session_id")
+        } else {
+            let type = obj.string("type") ?? ""
+            guard type == "agent-turn-complete" else { throw DecodeError.ignored("type=\(type)") }
+            // ChatGPT(Codex) 앱이 대화 제목을 지으려고 몰래 돌리는 작업도 끝나면 notify가 온다 → 알림 아님
+            if let last = obj.string("last-assistant-message"), isTitleJSON(last) { throw DecodeError.ignored("title") }
+            event.detail = obj.string("last-assistant-message").map(oneLine).flatMap(nonEmpty)
+            event.sessionId = obj.string("thread-id") ?? obj.string("session-id")
+        }
+        markChatGPTApp(&event)
+        return event
     }
+
+    /// ChatGPT 데스크톱 앱 안의 Codex는 터미널 밖에서 돌아서 호스트 정보가 없다 → ChatGPT 앱으로 본다
+    /// (클릭하면 그 대화로 이동). 앱이 만든 임시 폴더(~/Documents/Codex/날짜/new-chat)면 제목도 "ChatGPT"로.
+    static func markChatGPTApp(_ event: inout PetEvent, home: String = NSHomeDirectory()) {
+        guard event.hostBundleId == nil, event.termProgram == nil else { return }
+        event.hostBundleId = chatGPTBundleId
+        if let cwd = event.cwd, cwd.hasPrefix(home + "/Documents/Codex/") { event.title = "ChatGPT" }
+    }
+
+    static let chatGPTBundleId = "com.openai.codex"
 
     /// `{"title":"…","description":"…"}` 처럼 제목 JSON 하나뿐인 답 (앱 내부의 제목 짓기 작업)
     static func isTitleJSON(_ text: String) -> Bool {

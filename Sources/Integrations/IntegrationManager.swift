@@ -22,7 +22,7 @@ final class IntegrationManager {
             switch self {
             case .claude: return "응답 완료 · 권한 요청"
             case .claudeApp: return "답변 완료"
-            case .codex: return "응답 완료"
+            case .codex: return "응답 완료 · 작업 중"
             case .zsh: return "30초 넘게 걸린 명령"
             }
         }
@@ -46,6 +46,9 @@ final class IntegrationManager {
         case .zsh: return home.appendingPathComponent(".zshrc")
         }
     }
+
+    /// Codex "작업 중" 표시용 훅 파일 (notify 는 config.toml)
+    var codexHooksFile: URL { home.appendingPathComponent(".codex/hooks.json") }
 
     var hookPath: String { home.appendingPathComponent(".termpet/bin/termpet-hook").path }
     /// Claude 앱이 MCP 서버로 실행할 명령 = 지금 실행 중인 텀펫 (`TermPet --mcp`)
@@ -73,7 +76,10 @@ final class IntegrationManager {
             case .claudeApp:
                 state[kind] = ClaudeDesktopConfig.isInstalled(data)
                 update[kind] = ClaudeDesktopConfig.needsUpdate(data, command: mcpCommand)
-            case .codex: state[kind] = CodexNotifyConfig.isInstalled(text)
+            case .codex:
+                state[kind] = CodexNotifyConfig.isInstalled(text)
+                update[kind] = state[kind] == true
+                    && !CodexHooksConfig.isInstalled(try? Data(contentsOf: codexHooksFile))
             case .zsh: state[kind] = ZshrcConfig.isInstalled(text)
             }
         }
@@ -116,6 +122,30 @@ final class IntegrationManager {
             updated = Data((on ? ZshrcConfig.uninstall(from: text ?? "") : ZshrcConfig.install(into: text)).utf8)
         }
 
+        var backup = try write(updated, to: url, original: original)
+        if kind == .codex {
+            // "작업 중" 훅 (~/.codex/hooks.json) 도 같이 넣고/뺀다
+            let hooksURL = codexHooksFile.resolvingSymlinksInPath()
+            let hooksOriginal: Data?
+            do {
+                hooksOriginal = try Data(contentsOf: hooksURL)
+            } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+                hooksOriginal = nil
+            }
+            // 해제인데 파일이 없거나, 연결인데 이미 들어 있으면 그대로 둔다
+            if on ? hooksOriginal != nil : !CodexHooksConfig.isInstalled(hooksOriginal) {
+                let hooksUpdated = on ? try CodexHooksConfig.uninstall(from: hooksOriginal ?? Data())
+                                      : try CodexHooksConfig.install(into: hooksOriginal, hookPath: hookPath)
+                backup = try write(hooksUpdated, to: hooksURL, original: hooksOriginal) ?? backup
+            }
+        }
+        refresh()
+        return backup
+    }
+
+    /// 백업(내용이 있었다면) 후 저장. 바뀐 게 없으면 아무것도 안 한다.
+    private func write(_ updated: Data, to url: URL, original: Data?) throws -> URL? {
+        if updated == original { return nil }
         var backup: URL?
         if let original {
             let stamp = Self.stamp.string(from: Date())
@@ -126,7 +156,6 @@ final class IntegrationManager {
         }
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try updated.write(to: url, options: .atomic)
-        refresh()
         return backup
     }
 

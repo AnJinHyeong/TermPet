@@ -6,6 +6,7 @@
 #   termpet-hook claude                               # stdin: Claude Code 훅 JSON (Stop / Notification / UserPromptSubmit / SessionEnd ...)
 #   termpet-hook claude-tool                          # stdin: PostToolUse JSON — 도구 결과는 빼고 세션 정보만 보냄
 #   termpet-hook codex '<json>'                       # Codex notify (JSON이 마지막 인자로 옴)
+#   termpet-hook codex-hook                           # stdin: Codex 훅 JSON (UserPromptSubmit → "작업 중" 표시)
 #   termpet-hook codex-chain <원래 notify 명령...> '<json>'  # 원래 notify를 먼저 실행한 뒤 텀펫에도 알림
 #   termpet-hook shell <exitCode> <durationSec> <cwd> <command...>
 #
@@ -92,6 +93,12 @@ case "$SOURCE" in
     # Codex는 JSON을 마지막 인자로 넘긴다
     [ $# -gt 0 ] || exit 0   # 인자가 없으면 ${!#}가 스크립트 경로($0)가 되므로 그냥 종료
     BODY="${!#}"
+    [ -n "$BODY" ] || exit 0
+    printf '%s' "$BODY" | send /hook/codex
+    ;;
+  codex-hook)
+    # Codex 훅 입력 (프롬프트 포함) — 앱이 session_id / cwd / hook_event_name 만 쓴다
+    BODY="$(cat)"
     [ -n "$BODY" ] || exit 0
     printf '%s' "$BODY" | send /hook/codex
     ;;

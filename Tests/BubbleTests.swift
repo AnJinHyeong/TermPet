@@ -132,6 +132,14 @@ final class HostAppTests: XCTestCase {
         XCTAssertEqual(FocusAction.plan(for: e) { $0 }, .activate(bundleId: "com.microsoft.VSCode"))
     }
 
+    /// ChatGPT 앱 대화는 딥링크로 그 대화를 연다
+    func testFocusPlanOpensChatGPTThread() {
+        let e = PetEvent(source: .codex, kind: .done, cwd: "/x", sessionId: "01a1-c98a", hostBundleId: "com.openai.codex")
+        XCTAssertEqual(FocusAction.plan(for: e) { $0 }, .openURL(url: "codex://threads/01a1-c98a", bundleId: "com.openai.codex"))
+        let noThread = PetEvent(source: .codex, kind: .done, hostBundleId: "com.openai.codex")
+        XCTAssertEqual(FocusAction.plan(for: noThread) { $0 }, .activate(bundleId: "com.openai.codex"))
+    }
+
     func testFocusPlanUnknownHost() {
         XCTAssertEqual(FocusAction.plan(for: PetEvent(source: .shell, kind: .done, cwd: "/x")) { $0 }, .none)
     }

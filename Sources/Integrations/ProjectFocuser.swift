@@ -10,13 +10,16 @@ enum ProjectFocuser {
 
     static func perform(_ action: FocusAction) {
         let bundleId: String
-        let folder: URL?
+        var folder: URL?
+        var link: URL?
         switch action {
         case .none:
             return
         case .activate(let id):
             bundleId = id
-            folder = nil
+        case .openURL(let url, let id):
+            bundleId = id
+            link = URL(string: url)
         case .openFolder(let id, let path):
             bundleId = id
             folder = URL(fileURLWithPath: path, isDirectory: true)
@@ -34,7 +37,14 @@ enum ProjectFocuser {
 
         let config = NSWorkspace.OpenConfiguration()
         config.activates = true
-        if let folder {
+        if let link {
+            // 앱 딥링크 → 그 대화로 바로 이동. 실패하면 앱만 앞으로
+            NSWorkspace.shared.open(link, configuration: config) { _, error in
+                guard let error else { return }
+                NSLog("[TermPet] open link failed: \(error)")
+                Task { @MainActor in perform(.activate(bundleId: bundleId)) }
+            }
+        } else if let folder {
             NSWorkspace.shared.open([folder], withApplicationAt: appURL, configuration: config) { _, error in
                 if let error { NSLog("[TermPet] open folder failed: \(error)") }
             }

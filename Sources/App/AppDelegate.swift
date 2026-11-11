@@ -176,6 +176,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                           + "\"답변을 마칠 때마다 termpet_notify 도구로 한 줄 요약을 보내줘\"를 적어 두면 더 잘 불러요.")
             } else if kind == .claudeApp && wasOn {
                 showAlert("Claude 앱 채팅 연결을 해제했어요", "Claude 앱을 다시 켜면 적용돼요.")
+            } else if kind == .codex && (updating || !wasOn) {
+                showAlert("Codex를 연결했어요",
+                          "답이 끝나면 알림이 오고, 질문을 보내면 펫 머리 위에 작업 중(…)이 표시돼요.\n\n"
+                          + "작업 중 표시는 Codex 훅이라 한 번 허락이 필요해요: ChatGPT(Codex) 앱 설정 → 훅(Hooks)에서 "
+                          + "termpet-hook 을 신뢰(Trust)해 주세요. 터미널 Codex는 처음 실행할 때 물어봐요.")
             } else if kind == .claude && (updating || !wasOn) {
                 showAlert("Claude Code를 연결했어요", "새로 시작하는 Claude Code 세션부터 펫 머리 위에 작업 중(…)·권한 대기(✋)가 표시돼요.")
             }
