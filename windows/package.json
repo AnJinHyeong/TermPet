@@ -1,7 +1,7 @@
 {
   "name": "termpet-windows",
   "productName": "TermPet",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "description": "텀펫 윈도우판 — Claude Code·Codex·터미널 작업이 끝나면 알려주는 데스크톱 펫",
   "author": "TermPet",
   "license": "MIT",
