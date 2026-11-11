@@ -325,7 +325,7 @@ struct MenuPanelView: View {
                 Chip(symbol: "cursorarrow.motionlines", title: "장난꾸러기", on: pet.model.mischief) {
                     pet.mischiefEnabled.toggle()
                 }
-                .hint("근처에서 움직이는 마우스 포인터를 쫓아와 물고 휙 던져요 (클릭하면 놓아줘요)")
+                .hint("마우스 포인터를 계속 쫓아다니다가 잡으면 물고 휙 던져요 (물렸을 때 클릭하면 놓아줘요)")
             }
             Text("펫을 잡아서 휙 던져 보세요")
                 .font(.system(size: 10.5, design: .rounded))

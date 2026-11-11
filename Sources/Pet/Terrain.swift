@@ -170,6 +170,24 @@ struct Terrain {
         }.min()
     }
 
+    /// 화면 바닥에 서 있을 때 가장 가까운 기어오를 벽 쪽: 창 옆면, 또는 옆 화면으로 안 이어지는 화면 끝.
+    /// (장난꾸러기 모드: 포인터가 너무 높으면 이 벽으로 달려가 타고 오른다) 벽이 없으면 nil.
+    func nearestWallDirection(originX x: CGFloat, feetY y: CGFloat) -> Direction? {
+        guard let i = screens.index(containingX: x + petSize.width / 2, y: y) else { return nil }
+        let f = screens.frames[i]
+        var best: (dir: Direction, distance: CGFloat)?
+        for dir in [Direction.left, .right] {
+            let edgeX = dir == .left ? f.minX : f.maxX - petSize.width
+            var distance: CGFloat? = screens.neighbor(of: i, side: dir, atY: y) == nil ? abs(edgeX - x) : nil
+            if let wall = windowWall(fromX: x, toX: edgeX, feetY: y, direction: dir) {
+                let d = dir == .left ? x - wall.x : wall.x - (x + petSize.width)
+                distance = min(distance ?? .infinity, max(0, d))
+            }
+            if let distance, distance < (best?.distance ?? .infinity) { best = (dir, distance) }
+        }
+        return best?.dir
+    }
+
     /// 화면 위쪽 끝 (기어오를 수 있는 최대 높이 계산용)
     func ceiling(atX x: CGFloat) -> CGFloat? {
         screens.indices(inColumnX: x).map { screens.frames[$0].maxY }.max()

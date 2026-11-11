@@ -1,31 +1,24 @@
 import CoreGraphics
 import Foundation
 
-/// 장난꾸러기 모드: 마우스 포인터를 쫓아와서 → 물고 흔들다가 → 휙 던진다.
+/// 장난꾸러기 모드: 켜져 있는 동안 마우스 포인터를 계속 쫓아다니다가 → 잡으면 물고 흔들다가 → 휙 던진다.
 /// AppKit 비의존 순수 상태 머신 (PetBrain처럼 reducer). 실제 포인터 이동·펫 걷기는 컨트롤러가 명령(Command)을 받아 한다.
 /// React 비유: `useReducer` — 매 프레임 `tick(입력)`을 dispatch하면 할 일(명령)을 돌려준다.
 struct Mischief {
     struct Config {
-        /// 포인터가 이 거리(pt, 펫 중심 기준) 안에서 움직이면 쫓아올 마음이 생긴다
-        var triggerDistance: CGFloat = 380
-        /// 쫓기 시작할 확률 (초당). 매번 바로 달려들면 귀찮으니 가끔만
-        var startChancePerSecond: Double = 0.4
-        /// 이만큼 멀어지면 포기
-        var giveUpDistance: CGFloat = 750
-        /// 이 시간 안에 못 잡으면 포기
-        var chaseTimeout: TimeInterval = 7
-        /// 포인터가 이 시간 동안 안 움직이면 흥미를 잃는다 (가만히 있는 포인터는 안 건드림 = 타이핑 중 방해 X)
-        var idleCursorTimeout: TimeInterval = 2.5
+        /// 모드를 켠 뒤 쫓기 시작할 때까지
+        var startDelay: TimeInterval = 1
         /// 물고 흔드는 시간
         var biteDuration: TimeInterval = 1.3
-        /// 던진 뒤 / 포기한 뒤 쉬는 시간
-        var cooldownAfterThrow: TimeInterval = 20
-        var cooldownAfterGiveUp: TimeInterval = 8
+        /// 던진 뒤 숨 고르는 시간 (그다음 다시 쫓아온다)
+        var cooldownAfterThrow: TimeInterval = 4
+        /// 벽에 막혀 돌아섰거나 클릭으로 놓아줬을 때 잠깐 쉬는 시간
+        var cooldownAfterGiveUp: TimeInterval = 2.5
     }
 
     enum Phase: Equatable {
-        case ready      // 쉬는 중 / 기회를 엿보는 중
-        case chasing
+        case ready      // 잠깐 쉬는 중 (쉬는 시간이 끝나면 바로 쫓기 시작)
+        case chasing    // 포인터를 쫓는 중 (멀어도, 멈춰 있어도 계속)
         case biting
         case throwing   // 포인터가 날아가는 중 (끝나면 컨트롤러가 finishThrow)
     }
@@ -41,12 +34,16 @@ struct Mischief {
         var mouseDown: Bool
         /// 바닥·창 위에 서 있음 (떨어지거나 벽 타는 중이 아님) → 걷기·점프 명령 가능
         var grounded: Bool
+        /// 벽을 타는 중이면 벽이 있는 쪽 (벽에서 포인터 쪽으로 몸을 날린다)
+        var climbingSide: Direction? = nil
+        /// 가장 가까운 기어오를 벽 쪽 (포인터가 너무 높을 때 거기로 달려가 타고 오른다). 없으면 nil
+        var wallDirection: Direction? = nil
     }
 
     enum Command: Equatable {
         case none
         case chase(Direction)         // 그쪽으로 달린다
-        case jump(CGVector)           // 머리 위 포인터를 향해 점프 (초속)
+        case jump(CGVector)           // 포인터를 향해 점프 (바닥에서 / 벽에서 몸을 날려) — 초속
         case stopChase
         case startBite
         case holdPointer(CGPoint)     // 포인터를 입 위치(+흔들기)로
@@ -59,26 +56,24 @@ struct Mischief {
     /// 지금 단계에 들어온 뒤 지난 시간
     private(set) var phaseTime: TimeInterval = 0
     private var cooldown: TimeInterval
-    private var lastCursor: CGPoint?
-    private var cursorIdle: TimeInterval = 0
+    /// 바닥에 내려선 뒤 지난 시간 (점프 사이에 잠깐 웅크리는 박자)
+    private var groundedTime: TimeInterval = 0
+    /// 포인터가 너무 높아서 벽을 찾아 달려가는 방향 (벽에 붙으면 끝)
+    private(set) var seekDirection: Direction?
+
+    /// 바닥에서 한 번에 뛰어오를 수 있는 높이(pt)
+    static let maxRise: CGFloat = 320
+    /// 몸을 날려 닿을 수 있는 거리(pt, 몸 중심 → 포인터)
+    static let leapRange: CGFloat = 380
 
     init(config: Config = Config()) {
         self.config = config
-        cooldown = 3 // 켜자마자 덮치지 않게
+        cooldown = config.startDelay
     }
 
-    mutating func tick(_ dt: TimeInterval, _ input: Input, using rng: inout some RandomNumberGenerator) -> Command {
+    mutating func tick(_ dt: TimeInterval, _ input: Input) -> Command {
         phaseTime += dt
-        if let last = lastCursor, hypot(last.x - input.cursor.x, last.y - input.cursor.y) < 0.5 {
-            cursorIdle += dt
-        } else {
-            cursorIdle = 0
-        }
-        lastCursor = input.cursor
-
-        let center = CGPoint(x: input.petFrame.midX, y: input.petFrame.midY)
-        let distance = hypot(input.cursor.x - center.x, input.cursor.y - center.y)
-
+        groundedTime = input.grounded ? groundedTime + dt : 0
         if !input.canPlay {
             switch phase {
             case .chasing: rest(config.cooldownAfterGiveUp); return .stopChase
@@ -90,25 +85,16 @@ struct Mischief {
         switch phase {
         case .ready:
             cooldown -= dt
-            guard cooldown <= 0, input.grounded, !input.mouseDown,
-                  cursorIdle < config.idleCursorTimeout, distance < config.triggerDistance,
-                  Double.random(in: 0..<1, using: &rng) < config.startChancePerSecond * dt else { return .none }
+            guard cooldown <= 0, input.grounded, !input.mouseDown else { return .none }
             enter(.chasing)
-            return Self.chaseDirection(petFrame: input.petFrame, cursorX: input.cursor.x).map(Command.chase) ?? .none
+            return chase(input)
 
         case .chasing:
             if !input.mouseDown, Self.catches(petFrame: input.petFrame, cursor: input.cursor) {
                 enter(.biting)
                 return .startBite
             }
-            if phaseTime > config.chaseTimeout || distance > config.giveUpDistance
-                || cursorIdle > config.idleCursorTimeout {
-                rest(config.cooldownAfterGiveUp)
-                return .stopChase
-            }
-            guard input.grounded else { return .none } // 공중·벽에선 잡히는지만 본다
-            if let v = Self.jumpVelocity(petFrame: input.petFrame, cursor: input.cursor) { return .jump(v) }
-            return Self.chaseDirection(petFrame: input.petFrame, cursorX: input.cursor.x).map(Command.chase) ?? .none
+            return chase(input)
 
         case .biting:
             if input.mouseDown { // 클릭하면 놓아준다
@@ -124,6 +110,46 @@ struct Mischief {
         case .throwing:
             return .none
         }
+    }
+
+    /// 쫓는 중: 걷기 / 점프 / 벽 찾아 달리기 / 벽에서 몸 날리기
+    private mutating func chase(_ input: Input) -> Command {
+        let frame = input.petFrame, cursor = input.cursor
+        let leap = Self.leapVelocity(petFrame: frame, cursor: cursor)
+
+        // 벽 타는 중: 포인터가 벽 반대쪽(트인 쪽)에서 닿을 거리면 벽을 차고 몸을 날린다
+        if let side = input.climbingSide {
+            let behindWall = (cursor.x - frame.midX) * side.sign > frame.width * 0.5
+            if let leap, !behindWall { return .jump(leap) }
+            return .none
+        }
+        guard input.grounded else { return .none } // 공중에선 잡히는지만 본다
+
+        let above = cursor.y > frame.maxY - 4
+        guard above else {
+            seekDirection = nil
+            return Self.chaseDirection(petFrame: frame, cursorX: cursor.x).map(Command.chase) ?? .none
+        }
+        // 머리 위 닿는 거리 → 웅크렸다 점프해서 낚아채기
+        if let leap {
+            seekDirection = nil
+            return groundedTime >= 0.25 ? .jump(leap) : .none
+        }
+        // 너무 높다: 아직 멀면 일단 그쪽으로
+        let dx = cursor.x - frame.midX
+        if seekDirection == nil, abs(dx) > Self.leapRange * 0.7 {
+            return Self.chaseDirection(petFrame: frame, cursorX: cursor.x).map(Command.chase) ?? .none
+        }
+        // 거의 아래인데 못 닿음 → 가까운 벽으로 달려가 타고 오른다 (방향은 벽에 닿을 때까지 유지)
+        if seekDirection == nil { seekDirection = input.wallDirection }
+        if let dir = seekDirection { return .chase(dir) }
+        // 탈 벽도 없으면 제자리에서 힘껏 뛰어 본다 (안 닿아도 귀엽게)
+        return groundedTime >= 0.9 ? .jump(CGVector(dx: max(-120, min(120, dx * 2)), dy: sqrt(2 * 1800 * Self.maxRise))) : .none
+    }
+
+    /// 벽을 타기 시작했다 (벽 찾기 끝)
+    mutating func didStartClimbing() {
+        seekDirection = nil
     }
 
     /// 포인터가 다 날아갔다
@@ -142,7 +168,7 @@ struct Mischief {
     mutating func reset() {
         phase = .ready
         phaseTime = 0
-        cooldown = 3
+        cooldown = config.startDelay
     }
 
     private mutating func enter(_ p: Phase) {
@@ -153,6 +179,7 @@ struct Mischief {
     private mutating func rest(_ seconds: TimeInterval) {
         enter(.ready)
         cooldown = seconds
+        seekDirection = nil
     }
 
     // MARK: - 계산 (테스트용 static)
@@ -169,13 +196,16 @@ struct Mischief {
         return dx > 0 ? .right : .left
     }
 
-    /// 포인터가 머리 위 닿을 만한 높이에 있으면 점프 초속 (중력 1800 기준). 아니면 nil
-    static func jumpVelocity(petFrame: CGRect, cursor: CGPoint, gravity: CGFloat = 1800) -> CGVector? {
+    /// 몸 중심이 포인터를 지나가도록 던지는 포물선 초속 (중력 1800 기준). 너무 멀거나 높으면 nil.
+    /// 날아가는 시간 T를 거리에 맞춰 정하고 x = vx·T, y = vy·T − g·T²/2 를 풀었다.
+    /// (물리의 공기 저항으로 가로가 조금 덜 가서 vx를 12% 키움)
+    static func leapVelocity(petFrame: CGRect, cursor: CGPoint, gravity: CGFloat = 1800) -> CGVector? {
         let dx = cursor.x - petFrame.midX
-        guard abs(dx) < petFrame.width * 0.6 else { return nil }   // 거의 아래까지 와야 뛴다
-        let rise = cursor.y - petFrame.maxY + 14                    // 머리(+여유)가 포인터에 닿을 만큼
-        guard rise > 0, rise <= max(160, petFrame.height * 2.5) else { return nil }
-        return CGVector(dx: max(-150, min(150, dx * 3)), dy: sqrt(2 * gravity * rise))
+        let dy = cursor.y - petFrame.midY
+        let distance = hypot(dx, dy)
+        guard distance <= leapRange, dy <= maxRise, dy > -petFrame.height else { return nil }
+        let t = min(0.5, max(0.22, distance / 750))
+        return CGVector(dx: dx / t * 1.12, dy: dy / t + gravity * t / 2)
     }
 
     /// 입 위치 + 개가 장난감 물고 흔들듯 좌우로 휙휙

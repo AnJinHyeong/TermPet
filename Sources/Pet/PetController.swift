@@ -80,8 +80,10 @@ final class PetController: NSObject {
         }
     }
     private var mischief = Mischief()
-    /// 포인터 쫓는 중 (걷기 속도 ↑)
-    private var chasing = false
+    /// 포인터 쫓는 중 (걷기 속도 ↑, 벽은 무조건 타고 끝에선 포인터 쪽으로 뛴다)
+    private var chasing: Bool { mischiefEnabled && mischief.phase == .chasing }
+    /// 쫓는 포인터까지 가로 거리 (멀면 더 빨리 달린다)
+    private var chaseDistance: CGFloat = 0
     /// 던져진 포인터가 날아가는 중 (경로, 지난 시간)
     private var flyingPointer: (path: PointerThrow, t: TimeInterval)?
 
@@ -359,20 +361,32 @@ final class PetController: NSObject {
             switch physics.walk(direction: brain.direction, speed: currentWalkSpeed, dt: dt, terrain: terrain) {
             case .moved: break
             case .hitWall(let wall):
-                brain.handle(wall.leadsToScreen ? .hitStep : .hitWall(window: wall.windowID != nil), using: &rng)
+                if chaseClimbs(wall) {
+                    brain.handle(.climbNow, using: &rng)
+                } else {
+                    brain.handle(wall.leadsToScreen ? .hitStep : .hitWall(window: wall.windowID != nil), using: &rng)
+                }
                 if brain.action == .climb { startClimbing(wall) } else { giveUpChase() }
             case .reachedScreenEdge:
-                brain.handle(.reachedScreenEdge, using: &rng)
-                if brain.action == .fall {
-                    // 옆 모니터로 폴짝 (두 모니터에 걸쳐 반쯤 잘려 보이는 시간을 줄인다)
-                    physics.prepareFall(terrain: terrain, velocity: physics.screenHop(brain.direction))
-                } else { giveUpChase() }
+                if chaseJumpsOff(toward: brain.direction) {
+                    beginFall(velocity: physics.screenHop(brain.direction)) // 포인터가 옆 모니터에 → 무조건 건너간다
+                } else {
+                    brain.handle(.reachedScreenEdge, using: &rng)
+                    if brain.action == .fall {
+                        // 옆 모니터로 폴짝 (두 모니터에 걸쳐 반쯤 잘려 보이는 시간을 줄인다)
+                        physics.prepareFall(terrain: terrain, velocity: physics.screenHop(brain.direction))
+                    } else { giveUpChase() }
+                }
             case .reachedEdge:
-                brain.handle(.reachedEdge, using: &rng)
-                if brain.action == .fall {
-                    // 선반 끝에서 폴짝 뛰어내리기
-                    physics.prepareFall(terrain: terrain, velocity: CGVector(dx: brain.direction.sign * 110, dy: 420))
-                } else { giveUpChase() }
+                if chaseJumpsOff(toward: brain.direction) {
+                    beginFall(velocity: CGVector(dx: brain.direction.sign * 140, dy: 400)) // 포인터 쪽으로 뛰어내린다
+                } else {
+                    brain.handle(.reachedEdge, using: &rng)
+                    if brain.action == .fall {
+                        // 선반 끝에서 폴짝 뛰어내리기
+                        physics.prepareFall(terrain: terrain, velocity: CGVector(dx: brain.direction.sign * 110, dy: 420))
+                    } else { giveUpChase() }
+                }
             case .startFalling: beginFall()
             }
         case .climb:
@@ -457,7 +471,8 @@ final class PetController: NSObject {
 
     /// 걷기 속도: 기분 반영 + 달리기 포즈(walk.2)가 뽑히면 빠르게
     private var currentWalkSpeed: CGFloat {
-        if chasing { return max(walkSpeed * 2.4, 90) } // 포인터 쫓을 땐 달린다
+        // 포인터 쫓을 땐 달린다 (멀리 있으면 전력 질주)
+        if chasing { return max(walkSpeed * 2.4, 90) * (chaseDistance > 500 ? 1.7 : 1) }
         var speed = walkSpeed * model.mood.walkFactor
         if case .sprite(let s) = model.character, s.variantCount(for: .walk) > 1,
            brain.variant % s.variantCount(for: .walk) == 1 {
@@ -629,19 +644,23 @@ final class PetController: NSObject {
             canPlay: mischiefEnabled && model.isVisible && !isDragging && !bubble.isShowing
                 && !brain.isAsleep && brain.action != .dragged && risingOutOf == nil,
             mouseDown: NSEvent.pressedMouseButtons != 0,
-            grounded: !brain.action.isPhysicsControlled)
-        switch mischief.tick(dt, input, using: &rng) {
+            grounded: !brain.action.isPhysicsControlled,
+            climbingSide: brain.action == .climb && risingOutOf == nil ? climbingWall?.side : nil,
+            wallDirection: physics.standingOn == nil && !brain.action.isPhysicsControlled
+                ? terrain.nearestWallDirection(originX: physics.origin.x, feetY: physics.origin.y) : nil)
+        chaseDistance = abs(input.cursor.x - input.petFrame.midX)
+        switch mischief.tick(dt, input) {
         case .none:
             break
         case .chase(let dir):
-            chasing = true
             brain.handle(.chase(dir), using: &rng)
         case .jump(let v):
+            // 포인터 쪽으로 몸을 날린다 (바닥에서 점프 / 벽을 차고)
             beginFall(velocity: v)
+            if abs(v.dx) > 20 { brain.handle(.face(v.dx > 0 ? .right : .left), using: &rng) }
         case .stopChase:
-            chasing = false
+            break
         case .startBite:
-            chasing = false
             model.biting = true
             model.biteStart = clock
             brain.handle(.react(.angry, duration: mischief.config.biteDuration + 0.4), using: &rng)
@@ -664,12 +683,24 @@ final class PetController: NSObject {
     /// 쫓다가 벽·끝에 막혀 돌아섰으면 포기 (안 그러면 벽 앞에서 좌우로 떨게 된다)
     private func giveUpChase() {
         guard chasing else { return }
-        chasing = false
         mischief.giveUp()
     }
 
+    /// 쫓는 중 벽에 막힘: 창·옆 모니터 턱이거나 포인터가 머리 위면 확률 없이 바로 타고 오른다
+    private func chaseClimbs(_ wall: Terrain.Wall) -> Bool {
+        guard chasing else { return false }
+        return wall.windowID != nil || wall.leadsToScreen
+            || NSEvent.mouseLocation.y > physics.origin.y + physics.size.height
+    }
+
+    /// 쫓는 중 끝(창 끝·모니터 경계)에 닿음: 포인터가 그쪽이거나 아래면 바로 뛰어내린다
+    private func chaseJumpsOff(toward dir: Direction) -> Bool {
+        guard chasing else { return false }
+        let p = NSEvent.mouseLocation
+        return (p.x - physics.centerX) * dir.sign > 0 || p.y < physics.origin.y
+    }
+
     private func stopMischief() {
-        chasing = false
         if model.biting || flyingPointer != nil { PointerControl.finish() }
         model.biting = false
         flyingPointer = nil
@@ -688,7 +719,13 @@ final class PetController: NSObject {
             let top = min(wall.top, terrain.ceiling(atX: physics.centerX) ?? wall.top) - physics.size.height
             let room = max(0, top - physics.origin.y)
             climbLimitY = physics.origin.y + room * CGFloat.random(in: 0.25...0.7, using: &rng)
+            // 포인터를 쫓는 중이면 포인터 높이까지 (거기서 몸을 날린다)
+            if chasing {
+                climbLimitY = min(physics.origin.y + room, max(physics.origin.y + 40,
+                                                               NSEvent.mouseLocation.y - physics.size.height * 0.5))
+            }
         }
+        if chasing { mischief.didStartClimbing() }
     }
 
     private func stepClimb(_ dt: TimeInterval) {
@@ -701,7 +738,7 @@ final class PetController: NSObject {
         }
         // 위쪽을 앞 창이 막고 있으면 그 아래까지만 (가려진 벽을 계속 타지 않게)
         let limit = min(climbLimitY, terrain.climbCeiling(for: wall, feetY: physics.origin.y) ?? .infinity)
-        switch physics.climb(wall, speed: max(walkSpeed * 1.3, 50), dt: dt, terrain: terrain, limitY: limit) {
+        switch physics.climb(wall, speed: max(walkSpeed * 1.3, 50) * (chasing ? 2 : 1), dt: dt, terrain: terrain, limitY: limit) {
         case .climbing:
             break
         case .reachedTop:
@@ -709,8 +746,14 @@ final class PetController: NSObject {
             brain.handle(.climbedUp, using: &rng)
         case .letGo:
             brain.handle(.letGo, using: &rng)
-            // 벽을 차고 반대쪽으로 폴짝
-            beginFall(velocity: CGVector(dx: -wall.side.sign * 180, dy: 380))
+            if chasing, let v = Mischief.leapVelocity(petFrame: CGRect(origin: physics.origin, size: physics.size),
+                                                      cursor: NSEvent.mouseLocation),
+               v.dx * wall.side.sign <= 0 {
+                beginFall(velocity: v) // 포인터 쪽으로 몸을 날린다
+            } else {
+                // 벽을 차고 반대쪽으로 폴짝
+                beginFall(velocity: CGVector(dx: -wall.side.sign * 180, dy: 380))
+            }
         case .overStep:
             // 옆 모니터 턱 꼭대기 → 그쪽으로 폴짝 넘어가서 착지 (방향은 걷던 쪽 그대로)
             climbingWall = nil

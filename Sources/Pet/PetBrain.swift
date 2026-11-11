@@ -41,6 +41,8 @@ struct PetBrain {
         case letGo                // 벽에서 손을 놓음 → 반대쪽으로 뛰어내림
         case climbOutOfDock       // Dock 뒤에 가려졌음 → 그 자리에서 Dock 위로 기어 올라온다
         case chase(Direction)     // 장난꾸러기 모드: 포인터 쪽으로 달린다 (매 프레임 들어오면 계속, 끊기면 1초 뒤 멈춤)
+        case climbNow             // 장난꾸러기 모드: 확률 없이 바로 벽 타기 (포인터가 위에 있음)
+        case face(Direction)      // 바라보는 방향만 바꾸기 (포인터 쪽으로 몸을 날릴 때)
         case react(PetAction, duration: TimeInterval? = nil)
         case sleep
         case wake
@@ -160,6 +162,14 @@ struct PetBrain {
             default:
                 break // 자는 중·화남(물기)·떨어지는 중·벽 타기는 그대로
             }
+
+        case .climbNow:
+            guard action == .walk else { return }
+            enter(.climb, for: .infinity, using: &rng)
+
+        case let .face(dir):
+            guard action != .dragged else { return }
+            direction = dir
 
         case .climbOutOfDock:
             guard action != .dragged, action != .fall else { return }
