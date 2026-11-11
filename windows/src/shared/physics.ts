@@ -4,8 +4,13 @@
 import { maxX, maxY, minX, minY, sign, type Direction, type Point, type Rect, type Size, type Vector } from './geometry'
 import { ScreenLayout, Terrain, type Wall } from './terrain'
 
-export type WalkResult = { type: 'moved' } | { type: 'hitWall'; wall: Wall } | { type: 'reachedEdge' } | { type: 'startFalling' }
-export type ClimbResult = { type: 'climbing' } | { type: 'reachedTop'; windowID: number } | { type: 'letGo' }
+/**
+ * reachedScreenEdge: 화면 바닥에서 같은 높이이거나 더 낮은 옆 모니터와의 경계에 닿음 → 폴짝 건너뛰거나 돌아선다
+ * (걸어서 천천히 넘으면 몸이 두 모니터에 걸쳐 보이는 시간이 길다)
+ */
+export type WalkResult = { type: 'moved' } | { type: 'hitWall'; wall: Wall } | { type: 'reachedEdge' } | { type: 'startFalling' } | { type: 'reachedScreenEdge' }
+/** overStep: 옆 모니터 턱 꼭대기에 닿음 → 옆 모니터로 폴짝 넘어간다 (screenHop) */
+export type ClimbResult = { type: 'climbing' } | { type: 'reachedTop'; windowID: number } | { type: 'letGo' } | { type: 'overStep' }
 
 export class PetPhysics {
   velocity: Vector = { dx: 0, dy: 0 }
@@ -30,7 +35,7 @@ export class PetPhysics {
     const newX = this.origin.x + sign(direction) * speed * dt
 
     // 1) 창 옆면에 부딪힘
-    const wall = terrain.windowWall(this.origin.x, newX, this.origin.y, direction)
+    const wall = terrain.windowWall(this.origin.x, newX, this.origin.y, direction, this.standingOn === null)
     if (wall) {
       this.origin.x = direction === 'right' ? wall.x - this.size.width : wall.x
       // 발목 높이의 낮은 턱은 그냥 올라선다
@@ -60,15 +65,35 @@ export class PetPhysics {
     return this.walkOnScreenFloor(direction, newX, terrain.screens)
   }
 
+  /** 모니터 경계를 폴짝 건너뛰는 초속. 몸 전체가 경계를 넘은 뒤에 원래 높이로 내려오도록 크기에 맞춰 키운다 */
+  screenHop(direction: Direction): Vector {
+    return { dx: sign(direction) * Math.max(200, this.size.width * 3.3), dy: 350 }
+  }
+
   private walkOnScreenFloor(direction: Direction, newX: number, layout: ScreenLayout): WalkResult {
     const current = layout.indexContaining(this.centerX, this.origin.y)
     if (current === undefined) return { type: 'startFalling' }
     const f = layout.frames[current]
     const exceedsRight = direction === 'right' && newX + this.size.width > maxX(f)
     const exceedsLeft = direction === 'left' && newX < minX(f)
-    if ((exceedsRight || exceedsLeft) && layout.neighbor(current, direction, this.origin.y) === undefined) {
-      this.origin.x = exceedsRight ? maxX(f) - this.size.width : minX(f)
-      return { type: 'hitWall', wall: { x: exceedsRight ? maxX(f) : minX(f), top: maxY(f), windowID: null, side: direction } }
+    if (exceedsRight || exceedsLeft) {
+      const edgeX = exceedsRight ? maxX(f) : minX(f)
+      const stopX = exceedsRight ? maxX(f) - this.size.width : minX(f)
+      // 이미 몸이 경계를 넘어가 있으면(예전 상태 등) 되돌리지 않고 그대로 걸어 넘어간다
+      const alreadyOver = exceedsRight ? this.origin.x > stopX + 0.5 : this.origin.x < stopX - 0.5
+      if (layout.neighbor(current, direction, this.origin.y) !== undefined) {
+        // 같은 높이이거나 더 낮은 옆 모니터: 경계에 멈춰 서서 건너뛸지 정한다
+        if (!alreadyOver) {
+          this.origin.x = stopX
+          return { type: 'reachedScreenEdge' }
+        }
+      } else {
+        this.origin.x = stopX
+        // 옆 모니터 바닥이 더 높으면 그 높이까지만 벽(턱) → 기어올라 넘어간다
+        const j = layout.stepNeighbor(current, direction, this.origin.y, this.size.height)
+        if (j !== undefined) return { type: 'hitWall', wall: { x: edgeX, top: minY(layout.frames[j]), windowID: null, side: direction, leadsToScreen: true } }
+        return { type: 'hitWall', wall: { x: edgeX, top: maxY(f), windowID: null, side: direction } }
+      }
     }
     this.origin.x = newX
     const now = layout.indexContaining(this.centerX, this.origin.y)
@@ -122,6 +147,10 @@ export class PetPhysics {
     this.origin.y += speed * dt
     const goal = Math.min(limitY, wall.top)
     if (this.origin.y < goal) return { type: 'climbing' }
+    if (wall.leadsToScreen && this.origin.y >= wall.top - 0.5) {
+      this.origin.y = wall.top
+      return { type: 'overStep' }
+    }
     const ledge = this.origin.y >= wall.top - 0.5 ? terrain.ledgeAfterClimbing(wall) : undefined
     if (ledge) {
       this.origin.y = ledge.y
@@ -147,15 +176,20 @@ export class PetPhysics {
     this.bounceOffScreenEdges(layout)
   }
 
+  /**
+   * 보정했으면 true (던져서 화면 끝에 부딪힘).
+   * 옆 모니터가 있어도 지금 발 높이에 그 모니터가 없으면 벽이다 (높이가 다른 모니터 사이 빈 공간에 반쯤 걸쳐 착지하거나,
+   * 옆 모니터 바닥으로 순간이동하지 않게)
+   */
   private bounceOffScreenEdges(layout: ScreenLayout): boolean {
-    const i = layout.indicesInColumn(this.centerX)[0] ?? layout.nearestIndex(this.centerX)
+    const i = layout.indexContaining(this.centerX, this.origin.y) ?? layout.indicesInColumn(this.centerX)[0] ?? layout.nearestIndex(this.centerX)
     if (i === undefined) return false
     const f = layout.frames[i]
-    if (this.origin.x + this.size.width > maxX(f) && layout.neighbor(i, 'right') === undefined) {
+    if (this.origin.x + this.size.width > maxX(f) && layout.neighbor(i, 'right', this.origin.y) === undefined) {
       this.origin.x = maxX(f) - this.size.width
       return true
     }
-    if (this.origin.x < minX(f) && layout.neighbor(i, 'left') === undefined) {
+    if (this.origin.x < minX(f) && layout.neighbor(i, 'left', this.origin.y) === undefined) {
       this.origin.x = minX(f)
       return true
     }

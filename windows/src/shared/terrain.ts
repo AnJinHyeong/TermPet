@@ -56,6 +56,23 @@ export class ScreenLayout {
     return j < 0 ? undefined : j
   }
 
+  /**
+   * i번 화면 side 쪽에 붙은, 바닥이 y보다 높은 이웃 화면 = 기어올라 넘어갈 수 있는 "턱".
+   * 턱 꼭대기에 매달렸을 때 몸이 지금 화면 안에 다 보여야 하고, 이웃 화면에도 서 있을 공간이 있어야 한다. 여럿이면 가장 낮은 턱
+   */
+  stepNeighbor(i: number, side: Direction, aboveY: number, petHeight: number): number | undefined {
+    const f = this.frames[i]
+    const tol = ScreenLayout.adjacencyTolerance
+    let best: number | undefined
+    this.frames.forEach((g, j) => {
+      if (j === i) return
+      const touching = side === 'right' ? Math.abs(minX(g) - maxX(f)) < tol : Math.abs(maxX(g) - minX(f)) < tol
+      if (!touching || !(minY(g) > aboveY + 1 && minY(g) + petHeight <= maxY(f) && minY(g) + petHeight <= maxY(g))) return
+      if (best === undefined || minY(g) < minY(this.frames[best])) best = j
+    })
+    return best
+  }
+
   /** x 위치에서 fromY 높이부터 떨어질 때 착지할 바닥 y */
   landingFloor(x: number, fromY: number): number | undefined {
     const column = this.indicesInColumn(x).map((i) => minY(this.frames[i]))
@@ -84,6 +101,8 @@ export interface Wall {
   windowID: number | null
   /** 벽이 펫의 어느 쪽에 있는지 */
   side: Direction
+  /** 옆 모니터로 이어지는 "턱"(옆 모니터 바닥이 더 높음). 꼭대기(top)까지 오르면 옆 모니터로 폴짝 넘어간다 */
+  leadsToScreen?: boolean
 }
 export interface Floor {
   y: number
@@ -145,10 +164,16 @@ export class Terrain {
     return best
   }
 
-  /** 몸 왼쪽 x가 oldX → newX 로 움직일 때 부딪히는 첫 창 옆면 */
-  windowWall(oldX: number, newX: number, feetY: number, direction: Direction): Wall | undefined {
+  /**
+   * 몸 왼쪽 x가 oldX → newX 로 움직일 때 부딪히는 첫 창 옆면.
+   * onScreenFloor: 화면 바닥을 걷는 중이면 지금 모니터 끝(경계)이나 그 너머의 창 옆면은 벽이 아니다
+   * (옆 모니터 끝에 붙은 최대화 창 때문에 경계를 못 넘고 그 벽만 타지 않게. 경계는 화면 끝 처리가 맡는다)
+   */
+  windowWall(oldX: number, newX: number, feetY: number, direction: Direction, onScreenFloor = false): Wall | undefined {
     const w = this.petSize.width
     let hit: Wall | undefined
+    const si = onScreenFloor ? this.screens.indexContaining(oldX + w / 2, feetY) : undefined
+    const screen = si === undefined ? undefined : this.screens.frames[si]
     this.windows.forEach((box, i) => {
       const f = box.frame
       if (!(minY(f) < feetY + this.petSize.height * 0.6 && maxY(f) > feetY + 4)) return
@@ -160,6 +185,7 @@ export class Terrain {
         sideX = maxX(f)
         if (!(oldX >= sideX - 0.5 && newX < sideX)) return
       }
+      if (screen && (direction === 'right' ? sideX >= maxX(screen) - 0.5 : sideX <= minX(screen) + 0.5)) return
       // 벽 중간이 앞 창에 가려 있으면 안 보이는 벽 → 무시
       if (this.isCovered({ x: sideX, y: Math.min(maxY(f), feetY + this.petSize.height / 2) }, i)) return
       const wall: Wall = { x: sideX, top: maxY(f), windowID: box.id, side: direction }
@@ -208,8 +234,8 @@ export class Terrain {
       const edgeX = dir === 'left' ? minX(f) : maxX(f) - w
       // 벽에 붙었을 때 몸 가운데 x
       let wallX = this.screens.neighbor(i, dir, feetY) === undefined ? edgeX + w / 2 : undefined
-      const wall = this.windowWall(originX, edgeX, feetY, dir)
-      if (wall && (dir === 'right' ? wall.x < maxX(f) - 0.5 : wall.x > minX(f) + 0.5)) wallX = wall.x - (sign(dir) * w) / 2
+      const wall = this.windowWall(originX, edgeX, feetY, dir, true)
+      if (wall) wallX = wall.x - (sign(dir) * w) / 2
       if (wallX === undefined) continue
       const distance = Math.abs(wallX - (targetX ?? originX + w / 2))
       if (!best || distance < best.distance) best = { dir, distance }

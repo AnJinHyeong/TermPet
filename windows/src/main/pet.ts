@@ -109,8 +109,9 @@ export class PetController {
   /** 우클릭 메뉴 (index.ts 가 채움) */
   onContextMenu?: () => void
 
+  /** 잠든 상태 (들려서 옮겨지는 중에도 true) */
   get isSleeping() {
-    return this.brain.action === 'sleep'
+    return this.brain.isAsleep
   }
   get usesWindows() {
     return this.walkOnWindows && this.layer === 'aboveApps' && win32Available()
@@ -310,9 +311,18 @@ export class PetController {
         const r = this.physics.walk(this.brain.direction, this.walkSpeed, dt, this.terrain)
         if (r.type === 'hitWall') {
           if (this.chaseClimbs(r.wall)) this.brain.handle({ type: 'climbNow' }, rng)
-          else this.brain.handle({ type: 'hitWall', window: r.wall.windowID !== null }, rng)
+          else this.brain.handle(r.wall.leadsToScreen ? { type: 'hitStep' } : { type: 'hitWall', window: r.wall.windowID !== null }, rng)
           if (this.currentAction() === 'climb') this.startClimbing(r.wall)
           else this.giveUpChase()
+        } else if (r.type === 'reachedScreenEdge') {
+          if (this.chaseJumpsOff(this.brain.direction)) {
+            this.beginFall(this.physics.screenHop(this.brain.direction)) // 포인터가 옆 모니터에 → 무조건 건너간다
+          } else {
+            this.brain.handle({ type: 'reachedScreenEdge' }, rng)
+            // 옆 모니터로 폴짝 (두 모니터에 걸쳐 보이는 시간을 줄인다)
+            if (this.currentAction() === 'fall') this.physics.prepareFall(this.terrain, this.physics.screenHop(this.brain.direction))
+            else this.giveUpChase()
+          }
         } else if (r.type === 'reachedEdge') {
           if (this.chaseJumpsOff(this.brain.direction)) {
             this.beginFall({ dx: sign(this.brain.direction) * 140, dy: 400 }) // 포인터 쪽으로 뛰어내린다
@@ -403,7 +413,8 @@ export class PetController {
   private sendFrame() {
     if (!this.win || !this.pack) return
     // 물고 있을 땐 공중에서도 물기 그림(없으면 화남), 던진 직후엔 던지기 그림(없으면 신남)
-    const action: PetAction = this.biting ? 'bite' : now() < this.tossUntil ? 'throw' : this.brain.action
+    // 잠든 채 들려 있거나 떨어지는 중에도 자는 모습 그대로 (물리는 brain.action 으로 따로 돈다)
+    const action: PetAction = this.biting ? 'bite' : now() < this.tossUntil ? 'throw' : this.brain.isAsleep ? 'sleep' : this.brain.action
     if (action !== this.lastAction || this.brain.variant !== this.lastVariant) {
       this.actionSerial++
       this.lastAction = action
@@ -517,8 +528,8 @@ export class PetController {
   private startClimbing(wall: Wall) {
     this.climbingWall = wall
     this.physics.standingOn = null
-    if (wall.windowID !== null && this.terrain.ledgeAfterClimbing(wall)) {
-      this.climbLimitY = Infinity // 창 꼭대기까지 올라가서 올라선다
+    if (wall.leadsToScreen || (wall.windowID !== null && this.terrain.ledgeAfterClimbing(wall))) {
+      this.climbLimitY = Infinity // 창 꼭대기(또는 옆 모니터 턱)까지 올라가서 올라선다
     } else if (this.chasing) {
       this.climbLimitY = this.chaseClimbLimit(wall) // 포인터 높이까지 (stepClimb 이 매 프레임 포인터를 따라 고친다)
     } else {
@@ -552,6 +563,10 @@ export class PetController {
     if (r.type === 'reachedTop') {
       this.climbingWall = undefined
       this.brain.handle({ type: 'climbedUp' }, rng)
+    } else if (r.type === 'overStep') {
+      // 옆 모니터 턱 꼭대기 → 그쪽으로 폴짝 넘어가서 착지 (방향은 걷던 쪽 그대로)
+      this.climbingWall = undefined
+      this.beginFall(this.physics.screenHop(wall.side))
     } else if (r.type === 'letGo') {
       this.brain.handle({ type: 'letGo' }, rng)
       const frame = this.petFrame()
@@ -609,7 +624,7 @@ export class PetController {
       cursor,
       facing: this.brain.direction,
       canPlay:
-        this.mischiefEnabled && this.visible && !this.dragging && !this.mouseDownAt && !this.bubble.isShowing && this.brain.action !== 'sleep' && this.brain.action !== 'dragged',
+        this.mischiefEnabled && this.visible && !this.dragging && !this.mouseDownAt && !this.bubble.isShowing && !this.brain.isAsleep && this.brain.action !== 'dragged',
       mouseDown: anyMouseButtonDown(),
       grounded,
       climbingSide: this.brain.action === 'climb' ? this.climbingWall?.side : undefined,
@@ -659,7 +674,7 @@ export class PetController {
   /** 쫓는 중 벽에 막힘: 창이거나 포인터가 머리 위면 확률 없이 바로 타고 오른다 */
   private chaseClimbs(wall: Wall): boolean {
     if (!this.chasing) return false
-    return wall.windowID !== null || this.cursor().y > this.physics.origin.y + this.physics.size.height
+    return wall.windowID !== null || !!wall.leadsToScreen || this.cursor().y > this.physics.origin.y + this.physics.size.height
   }
 
   /** 쫓는 중 끝(창 끝)에 닿음: 포인터가 그쪽이거나 아래면 바로 뛰어내린다 */
@@ -733,7 +748,8 @@ export class PetController {
     // 단일 클릭: 말풍선이 떠 있으면 말풍선 동작(이동), 숨은 미확인 알림이 있으면 다시 보기, 아니면 오늘 기록
     if (this.bubble.isShowing) this.bubble.activateCurrent()
     else if (this.bubble.hasUnread) this.bubble.show()
-    else {
+    else if (!this.brain.isAsleep) {
+      // 자는 중엔 클릭해도 안 깨고 말도 안 한다
       this.brain.handle({ type: 'clicked' }, rng)
       this.bubble.say(statsSpeech(currentStats(this.stats)))
     }

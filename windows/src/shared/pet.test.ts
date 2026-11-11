@@ -25,13 +25,35 @@ describe('PetBrain', () => {
     expect(b.action).toBe('idle')
   })
 
-  it('오래 아무 일 없으면 잠든다, 클릭하면 깬다', () => {
+  it('오래 아무 일 없으면 잠든다, 클릭으론 안 깨고 깨우기로만 깬다', () => {
     const b = new PetBrain()
     const rng = seeded()
     for (let i = 0; i < 700; i++) b.tick(1, rng)
     expect(b.action).toBe('sleep')
     b.handle({ type: 'clicked' }, rng)
+    expect(b.action).toBe('sleep')
+    b.handle({ type: 'wake' }, rng)
     expect(b.action).toBe('idle')
+  })
+
+  it('잠든 채 들어 옮겨도 착지하면 계속 잔다 / 재워 둔 건 알림에도 안 깨고, 저절로 잠든 건 알림에 깬다', () => {
+    const rng = seeded()
+    const b = new PetBrain()
+    b.handle({ type: 'sleep' }, rng)
+    b.handle({ type: 'dragStarted' }, rng)
+    expect(b.isAsleep).toBe(true)
+    b.handle({ type: 'startFall' }, rng)
+    b.handle({ type: 'landed' }, rng)
+    expect(b.action).toBe('sleep')
+    b.handle({ type: 'react', action: 'happy' }, rng)
+    expect(b.action).toBe('sleep')
+
+    const auto = new PetBrain()
+    for (let i = 0; i < 700; i++) auto.tick(1, rng)
+    expect(auto.action).toBe('sleep')
+    auto.handle({ type: 'react', action: 'happy' }, rng)
+    expect(auto.action).toBe('happy')
+    expect(auto.isAsleep).toBe(false)
   })
 
   it('반응은 시간이 지나면 idle 로, 잡혀 있을 땐 반응 무시', () => {
@@ -90,14 +112,14 @@ describe('PetPhysics 걷기', () => {
     expect(p.origin.x).toBe(920)
   })
 
-  it('옆 화면이 같은 높이로 붙어 있으면 넘어간다', () => {
+  it('옆 화면이 같은 높이로 붙어 있으면 경계에 멈춰 서서 폴짝 건너뛴다', () => {
     const two = new ScreenLayout([
       { x: 0, y: 0, width: 1000, height: 800 },
       { x: 1000, y: 0, width: 1000, height: 800 },
     ])
     const p = new PetPhysics({ x: 915, y: 0 }, size)
-    expect(p.walk('right', 100, 0.1, new Terrain(two, [], size)).type).toBe('moved')
-    expect(p.origin.x).toBeCloseTo(925)
+    expect(p.walk('right', 100, 0.1, new Terrain(two, [], size)).type).toBe('reachedScreenEdge')
+    expect(p.origin.x).toBe(1000 - size.width)
   })
 
   it('창 옆면에 부딪히면 벽, 낮은 턱은 그냥 올라선다', () => {

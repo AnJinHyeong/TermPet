@@ -21,6 +21,8 @@ export interface BrainConfig {
   climbScreenChance: number
   /** 창 위에서 끝에 닿았을 때 뛰어내릴 확률 */
   edgeJumpChance: number
+  /** 모니터 경계에서 옆 모니터로 넘어갈 확률 (턱을 기어오르거나 폴짝 건너뛴다. 나머지는 돌아선다) */
+  crossScreenChance: number
 }
 
 export const defaultBrainConfig: BrainConfig = {
@@ -32,6 +34,7 @@ export const defaultBrainConfig: BrainConfig = {
   climbWindowChance: 0.75,
   climbScreenChance: 0.3,
   edgeJumpChance: 0.4,
+  crossScreenChance: 0.7,
 }
 
 /** 외부 입력 (TS 판별 유니온) */
@@ -42,6 +45,10 @@ export type BrainInput =
   | { type: 'landed' }
   | { type: 'hitWall'; window: boolean }
   | { type: 'reachedEdge' }
+  /** 옆 모니터 바닥이 더 높은 경계(턱) → 기어올라 넘어가거나 돌아선다 */
+  | { type: 'hitStep' }
+  /** 같은 높이·더 낮은 옆 모니터 경계 → 폴짝 건너뛰거나 돌아선다 */
+  | { type: 'reachedScreenEdge' }
   | { type: 'climbedUp' }
   | { type: 'letGo' }
   | { type: 'react'; action: PetAction; duration?: number }
@@ -71,6 +78,10 @@ export class PetBrain {
   inactivity = 0
   /** 상태 진입 때마다 뽑는 난수 → 포즈(idle.2 등) 고르기 */
   variant = 0
+  /** 잠든 상태. 들어서 옮기거나 떨어지는 동안(action 은 dragged/fall)에도 유지되고, 착지하면 다시 sleep. 깨는 건 'wake'(재우기/깨우기 토글)뿐 */
+  isAsleep = false
+  /** 사용자가 '재우기'로 재웠음 → 알림이 와도 안 깬다. 오래 쉬어서 저절로 잠든 거면 알림에 깬다 */
+  sleptByUser = false
 
   constructor(readonly config: BrainConfig = defaultBrainConfig) {
     this.duration = config.idleDuration[0]
@@ -83,7 +94,7 @@ export class PetBrain {
       case 'walk':
         this.inactivity += dt
         if (this.inactivity >= this.config.sleepAfter) {
-          this.enter('sleep', Infinity, rng)
+          this.fallAsleep(false, rng)
           return
         }
         if (this.elapsed < this.duration) return
@@ -103,9 +114,9 @@ export class PetBrain {
   handle(input: BrainInput, rng: Random) {
     switch (input.type) {
       case 'clicked':
+        if (this.isAsleep) return // 자고 있으면 클릭해도 안 깬다 (토글로만)
         this.inactivity = 0
-        if (this.action === 'sleep') this.enterIdle(rng)
-        else if (!isPhysicsControlled(this.action)) this.enter('happy', this.config.clickReactionDuration, rng)
+        if (!isPhysicsControlled(this.action) && this.action !== 'sleep') this.enter('happy', this.config.clickReactionDuration, rng)
         return
       case 'dragStarted':
         this.inactivity = 0
@@ -115,7 +126,9 @@ export class PetBrain {
         this.enter('fall', Infinity, rng)
         return
       case 'landed':
-        if (this.action === 'fall') this.enterIdle(rng)
+        if (this.action !== 'fall') return
+        if (this.isAsleep) this.enter('sleep', Infinity, rng) // 옮겨져도 계속 잔다
+        else this.enterIdle(rng)
         return
       case 'hitWall': {
         if (this.action !== 'walk') {
@@ -131,8 +144,19 @@ export class PetBrain {
         if (rng() < this.config.edgeJumpChance) this.enter('fall', Infinity, rng)
         else this.direction = flipped(this.direction)
         return
+      case 'hitStep':
+        if (this.action === 'walk' && rng() < this.config.crossScreenChance) this.enter('climb', Infinity, rng)
+        else this.direction = flipped(this.direction)
+        return
+      case 'reachedScreenEdge':
+        // 폴짝 (초속은 pet.ts 가 screenHop 으로)
+        if (this.action === 'walk' && rng() < this.config.crossScreenChance) this.enter('fall', Infinity, rng)
+        else this.direction = flipped(this.direction)
+        return
       case 'climbedUp':
-        if (this.action === 'climb') this.enter('walk', between(rng, this.config.walkDuration), rng)
+        if (this.action !== 'climb') return
+        if (this.isAsleep) this.enter('sleep', Infinity, rng)
+        else this.enter('walk', between(rng, this.config.walkDuration), rng)
         return
       case 'letGo':
         if (this.action !== 'climb') return
@@ -140,15 +164,21 @@ export class PetBrain {
         this.enter('fall', Infinity, rng)
         return
       case 'react':
+        if (this.isAsleep) {
+          if (this.sleptByUser) return // 재워 둔 거면 알림에도 계속 잔다
+          this.isAsleep = false // 저절로 잠든 거면 알림에 깬다
+        }
         this.inactivity = 0
         if (isPhysicsControlled(this.action)) return
         this.enter(input.action, input.duration ?? this.config.reactionDuration, rng)
         return
       case 'sleep':
-        if (!isPhysicsControlled(this.action)) this.enter('sleep', Infinity, rng)
+        if (!isPhysicsControlled(this.action)) this.fallAsleep(true, rng)
         return
       case 'wake':
         this.inactivity = 0
+        this.isAsleep = false
+        this.sleptByUser = false
         if (this.action === 'sleep') this.enterIdle(rng)
         return
       case 'chase':
@@ -168,6 +198,12 @@ export class PetBrain {
         if (this.action !== 'dragged') this.direction = input.direction
         return
     }
+  }
+
+  private fallAsleep(byUser: boolean, rng: Random) {
+    this.isAsleep = true
+    this.sleptByUser = byUser
+    this.enter('sleep', Infinity, rng)
   }
 
   private enter(action: PetAction, duration: number, rng: Random) {
