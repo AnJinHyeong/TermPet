@@ -11,6 +11,12 @@ final class PetViewModel {
     var variant: Int = 0
     /// 창 위 산책 켜짐 (메뉴 패널 칩 표시용)
     var walkOnWindows: Bool = true
+    /// 장난꾸러기 모드 켜짐 (메뉴 패널 칩 표시용)
+    var mischief: Bool = false
+    /// 포인터를 물고 흔드는 중 → 화난 얼굴 + 몸 흔들기 + "앙!/으르릉"
+    var biting: Bool = false
+    /// 물기 시작한 시각 (`time` 기준)
+    var biteStart: TimeInterval = 0
     /// 앱 시작 후 계속 흐르는 애니메이션 시계(초) — 숨쉬기, 눈 깜빡임 등
     var time: TimeInterval = 0
     /// 현재 상태에 들어온 뒤 지난 시간 — 점프 등 상태 시작 기준 애니메이션

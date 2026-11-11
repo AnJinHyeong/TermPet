@@ -322,6 +322,10 @@ struct MenuPanelView: View {
                 }
                 .hint(exactDock ? "Dock 끝을 정확히 알고 있어요"
                                 : "손쉬운 사용 권한을 켜면 Dock 끝을 정확히 알아서 뒤로 숨지 않아요")
+                Chip(symbol: "cursorarrow.motionlines", title: "장난꾸러기", on: pet.model.mischief) {
+                    pet.mischiefEnabled.toggle()
+                }
+                .hint("근처에서 움직이는 마우스 포인터를 쫓아와 물고 휙 던져요 (클릭하면 놓아줘요)")
             }
             Text("펫을 잡아서 휙 던져 보세요")
                 .font(.system(size: 10.5, design: .rounded))

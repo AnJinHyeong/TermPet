@@ -40,6 +40,7 @@ struct PetBrain {
         case climbedUp            // 벽을 다 올라 창 위에 올라섬 → 계속 걷기
         case letGo                // 벽에서 손을 놓음 → 반대쪽으로 뛰어내림
         case climbOutOfDock       // Dock 뒤에 가려졌음 → 그 자리에서 Dock 위로 기어 올라온다
+        case chase(Direction)     // 장난꾸러기 모드: 포인터 쪽으로 달린다 (매 프레임 들어오면 계속, 끊기면 1초 뒤 멈춤)
         case react(PetAction, duration: TimeInterval? = nil)
         case sleep
         case wake
@@ -140,6 +141,19 @@ struct PetBrain {
                 enter(.fall, for: .infinity, using: &rng) // 폴짝 (초속은 컨트롤러가 screenHop으로)
             } else {
                 direction = direction.flipped
+            }
+
+        case let .chase(dir):
+            inactivity = 0
+            switch action {
+            case .walk:
+                direction = dir
+                duration = max(duration, elapsed + 1) // 계속 쫓는 동안은 걷기가 끝나지 않게
+            case .idle, .talk, .happy, .ask:
+                direction = dir
+                enter(.walk, for: 1, using: &rng)
+            default:
+                break // 자는 중·화남(물기)·떨어지는 중·벽 타기는 그대로
             }
 
         case .climbOutOfDock:

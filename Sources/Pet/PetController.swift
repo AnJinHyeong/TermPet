@@ -70,6 +70,21 @@ final class PetController: NSObject {
         }
     }
 
+    /// 장난꾸러기 모드: 포인터를 쫓아와 물고 던진다 (메뉴 패널 '장난꾸러기' 칩, 기본 꺼짐)
+    static let mischiefKey = "mischief"
+    var mischiefEnabled: Bool = UserDefaults.standard.bool(forKey: PetController.mischiefKey) {
+        didSet {
+            UserDefaults.standard.set(mischiefEnabled, forKey: Self.mischiefKey)
+            model.mischief = mischiefEnabled
+            if !mischiefEnabled { stopMischief() }
+        }
+    }
+    private var mischief = Mischief()
+    /// 포인터 쫓는 중 (걷기 속도 ↑)
+    private var chasing = false
+    /// 던져진 포인터가 날아가는 중 (경로, 지난 시간)
+    private var flyingPointer: (path: PointerThrow, t: TimeInterval)?
+
     private var window: PetWindow?
     /// 캐릭터 팩에 walkSpeed가 있으면 그 값, 없으면 설정값
     private var walkSpeed: CGFloat
@@ -127,6 +142,7 @@ final class PetController: NSObject {
         window.contentView = root
         model.layer = PetWindowLayer.load()
         model.walkOnWindows = walkOnWindows
+        model.mischief = mischiefEnabled
         applyEffectiveLayer()
         window.setFrameOrigin(physics.origin)
         window.orderFrontRegardless() // 앱을 활성화하지 않고 앞에 띄움
@@ -198,6 +214,7 @@ final class PetController: NSObject {
             if timer == nil { startTimer() }
         } else {
             window?.orderOut(nil)
+            stopMischief() // 물고 있던 포인터는 놓아준다
             bubble.hide() // 미확인 알림은 큐에 남아 있다가 다시 보이면 "!"로 표시
             timer?.invalidate() // 숨긴 동안은 루프를 멈춰 CPU 0
             timer = nil
@@ -342,19 +359,19 @@ final class PetController: NSObject {
             case .moved: break
             case .hitWall(let wall):
                 brain.handle(wall.leadsToScreen ? .hitStep : .hitWall(window: wall.windowID != nil), using: &rng)
-                if brain.action == .climb { startClimbing(wall) }
+                if brain.action == .climb { startClimbing(wall) } else { giveUpChase() }
             case .reachedScreenEdge:
                 brain.handle(.reachedScreenEdge, using: &rng)
                 if brain.action == .fall {
                     // 옆 모니터로 폴짝 (두 모니터에 걸쳐 반쯤 잘려 보이는 시간을 줄인다)
                     physics.prepareFall(terrain: terrain, velocity: physics.screenHop(brain.direction))
-                }
+                } else { giveUpChase() }
             case .reachedEdge:
                 brain.handle(.reachedEdge, using: &rng)
                 if brain.action == .fall {
                     // 선반 끝에서 폴짝 뛰어내리기
                     physics.prepareFall(terrain: terrain, velocity: CGVector(dx: brain.direction.sign * 110, dy: 420))
-                }
+                } else { giveUpChase() }
             case .startFalling: beginFall()
             }
         case .climb:
@@ -372,6 +389,7 @@ final class PetController: NSObject {
             }
         }
 
+        stepMischief(dt)
         if !isDragging, let window, window.frame.origin != physics.origin {
             window.setFrameOrigin(physics.origin)
         }
@@ -391,6 +409,8 @@ final class PetController: NSObject {
         var wanted = Self.loopFPS(for: brain.action, maxFPS: config.fps)
         // 서 있는 창이 방금 움직였으면(창을 끄는 중) 매끄럽게 따라가도록 조금 더 자주
         if isRidingWindow { wanted = max(wanted, min(config.fps, 20)) }
+        // 포인터를 물고 흔들거나 던지는 중엔 포인터가 매끄럽게 움직이도록 최대로
+        if mischief.phase == .biting || mischief.phase == .throwing { wanted = config.fps }
         if wanted != timerFPS { startTimer(fps: wanted) }
     }
 
@@ -413,7 +433,7 @@ final class PetController: NSObject {
     /// 기본 도형 캐릭터·머리 위 표시(배지·기분·zzz)는 시계로 계속 움직이므로 그때는 매번 넘긴다.
     /// React 비유: 매 프레임 setState 하지 않고, 화면에 보이는 값이 바뀔 때만 setState.
     private func publishClock(force: Bool = false) {
-        if !force, case .sprite(let sprite) = model.character,
+        if !force, !model.biting, case .sprite(let sprite) = model.character,
            model.badge == .none, model.mood == .normal, model.action != .sleep {
             let frame = sprite.animation(for: model.action, variant: model.variant)?.timing.frameIndex(at: brain.elapsed)
             guard frame != lastSpriteFrame else { return }
@@ -434,6 +454,7 @@ final class PetController: NSObject {
 
     /// 걷기 속도: 기분 반영 + 달리기 포즈(walk.2)가 뽑히면 빠르게
     private var currentWalkSpeed: CGFloat {
+        if chasing { return max(walkSpeed * 2.4, 90) } // 포인터 쫓을 땐 달린다
         var speed = walkSpeed * model.mood.walkFactor
         if case .sprite(let s) = model.character, s.variantCount(for: .walk) > 1,
            brain.variant % s.variantCount(for: .walk) == 1 {
@@ -579,6 +600,77 @@ final class PetController: NSObject {
                 beginFall()
             }
         }
+    }
+
+    // MARK: - 장난꾸러기 (포인터 쫓기·물기·던지기)
+
+    private func stepMischief(_ dt: TimeInterval) {
+        // 던진 포인터 날리기
+        if let flying = flyingPointer {
+            let t = flying.t + dt
+            PointerControl.move(to: flying.path.position(at: t))
+            if flying.path.isFinished(at: t) {
+                flyingPointer = nil
+                PointerControl.finish()
+                mischief.finishThrow()
+            } else {
+                flyingPointer = (flying.path, t)
+            }
+            return
+        }
+        guard mischiefEnabled || mischief.phase != .ready else { return }
+        let input = Mischief.Input(
+            petFrame: CGRect(origin: physics.origin, size: physics.size),
+            cursor: NSEvent.mouseLocation,
+            facing: brain.direction,
+            canPlay: mischiefEnabled && model.isVisible && !isDragging && !bubble.isShowing
+                && brain.action != .sleep && brain.action != .dragged && risingOutOf == nil,
+            mouseDown: NSEvent.pressedMouseButtons != 0,
+            grounded: !brain.action.isPhysicsControlled)
+        switch mischief.tick(dt, input, using: &rng) {
+        case .none:
+            break
+        case .chase(let dir):
+            chasing = true
+            brain.handle(.chase(dir), using: &rng)
+        case .jump(let v):
+            beginFall(velocity: v)
+        case .stopChase:
+            chasing = false
+        case .startBite:
+            chasing = false
+            model.biting = true
+            model.biteStart = clock
+            brain.handle(.react(.angry, duration: mischief.config.biteDuration + 0.4), using: &rng)
+            syncModel()
+        case .holdPointer(let p):
+            PointerControl.move(to: p)
+        case .throwPointer:
+            model.biting = false
+            let start = NSEvent.mouseLocation
+            flyingPointer = (PointerThrow.toss(from: start, facing: brain.direction,
+                                               screens: NSScreen.screens.map(\.frame), using: &rng), 0)
+            brain.handle(.react(.happy, duration: 1.2), using: &rng) // 뿌듯
+            syncModel()
+        case .release:
+            model.biting = false
+            PointerControl.finish()
+        }
+    }
+
+    /// 쫓다가 벽·끝에 막혀 돌아섰으면 포기 (안 그러면 벽 앞에서 좌우로 떨게 된다)
+    private func giveUpChase() {
+        guard chasing else { return }
+        chasing = false
+        mischief.giveUp()
+    }
+
+    private func stopMischief() {
+        chasing = false
+        if model.biting || flyingPointer != nil { PointerControl.finish() }
+        model.biting = false
+        flyingPointer = nil
+        mischief.reset()
     }
 
     // MARK: - 벽 오르기
@@ -834,6 +926,11 @@ struct PetView: View {
 
     var body: some View {
         characterView
+        // 장난꾸러기: 포인터를 물고 개처럼 고개를 휙휙 (발 기준으로 흔들기)
+        .rotationEffect(.degrees(model.biting ? sin(model.time * 38) * 9 : 0), anchor: .bottom)
+        .overlay(alignment: model.facing == .right ? .topLeading : .topTrailing) {
+            if model.biting { BiteMarkView(elapsed: model.time - model.biteStart) }
+        }
         // 머리 위 표시 (overlay ≈ position:absolute 자식)
         .overlay(alignment: .top) {
             PetBadgeView(badge: model.badge, time: model.time)
@@ -850,15 +947,18 @@ struct PetView: View {
         }
     }
 
+    /// 물고 있을 땐 공중에서도 화난(으르릉) 얼굴
+    private var shownAction: PetAction { model.biting ? .angry : model.action }
+
     /// 선택된 캐릭터 종류에 따라 렌더러 선택 (TS의 switch로 컴포넌트 고르기와 같음)
     @ViewBuilder
     private var characterView: some View {
         switch model.character {
         case .builtIn(let style):
-            DefaultCharacterView(style: style, action: model.action, facing: model.facing,
+            DefaultCharacterView(style: style, action: shownAction, facing: model.facing,
                                  time: model.time, actionTime: model.actionTime)
         case .sprite(let sprite):
-            SpriteCharacterView(sprite: sprite, action: model.action, variant: model.variant,
+            SpriteCharacterView(sprite: sprite, action: shownAction, variant: model.variant,
                                 facing: model.facing, actionTime: model.actionTime)
         }
     }
@@ -994,6 +1094,21 @@ final class HistoryStore {
     var entries: [NotificationHistory.Entry] { history.entries }
     func record(_ event: PetEvent, content: BubbleContent) { history.record(event, content: content) }
     func clear() { history.removeAll() }
+}
+
+/// 포인터를 물었을 때: 처음엔 "앙!", 흔드는 동안 "으르릉"
+struct BiteMarkView: View {
+    let elapsed: TimeInterval
+
+    var body: some View {
+        Text(elapsed < 0.35 ? "앙!" : "으르릉")
+            .font(.system(size: elapsed < 0.35 ? 13 : 9.5, weight: .black, design: .rounded))
+            .foregroundStyle(Color(red: 0.85, green: 0.25, blue: 0.25))
+            .shadow(color: .white, radius: 1.5)
+            .offset(x: elapsed < 0.35 ? 0 : sin(elapsed * 30) * 1.5)
+            .padding(2)
+            .allowsHitTesting(false)
+    }
 }
 
 /// 잠잘 때 머리 위로 떠오르는 z z z
