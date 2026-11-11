@@ -15,7 +15,7 @@ final class BubbleController {
     /// 말풍선이 나타나거나 사라질 때 (바탕화면 모드에서 잠깐 앞으로 올리기용)
     var onVisibilityChange: ((Bool) -> Void)?
 
-    /// 말풍선 유지 시간 (Phase 3에서 설정과 연결)
+    /// 말풍선 유지 시간 (메뉴 패널 설정 탭에서 바꿈)
     var displayDuration: TimeInterval = 3
     /// 말풍선(본문) 클릭 시 호출 — 프로젝트로 이동
     var onActivate: ((PetNotification) -> Void)?
@@ -51,11 +51,13 @@ final class BubbleController {
     /// 말풍선 기본 문구 (캐릭터 팩의 messages)
     var messages: BubbleMessages = .default
 
-    func enqueue(_ event: PetEvent) {
+    /// 반환값: 말풍선에 쓴 내용 (최근 알림 기록에 같은 문구를 남기려고)
+    @discardableResult
+    func enqueue(_ event: PetEvent) -> BubbleContent {
         let content = BubbleContent.make(for: event, messages: messages, using: &rng)
-        guard queue.push(PetNotification(event: event, content: content)) != .ignored else { return }
-        if isQuiet { return }
-        show()
+        guard queue.push(PetNotification(event: event, content: content)) != .ignored else { return content }
+        if !isQuiet { show() }
+        return content
     }
 
     /// 알림이 아닌 펫의 혼잣말 (예: 펫을 눌렀을 때 오늘 기록). 큐에 쌓지 않고 잠깐 보여준다.

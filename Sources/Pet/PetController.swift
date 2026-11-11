@@ -17,6 +17,18 @@ final class PetController: NSObject {
     let quiet = QuietMode()
     /// 오늘 하루 기록
     let stats = StatsStore()
+    /// 최근 알림 (메뉴 패널 "최근 알림")
+    let history = HistoryStore()
+    /// 크기·걷기 속도·말풍선 시간 (메뉴 패널 "설정" 탭). 바꾸면 바로 저장·반영.
+    var preferences = PetPreferences.load() {
+        didSet {
+            guard preferences != oldValue else { return }
+            preferences.save()
+            applyPreferences()
+        }
+    }
+    /// 지금 캐릭터의 원래 크기 (설정 배율 적용 전)
+    private var baseSize = LoadedCharacter.defaultSize
     /// 최근 성공/실패 (기분 계산용, 최근 20개만)
     private var outcomes: [(Date, Bool)] = []
     private var lastPrune: CFTimeInterval = 0
@@ -73,6 +85,7 @@ final class PetController: NSObject {
         self.physics = PetPhysics(origin: .zero, size: config.size)
         self.walkSpeed = config.walkSpeed
         super.init()
+        bubble.displayDuration = preferences.bubbleSeconds
         bubble.onActivate = { ProjectFocuser.focus($0.event) }
         bubble.onVisibilityChange = { [weak self] _ in self?.applyEffectiveLayer() }
         quiet.onChange = { [weak self] isQuiet in self?.bubble.isQuiet = isQuiet }
@@ -202,7 +215,8 @@ final class PetController: NSObject {
         }
         brain.handle(.react(event.mood, duration: 3), using: &rng)
         syncModel()
-        bubble.enqueue(event)
+        let content = bubble.enqueue(event)
+        history.record(event, content: content)
         if !model.isVisible { bubble.hide() }
         if BubbleController.isSticky(event), quiet.soundOnAsk, !quiet.isQuiet, model.isVisible {
             NSSound(named: "Glass")?.play() // 권한 요청은 작업이 멈춘 상태라 소리로 한 번 더 알림
@@ -236,10 +250,20 @@ final class PetController: NSObject {
     /// 캐릭터 교체: 창 크기·걷기 속도·말풍선 문구를 캐릭터에 맞춘다.
     func setCharacter(_ character: LoadedCharacter) {
         model.character = character
-        walkSpeed = character.walkSpeed ?? config.walkSpeed
         bubble.messages = character.messages
+        baseSize = character.size
+        applyPreferences()
+    }
 
-        let newSize = character.size
+    /// 설정(크기·속도·말풍선 시간)을 지금 캐릭터에 반영
+    private func applyPreferences() {
+        let base: CGFloat = model.character.walkSpeed ?? config.walkSpeed
+        walkSpeed = base * CGFloat(preferences.speedScale)
+        bubble.displayDuration = preferences.bubbleSeconds
+        resize(to: preferences.scaled(baseSize))
+    }
+
+    private func resize(to newSize: CGSize) {
         guard newSize != physics.size else { return }
         // 발 위치(바닥)와 가로 중심은 유지한 채 크기만 바꾼다
         physics.origin.x += (physics.size.width - newSize.width) / 2
@@ -667,14 +691,14 @@ final class PetController: NSObject {
         let menu = NSMenu()
         menu.autoenablesItems = false
 
-        let viewer = NSMenuItem(title: "터미널 확장판 열기", action: nil, keyEquivalent: "")
-        viewer.isEnabled = false // Phase 4
-        menu.addItem(viewer)
-
         let sleep = NSMenuItem(title: isSleeping ? "깨우기" : "재우기",
                                action: #selector(menuToggleSleep), keyEquivalent: "")
         sleep.target = self
         menu.addItem(sleep)
+
+        let hide = NSMenuItem(title: "숨기기 (메뉴바에서 다시 보이기)", action: #selector(menuHide), keyEquivalent: "")
+        hide.target = self
+        menu.addItem(hide)
 
         // 표시 위치 하위 메뉴 (현재 선택에 체크 표시)
         let layerItem = NSMenuItem(title: "표시 위치", action: nil, keyEquivalent: "")
@@ -704,10 +728,6 @@ final class PetController: NSObject {
             menu.addItem(charItem)
         }
 
-        let settings = NSMenuItem(title: "설정…", action: nil, keyEquivalent: "")
-        settings.isEnabled = false // Phase 3
-        menu.addItem(settings)
-
         menu.addItem(.separator())
 
         let quit = NSMenuItem(title: "텀펫 종료", action: #selector(menuQuit), keyEquivalent: "")
@@ -718,6 +738,7 @@ final class PetController: NSObject {
     }
 
     @objc private func menuToggleSleep() { toggleSleep() }
+    @objc private func menuHide() { setVisible(false) }
     @objc private func menuSelectLayer(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String,
               let layer = PetWindowLayer(rawValue: raw) else { return }
@@ -887,6 +908,15 @@ final class StatsStore {
         stats.record(event)
         if let data = try? JSONEncoder().encode(stats) { defaults.set(data, forKey: Self.key) }
     }
+}
+
+/// 최근 알림 스토어 (앱을 끄면 비워짐, `@Observable` ≈ Zustand)
+@Observable
+final class HistoryStore {
+    private(set) var history = NotificationHistory()
+    var entries: [NotificationHistory.Entry] { history.entries }
+    func record(_ event: PetEvent, content: BubbleContent) { history.record(event, content: content) }
+    func clear() { history.removeAll() }
 }
 
 /// 잠잘 때 머리 위로 떠오르는 z z z

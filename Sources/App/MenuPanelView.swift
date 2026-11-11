@@ -3,11 +3,15 @@ import SwiftUI
 
 /// 메뉴바 아이콘을 누르면 뜨는 패널 (MenuBarExtra `.window` 스타일).
 /// 테마: 크림 바탕 + 버터 노랑·볼터치 분홍 (우사기·치이카와 친구들 느낌의 말랑한 파스텔)
-/// 구성: 무대(지금 캐릭터 + 상태) → 진행 중 세션 → 친구 고르기 → 놀기 → AI 연결 → 알림 → 표시 위치 → 하단
+/// 구성: 무대(지금 캐릭터 + 상태) → 진행 중 세션 → 최근 알림 → 빠른 칩 → 탭(친구·알림·연결·설정) → 하단
 /// React 비유: 작은 컴포넌트(Card, Chip, Tile)를 조합한 하나의 화면 컴포넌트.
 struct MenuPanelView: View {
     let app: AppDelegate
     @State private var launchAtLogin = LoginItem.isEnabled  // @State ≈ useState
+    /// 마지막으로 연 탭 (@AppStorage ≈ localStorage와 묶인 useState)
+    @AppStorage("panelTab") private var tab: PanelTab = .friends
+    /// 슬라이더 값 (펫 컨트롤러는 관찰 대상이 아니라서 화면용 사본을 들고 있다가 바꿀 때 넘긴다)
+    @State private var prefs = PetPreferences.load()
     private var pet: PetController { app.petController }
     private var characters: CharacterLibrary { app.characters }
 
@@ -46,88 +50,28 @@ struct MenuPanelView: View {
                 }
             }
 
-            SectionLabel("친구 고르기", symbol: "heart.fill")
-            Card { characterPicker }
-
-            SectionLabel("놀기", symbol: "carrot.fill")
-            ChipGrid {
-                let sleeping = pet.model.action == .sleep
-                Chip(symbol: sleeping ? "sun.max.fill" : "moon.fill", title: sleeping ? "깨우기" : "재우기",
-                     on: sleeping) { pet.toggleSleep() }
-                    .hint(sleeping ? "깨워서 다시 놀게 해요" : "쿨쿨 재워요")
-                Chip(symbol: "figure.climbing", title: "창 위 산책", on: pet.model.walkOnWindows) {
-                    pet.walkOnWindows.toggle()
-                }
-                .hint(pet.model.layer == .aboveApps ? "창 위를 걷고, 창을 기어올라요"
-                                                     : "'항상 위' 표시일 때만 창 위로 다녀요")
-                Chip(symbol: "cloud.fill", title: "떨어뜨리기") { pet.dropFromTop() }
-                    .hint("하늘에서 뚝! 창 위에 떨어지면 거기서 놀아요")
-                Chip(symbol: "bubble.left.fill", title: "알림 테스트") {
-                    pet.receive(PetEvent(source: .shell, kind: .done, message: "알림이 잘 보이나요?"))
-                }
-                .hint("말풍선을 한 번 띄워 봐요")
-                let exactDock = WindowScanner.canReadDockExactly
-                Chip(symbol: "dock.rectangle", title: "Dock 정확히", on: exactDock) {
-                    if !exactDock { closePanelThen { WindowScanner.requestDockAccess() } }
-                }
-                .hint(exactDock ? "Dock 끝을 정확히 알고 있어요"
-                                : "손쉬운 사용 권한을 켜면 Dock 끝을 정확히 알아서 뒤로 숨지 않아요")
-            }
-            Text("펫을 잡아서 휙 던져 보세요")
-                .font(.system(size: 10.5, design: .rounded))
-                .foregroundStyle(Theme.cocoa.opacity(0.55))
-                .padding(.horizontal, 18).padding(.top, 5)
-
-            SectionLabel("AI 연결", symbol: "link")
-            Card {
-                VStack(spacing: 2) {
-                    ForEach(IntegrationManager.Kind.allCases) { kind in
-                        IntegrationRow(kind: kind,
-                                       installed: app.integrations.installed[kind] == true,
-                                       needsUpdate: app.integrations.needsUpdate[kind] == true,
-                                       available: app.integrations.isAvailable(kind),
-                                       onUpdate: { app.toggleIntegration(kind) }) { on in
-                            app.toggleIntegration(kind, remove: !on)
-                        }
-                    }
-                }
+            // 최근 알림: 말풍선을 놓쳤어도 여기서 다시 보고 그 창으로 이동
+            if !pet.history.entries.isEmpty {
+                recentSection
             }
 
-            SectionLabel("알림", symbol: "bell.fill")
-            ChipRow {
-                let quiet = pet.quiet
-                Chip(symbol: "moon.zzz.fill", title: "1시간 조용히", on: quiet.manualOn) { quiet.toggleManual() }
-                    .hint("1시간 동안 알림을 모아뒀다 보여줘요")
-                Chip(symbol: "video.fill", title: "회의 중", on: quiet.duringMeetings) { quiet.duringMeetings.toggle() }
-                    .hint("마이크 사용 중(회의)엔 알림을 모아둬요")
-                Chip(symbol: quiet.soundOnAsk ? "speaker.wave.2.fill" : "speaker.slash.fill", title: "권한 소리",
-                     on: quiet.soundOnAsk) { quiet.soundOnAsk.toggle() }
-                    .hint("Claude가 권한을 물으면 소리로 알려줘요")
-            }
-            if pet.quiet.isQuiet {
-                Text(pet.quiet.manualOn ? "조용한 시간 · 알림은 펫 머리 위 !에 모여요"
-                                        : "회의 중이라 조용히 · 알림은 펫 머리 위 !에 모여요")
-                    .font(.system(size: 11, design: .rounded)).foregroundStyle(Theme.cocoa.opacity(0.6))
-                    .padding(.horizontal, 18).padding(.top, 5)
-            }
+            // 자주 쓰는 것만 한 줄로
+            quickChips
+                .padding(.top, 12)
 
-            SectionLabel("표시 위치", symbol: "macwindow")
-            // 라디오 버튼처럼 하나만 선택 (다른 칩과 같은 모양)
-            ChipRow {
-                ForEach(PetWindowLayer.allCases) { layer in
-                    Chip(symbol: layer.symbol, title: layer.shortTitle, on: pet.model.layer == layer) { pet.setLayer(layer) }
-                        .hint(layer.title)
+            // 나머지는 탭 안으로 (React 비유: 탭 상태 하나로 아래 내용을 조건부 렌더링)
+            tabBar
+                .padding(.horizontal, 12)
+                .padding(.top, 12)
+            Group {
+                switch tab {
+                case .friends: friendsTab
+                case .alerts: alertsTab
+                case .connect: connectTab
+                case .settings: settingsTab
                 }
             }
-
-            #if DEBUG
-            SectionLabel("개발용", symbol: "hammer.fill")
-            ChipRow {
-                Chip(symbol: "face.smiling", title: "신남") { pet.react(.happy) }
-                Chip(symbol: "flame.fill", title: "화남") { pet.react(.angry) }
-                Chip(symbol: "hand.raised.fill", title: "확인 요청") { pet.receive(.debugSample(.ask)) }
-            }
-            #endif
+            .padding(.top, 8)
 
             footer
                 .padding(.top, 12)
@@ -142,6 +86,7 @@ struct MenuPanelView: View {
         .onAppear {
             app.integrations.refresh() // 터미널에서 직접 고쳤을 수도 있으니 열 때마다 다시 확인
             launchAtLogin = LoginItem.isEnabled
+            prefs = pet.preferences
         }
     }
 
@@ -207,6 +152,183 @@ struct MenuPanelView: View {
             }
             .padding(.top, 7).padding(.trailing, 58)
             .allowsHitTesting(false)
+        }
+    }
+
+    // MARK: - 최근 알림
+
+    private var recentSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                SectionLabel("최근 알림", symbol: "clock.fill")
+                Spacer()
+                Button { pet.history.clear() } label: {
+                    Text("지우기").font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Theme.cocoa.opacity(0.5))
+                }
+                .buttonStyle(.plain)
+                .padding(.trailing, 18).padding(.top, 7)
+            }
+            TimelineView(.periodic(from: .now, by: 30)) { context in
+                Card {
+                    VStack(spacing: 0) {
+                        ForEach(pet.history.entries.prefix(4)) { entry in
+                            RecentRow(entry: entry, now: context.date) {
+                                closePanelThen { ProjectFocuser.focus(entry.event) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - 빠른 칩
+
+    private var quickChips: some View {
+        ChipRow {
+            let sleeping = pet.model.action == .sleep
+            Chip(symbol: sleeping ? "sun.max.fill" : "moon.fill", title: sleeping ? "깨우기" : "재우기",
+                 on: sleeping) { pet.toggleSleep() }
+                .hint(sleeping ? "깨워서 다시 놀게 해요" : "쿨쿨 재워요")
+            Chip(symbol: "moon.zzz.fill", title: "1시간 조용히", on: pet.quiet.manualOn) { pet.quiet.toggleManual() }
+                .hint("1시간 동안 알림을 모아뒀다 보여줘요")
+            Chip(symbol: "cloud.fill", title: "떨어뜨리기") { pet.dropFromTop() }
+                .hint("하늘에서 뚝! 창 위에 떨어지면 거기서 놀아요")
+        }
+    }
+
+    // MARK: - 탭
+
+    private var tabBar: some View {
+        HStack(spacing: 2) {
+            ForEach(PanelTab.allCases) { t in
+                Button { tab = t } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: t.symbol).font(.system(size: 10, weight: .bold))
+                        Text(t.title).font(.system(size: 11.5, weight: tab == t ? .bold : .medium, design: .rounded))
+                    }
+                    .foregroundStyle(Theme.cocoa.opacity(tab == t ? 1 : 0.55))
+                    .frame(maxWidth: .infinity).frame(height: 26)
+                    .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(tab == t ? Color.white : .clear)
+                        .shadow(color: Theme.cocoa.opacity(tab == t ? 0.12 : 0), radius: 2, y: 1))
+                    .overlay(alignment: .topTrailing) {
+                        // 연결 탭: 업데이트가 필요한 연결이 있으면 빨간 점
+                        if t == .connect, app.integrations.needsUpdate.values.contains(true) {
+                            Circle().fill(Theme.blushStrong).frame(width: 6, height: 6).offset(x: -6, y: 4)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(3)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.cocoa.opacity(0.07)))
+    }
+
+    private var friendsTab: some View {
+        Card { characterPicker }
+    }
+
+    private var alertsTab: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ChipRow {
+                let quiet = pet.quiet
+                Chip(symbol: "video.fill", title: "회의 중", on: quiet.duringMeetings) { quiet.duringMeetings.toggle() }
+                    .hint("마이크 사용 중(회의)엔 알림을 모아둬요")
+                Chip(symbol: quiet.soundOnAsk ? "speaker.wave.2.fill" : "speaker.slash.fill", title: "권한 소리",
+                     on: quiet.soundOnAsk) { quiet.soundOnAsk.toggle() }
+                    .hint("Claude가 권한을 물으면 소리로 알려줘요")
+                Chip(symbol: "bubble.left.fill", title: "알림 테스트") {
+                    pet.receive(PetEvent(source: .shell, kind: .done, message: "알림이 잘 보이나요?"))
+                }
+                .hint("말풍선을 한 번 띄워 봐요")
+            }
+            if pet.quiet.isQuiet {
+                Text(pet.quiet.manualOn ? "조용한 시간 · 알림은 펫 머리 위 !에 모여요"
+                                        : "회의 중이라 조용히 · 알림은 펫 머리 위 !에 모여요")
+                    .font(.system(size: 11, design: .rounded)).foregroundStyle(Theme.cocoa.opacity(0.6))
+                    .padding(.horizontal, 18).padding(.top, 6)
+            }
+            Card {
+                PrefSlider(title: "말풍선 유지", symbol: "timer", value: $prefs.bubbleSeconds,
+                           range: PetPreferences.bubbleRange, step: 1, defaultValue: PetPreferences().bubbleSeconds, label: { "\(Int($0))초" }) {
+                    pet.preferences = prefs
+                }
+            }
+            .padding(.top, 8)
+        }
+    }
+
+    private var connectTab: some View {
+        Card {
+            VStack(spacing: 2) {
+                ForEach(IntegrationManager.Kind.allCases) { kind in
+                    IntegrationRow(kind: kind,
+                                   installed: app.integrations.installed[kind] == true,
+                                   needsUpdate: app.integrations.needsUpdate[kind] == true,
+                                   available: app.integrations.isAvailable(kind),
+                                   onUpdate: { app.toggleIntegration(kind) }) { on in
+                        app.toggleIntegration(kind, remove: !on)
+                    }
+                }
+            }
+        }
+    }
+
+    private var settingsTab: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Card {
+                VStack(spacing: 10) {
+                    PrefSlider(title: "크기", symbol: "arrow.up.left.and.arrow.down.right", value: $prefs.sizeScale,
+                               range: PetPreferences.sizeRange, step: 0.1, label: { "\(Int(($0 * 100).rounded()))%" }) {
+                        pet.preferences = prefs
+                    }
+                    PrefSlider(title: "걷기 속도", symbol: "hare.fill", value: $prefs.speedScale,
+                               range: PetPreferences.speedRange, step: 0.1, label: { String(format: "×%.1f", $0) }) {
+                        pet.preferences = prefs
+                    }
+                }
+            }
+
+            SectionLabel("표시 위치", symbol: "macwindow")
+            // 라디오 버튼처럼 하나만 선택 (다른 칩과 같은 모양)
+            ChipRow {
+                ForEach(PetWindowLayer.allCases) { layer in
+                    Chip(symbol: layer.symbol, title: layer.shortTitle, on: pet.model.layer == layer) { pet.setLayer(layer) }
+                        .hint(layer.title)
+                }
+            }
+
+            SectionLabel("움직임", symbol: "figure.walk")
+            ChipGrid {
+                Chip(symbol: "figure.climbing", title: "창 위 산책", on: pet.model.walkOnWindows) {
+                    pet.walkOnWindows.toggle()
+                }
+                .hint(pet.model.layer == .aboveApps ? "창 위를 걷고, 창을 기어올라요"
+                                                     : "'항상 위' 표시일 때만 창 위로 다녀요")
+                let exactDock = WindowScanner.canReadDockExactly
+                Chip(symbol: "dock.rectangle", title: "Dock 정확히", on: exactDock) {
+                    if !exactDock { closePanelThen { WindowScanner.requestDockAccess() } }
+                }
+                .hint(exactDock ? "Dock 끝을 정확히 알고 있어요"
+                                : "손쉬운 사용 권한을 켜면 Dock 끝을 정확히 알아서 뒤로 숨지 않아요")
+            }
+            Text("펫을 잡아서 휙 던져 보세요")
+                .font(.system(size: 10.5, design: .rounded))
+                .foregroundStyle(Theme.cocoa.opacity(0.55))
+                .padding(.horizontal, 18).padding(.top, 6)
+
+            #if DEBUG
+            SectionLabel("개발용", symbol: "hammer.fill")
+            ChipRow {
+                Chip(symbol: "face.smiling", title: "신남") { pet.react(.happy) }
+                Chip(symbol: "flame.fill", title: "화남") { pet.react(.angry) }
+                Chip(symbol: "hand.raised.fill", title: "확인 요청") { pet.receive(.debugSample(.ask)) }
+            }
+            #endif
         }
     }
 
@@ -637,6 +759,120 @@ private struct Chip: View {
             .modifier(ControlSurface(on: on))
         }
         .buttonStyle(PressableStyle())
+    }
+}
+
+/// 패널 아래쪽 탭 (String rawValue라 @AppStorage에 그대로 저장됨)
+enum PanelTab: String, CaseIterable, Identifiable {
+    case friends, alerts, connect, settings
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .friends: return "친구"
+        case .alerts: return "알림"
+        case .connect: return "연결"
+        case .settings: return "설정"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .friends: return "heart.fill"
+        case .alerts: return "bell.fill"
+        case .connect: return "link"
+        case .settings: return "slider.horizontal.3"
+        }
+    }
+}
+
+/// 설정 슬라이더 한 줄: 아이콘 · 이름 · 값 / 슬라이더
+/// onCommit: 손을 뗐을 때 한 번 (크기처럼 바꿀 때마다 창을 다시 맞추는 값은 끌 때마다 반영하면 덜컹거림)
+private struct PrefSlider: View {
+    let title: String
+    let symbol: String
+    @Binding var value: Double   // @Binding ≈ 부모가 내려준 [value, setValue] 쌍
+    let range: ClosedRange<Double>
+    let step: Double
+    var defaultValue: Double = 1
+    let label: (Double) -> String
+    let onCommit: () -> Void
+
+    var body: some View {
+        VStack(spacing: 2) {
+            HStack(spacing: 6) {
+                Image(systemName: symbol).font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.blush)
+                    .frame(width: 14)
+                Text(title).font(.system(size: 12, weight: .semibold, design: .rounded)).foregroundStyle(Theme.cocoa)
+                Spacer()
+                Text(label(value)).font(.system(size: 11.5, weight: .bold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(Theme.cocoa.opacity(0.7))
+                // 기본값으로
+                Button { value = defaultValue; onCommit() } label: {
+                    Image(systemName: "arrow.counterclockwise").font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(Theme.cocoa.opacity(0.4))
+                }
+                .buttonStyle(.plain)
+                .hint("기본값으로")
+            }
+            // step을 주면 눈금이 촘촘히 그려져 지저분해서, 연속 슬라이더 + 값만 step 단위로 반올림
+            Slider(value: Binding(get: { value }, set: { value = ($0 / step).rounded() * step }), in: range) { editing in
+                if !editing { onCommit() }
+            }
+            .controlSize(.small)
+        }
+    }
+}
+
+/// 최근 알림 한 줄: 종류 아이콘 · 프로젝트 · 문구 · "3분 전"
+private struct RecentRow: View {
+    let entry: NotificationHistory.Entry
+    let now: Date
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: symbol)
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(color)
+                    .frame(width: 22)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(entry.title)
+                        .font(.system(size: 12.5, weight: .bold, design: .rounded)).foregroundStyle(Theme.cocoa).lineLimit(1)
+                    Text(entry.body)
+                        .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                Text(ago).font(.system(size: 10.5, design: .rounded)).foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .modifier(HoverBackground(selected: false))
+        }
+        .buttonStyle(.plain)
+        .hint(entry.event.cwd == nil ? entry.body : "이 프로젝트 창으로 이동")
+    }
+
+    private var ago: String {
+        let s = max(0, now.timeIntervalSince(entry.date))
+        if s < 60 { return "방금" }
+        if s < 3600 { return "\(Int(s / 60))분 전" }
+        return "\(Int(s / 3600))시간 전"
+    }
+
+    private var symbol: String {
+        switch entry.event.kind {
+        case .error: return "exclamationmark.triangle.fill"
+        case .ask: return "hand.raised.fill"
+        default: return "checkmark.circle.fill"
+        }
+    }
+
+    private var color: Color {
+        switch entry.event.kind {
+        case .error: return Color(red: 0.95, green: 0.6, blue: 0.3)
+        case .ask: return Theme.blushStrong
+        default: return Color(red: 0.45, green: 0.75, blue: 0.5)
+        }
     }
 }
 

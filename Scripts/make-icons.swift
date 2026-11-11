@@ -57,10 +57,11 @@ let mint = Color(red: 0.62, green: 0.92, blue: 0.78)
 
 /// 귀 하나: 바깥 털 + 안쪽 분홍
 struct Ear: View {
+    var line: CGFloat = 16
     var body: some View {
         ZStack {
             Capsule().fill(bunnyFur)
-                .overlay(Capsule().stroke(cocoa, lineWidth: 16))
+                .overlay(Capsule().stroke(cocoa, lineWidth: line))
             Capsule().fill(blush.opacity(0.55)).padding(.horizontal, 26).padding(.vertical, 40).offset(y: 18)
         }
         .frame(width: 104, height: 280)
@@ -68,8 +69,20 @@ struct Ear: View {
 }
 
 /// 앱 아이콘: 터미널 창 위에 올라앉은 말랑 토끼 (창 위를 걸어 다니는 펫)
+/// simple: 16·32px용 — 장식(반짝이·하트·광택·창 단추) 빼고 선을 굵게, 그림을 크게 (작으면 뭉개지므로)
 struct AppIconView: View {
+    var simple = false
+    private var line: CGFloat { simple ? 34 : 18 }
+
     var body: some View {
+        ZStack {
+            content
+        }
+        .scaleEffect(simple ? 1.17 : 1)
+        .frame(width: 1024, height: 1024)
+    }
+
+    @ViewBuilder private var content: some View {
         ZStack {
             // 배경 (Apple 아이콘 격자: 1024 캔버스 안에 824 크기 둥근 사각형)
             RoundedRectangle(cornerRadius: 185, style: .continuous)
@@ -81,26 +94,30 @@ struct AppIconView: View {
                                              startPoint: .top, endPoint: .center), lineWidth: 8)
                 .frame(width: 824, height: 824)
             // 반짝이 장식
+            if !simple {
             ForEach(Array([(250.0, 250.0, 64.0), (790.0, 300.0, 44.0), (800.0, 470.0, 28.0)].enumerated()), id: \.offset) { _, p in
                 Image(systemName: "sparkle").font(.system(size: p.2, weight: .bold))
                     .foregroundStyle(.white).position(x: p.0, y: p.1)
             }
             Image(systemName: "heart.fill").font(.system(size: 50)).foregroundStyle(blush)
                 .rotationEffect(.degrees(-14)).position(x: 238, y: 470)
+            }
 
             // 귀 (몸 뒤)
-            Ear().rotationEffect(.degrees(-9)).position(x: 445, y: 270)
-            Ear().rotationEffect(.degrees(11)).position(x: 590, y: 272)
+            Ear(line: simple ? 30 : 16).rotationEffect(.degrees(-9)).position(x: 445, y: 270)
+            Ear(line: simple ? 30 : 16).rotationEffect(.degrees(11)).position(x: 590, y: 272)
 
             // 터미널 창
             ZStack(alignment: .topLeading) {
                 RoundedRectangle(cornerRadius: 56, style: .continuous).fill(cocoa)
+                if !simple {
                 HStack(spacing: 16) {
                     Circle().fill(blush).frame(width: 30, height: 30)
                     Circle().fill(butter).frame(width: 30, height: 30)
                     Circle().fill(mint).frame(width: 30, height: 30)
                 }
                 .padding(.leading, 44).padding(.top, 108)
+                }
                 HStack(spacing: 14) {
                     Text("›").font(.system(size: 130, weight: .heavy, design: .rounded))
                     RoundedRectangle(cornerRadius: 9).frame(width: 84, height: 22).offset(y: 44)
@@ -113,17 +130,19 @@ struct AppIconView: View {
 
             // 몸 (창 윗변에 앉음)
             Ellipse().fill(bunnyFur)
-                .overlay(Ellipse().stroke(cocoa, lineWidth: 18))
+                .overlay(Ellipse().stroke(cocoa, lineWidth: line))
                 .frame(width: 400, height: 320)
                 .position(x: 517, y: 432)
             // 몸 광택
-            Ellipse().fill(.white.opacity(0.7)).frame(width: 90, height: 48)
-                .rotationEffect(.degrees(-25)).position(x: 405, y: 345)
+            if !simple {
+                Ellipse().fill(.white.opacity(0.7)).frame(width: 90, height: 48)
+                    .rotationEffect(.degrees(-25)).position(x: 405, y: 345)
+            }
             // 눈
             ForEach([-1.0, 1.0], id: \.self) { side in
                 ZStack {
-                    Ellipse().fill(cocoa).frame(width: 40, height: 50)
-                    Circle().fill(.white).frame(width: 15, height: 15).offset(x: -6, y: -10)
+                    Ellipse().fill(cocoa).frame(width: simple ? 60 : 40, height: simple ? 72 : 50)
+                    if !simple { Circle().fill(.white).frame(width: 15, height: 15).offset(x: -6, y: -10) }
                 }
                 .position(x: 517 + side * 70, y: 430)
             }
@@ -141,7 +160,7 @@ struct AppIconView: View {
             // 창 모서리에 걸친 앞발
             ForEach([-1.0, 1.0], id: \.self) { side in
                 Ellipse().fill(bunnyFur)
-                    .overlay(Ellipse().stroke(cocoa, lineWidth: 14))
+                    .overlay(Ellipse().stroke(cocoa, lineWidth: simple ? 26 : 14))
                     .frame(width: 92, height: 70)
                     .position(x: 517 + side * 92, y: 572)
             }
@@ -196,7 +215,7 @@ func main() throws {
         for scale in [1, 2] {
             let px = size * scale
             let name = "icon_\(size)x\(size)\(scale == 2 ? "@2x" : "").png"
-            try writePNG(render(AppIconView(), scale: CGFloat(px) / 1024), appIcon.appendingPathComponent(name))
+            try writePNG(render(AppIconView(simple: px <= 32), scale: CGFloat(px) / 1024), appIcon.appendingPathComponent(name))
             images.append(#"{"idiom":"mac","size":"\#(size)x\#(size)","scale":"\#(scale)x","filename":"\#(name)"}"#)
         }
     }

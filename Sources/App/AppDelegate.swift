@@ -67,6 +67,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     #if DEBUG
     private var previewWindow: NSWindow?
     private func showPanelPreview() {
+        // 최근 알림 예시
+        var old = PetEvent(source: .claude, kind: .ask, message: "권한이 필요해요", cwd: "/tmp/fitin")
+        old.receivedAt = Date().addingTimeInterval(-600)
+        petController.history.record(old, content: BubbleContent(title: "fitin", body: "권한이 필요해요"))
+        petController.history.record(PetEvent(source: .claude, kind: .done, cwd: "/tmp/TermPet"),
+                                     content: BubbleContent(title: "TermPet", body: "작업 끝났어요!"))
         let effect = NSVisualEffectView()
         effect.material = .popover
         effect.state = .active
