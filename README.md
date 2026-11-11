@@ -69,7 +69,7 @@ brew update && brew upgrade --cask termpet     # 업데이트
 ### 추가 · 삭제
 
 - **추가**: 메뉴 → 친구의 **＋** 에서 캐릭터 팩 zip(또는 폴더)을 고릅니다.
-  지금 친구들은 zip 안의 친구들로 **바뀝니다**. 하나만 더하려면 팩 폴더를 친구 폴더에 복사하세요.
+  지금 친구들은 그대로 두고 더해지며, 이미 있는 친구는 새 것으로 바뀝니다.
 - **삭제**: 친구를 **우클릭 → 지우기** (휴지통으로 옮겨져서 되살릴 수 있습니다)
 - 친구 폴더: 맥 `~/Library/Application Support/TermPet/Friends/`, 윈도우 `%APPDATA%\TermPet\Friends\`
 - 팩 형식: [docs/CHARACTER_PACK.md](docs/CHARACTER_PACK.md)

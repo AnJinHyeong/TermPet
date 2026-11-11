@@ -82,7 +82,7 @@ async function importFriends(folder = false) {
   hidePanel()
   const r = await dialog.showOpenDialog({
     title: '친구 팩 고르기',
-    message: '캐릭터 팩이 든 zip 파일(또는 폴더)을 골라 주세요. 지금 친구들은 지워지고 새 친구들로 바뀌어요',
+    message: '캐릭터 팩이 든 zip 파일(또는 폴더)을 골라 주세요. 지금 친구들은 그대로 두고 더해요',
     buttonLabel: '추가',
     // 윈도우 파일 선택 창은 파일과 폴더를 한 번에 못 고른다 → 기본은 zip, 트레이 메뉴에 '폴더에서'
     properties: folder ? ['openDirectory'] : ['openFile'],
@@ -95,7 +95,7 @@ async function importFriends(folder = false) {
     reloadPacks()
     const names = ids.map((id) => packs.find((p) => p.key === `friend.${id}`)?.name ?? id)
     if (ids[0]) selectPack(`friend.${ids[0]}`)
-    void alert(`친구를 ${ids.length}명으로 새로 바꿨어요`, names.join(', '))
+    void alert(`친구 ${ids.length}명을 추가했어요`, names.join(', '))
   } catch (e) {
     void alert('친구를 추가하지 못했어요', (e as Error).message)
   }

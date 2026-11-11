@@ -29,7 +29,7 @@ describe('importer', () => {
     expect(findPacks(root).map(([, id]) => id)).toEqual(['cat', 'bunny'])
   })
 
-  it('zip 을 풀어 기존 친구를 새 친구들로 교체', () => {
+  it('zip 을 풀어 기존 친구는 두고 새 친구를 더한다', () => {
     const src = tmp()
     makePack(join(src, 'pack', 'cat'), 'cat')
     const zip = join(tmp(), 'friends.zip')
@@ -37,7 +37,17 @@ describe('importer', () => {
     const friends = tmp()
     makePack(join(friends, 'old'), 'old')
     expect(importPacks(zip, friends)).toEqual(['cat'])
-    expect(readdirSync(friends)).toEqual(['cat'])
+    expect(readdirSync(friends).sort()).toEqual(['cat', 'old'])
+  })
+
+  it('같은 id 친구는 폴더 이름이 달라도 하나로 교체', () => {
+    const src = tmp()
+    makePack(join(src, 'cat'), 'cat')
+    const friends = tmp()
+    makePack(join(friends, 'cat-copy'), 'cat')
+    makePack(join(friends, 'old'), 'old')
+    expect(importPacks(src, friends)).toEqual(['cat'])
+    expect(readdirSync(friends).sort()).toEqual(['cat', 'old'])
   })
 
   it('팩이 없으면 에러, 기존 친구는 그대로', () => {

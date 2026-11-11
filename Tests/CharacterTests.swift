@@ -258,13 +258,24 @@ final class FriendPackImporterTests: XCTestCase {
         }
     }
 
-    func testImportReplacesAllExistingFriends() throws {
+    func testImportKeepsExistingFriends() throws {
         SpriteCharacterTests.makePack(in: friends.appendingPathComponent("old"), id: "old")
         let src = tmp.appendingPathComponent("New")
         SpriteCharacterTests.makePack(in: src.appendingPathComponent("a"), id: "alpha")
         try FriendPackImporter.importPacks(from: zip(src), into: friends)
         let names = try FileManager.default.contentsOfDirectory(atPath: friends.path).filter { !$0.hasPrefix(".") }
-        XCTAssertEqual(names, ["alpha"])   // 기존 친구(old)는 지워지고 새 친구만
+        XCTAssertEqual(Set(names), ["old", "alpha"])   // 기존 친구(old)는 남고 새 친구가 더해진다
+    }
+
+    func testSameIdInDifferentlyNamedFolderIsReplacedNotDuplicated() throws {
+        // 직접 복사해 넣어 폴더 이름이 id와 다른 친구
+        SpriteCharacterTests.makePack(in: friends.appendingPathComponent("alpha-copy"), id: "alpha")
+        SpriteCharacterTests.makePack(in: friends.appendingPathComponent("old"), id: "old")
+        let src = tmp.appendingPathComponent("New")
+        SpriteCharacterTests.makePack(in: src.appendingPathComponent("a"), id: "alpha")
+        try FriendPackImporter.importPacks(from: zip(src), into: friends)
+        let names = try FileManager.default.contentsOfDirectory(atPath: friends.path).filter { !$0.hasPrefix(".") }
+        XCTAssertEqual(Set(names), ["old", "alpha"])
     }
 
     func testBadZipKeepsExistingFriends() throws {

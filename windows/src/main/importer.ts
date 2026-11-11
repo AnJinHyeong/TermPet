@@ -1,5 +1,5 @@
 // 친구 팩 가져오기 (맥 FriendPackImporter.swift): zip(또는 폴더) 안의 character.json 팩들을 모두 Friends 폴더에 설치.
-// 기본은 덮어쓰기 — 기존 친구를 지우고 새 친구들로. 팩을 무사히 찾은 뒤에만 지운다 (잘못된 zip이면 기존 친구 유지).
+// 더하기 — 기존 친구는 그대로 두고, 같은 id의 친구만 새 것으로 바꾼다. 팩을 무사히 찾은 뒤에만 Friends 폴더를 건드린다.
 // 압축 풀기: 윈도우 10+ 기본 tar.exe (bsdtar 라 zip 도 푼다). 맥 개발 실행에서도 bsdtar.
 import { execFileSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs'
@@ -89,7 +89,7 @@ function listing(root: string): string[] {
 }
 
 /** 설치하고, 설치된 팩 id 목록을 돌려준다 */
-export function importPacks(source: string, friendsDir: string, replaceAll = true): string[] {
+export function importPacks(source: string, friendsDir: string): string[] {
   const work = mkdtempSync(join(tmpdir(), 'termpet-import-'))
   try {
     let root = source
@@ -114,9 +114,9 @@ export function importPacks(source: string, friendsDir: string, replaceAll = tru
       cpSync(folder, join(staging, safeFolderName(id)), { recursive: true })
       installed.push(id)
     }
-    // 2) 덮어쓰기: 기존 친구 전부 지우기 (숨김 폴더는 그대로)
+    // 2) 같은 id의 기존 친구만 지운다 (폴더 이름이 id와 달라도). 다른 친구는 그대로
     mkdirSync(friendsDir, { recursive: true })
-    if (replaceAll) for (const old of readdirSync(friendsDir)) if (!old.startsWith('.')) rmSync(join(friendsDir, old), { recursive: true, force: true })
+    for (const [old, id] of findPacks(friendsDir)) if (installed.includes(id)) rmSync(old, { recursive: true, force: true })
     // 3) 새 친구 넣기
     for (const id of installed) {
       const name = safeFolderName(id)

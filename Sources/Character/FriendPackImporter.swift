@@ -2,7 +2,7 @@ import Foundation
 
 /// 친구 팩 가져오기: zip(또는 폴더)을 받아 그 안의 캐릭터 팩들을 Friends 폴더에 설치한다.
 /// - zip 안 어디에 있든 `character.json`이 든 폴더를 모두 찾아서 하나씩 설치 (여러 친구를 한 번에)
-/// - 기본은 덮어쓰기: 기존 친구를 모두 지우고 zip 안의 친구들로 바꾼다
+/// - 더하기: 기존 친구는 그대로 두고, 같은 id의 친구만 새 것으로 바꾼다
 /// UI와 분리된 순수 로직 (React 비유: 컴포넌트 밖의 유틸 함수 모듈)
 enum FriendPackImporter {
     enum ImportError: LocalizedError {
@@ -21,10 +21,10 @@ enum FriendPackImporter {
     }
 
     /// 설치하고, 설치된 팩 id 목록(character.json의 id)을 돌려준다
-    /// - replaceAll: true(기본)면 기존 친구를 모두 지우고 zip 안의 친구들로 덮어쓴다.
-    ///   (팩을 무사히 찾고 복사 준비가 끝난 뒤에만 지운다 → 잘못된 zip이면 기존 친구는 그대로)
+    /// - 기존 친구는 남기고 더한다. 같은 id의 친구가 있으면 (폴더 이름이 달라도) 그 친구만 새 것으로 바꾼다.
+    /// - 팩을 무사히 찾고 복사 준비가 끝난 뒤에만 Friends 폴더를 건드린다 → 잘못된 zip이면 아무것도 안 바뀜
     @discardableResult
-    static func importPacks(from source: URL, into friendsDirectory: URL, replaceAll: Bool = true) throws -> [String] {
+    static func importPacks(from source: URL, into friendsDirectory: URL) throws -> [String] {
         let fm = FileManager.default
         let dir = fm.temporaryDirectory.appendingPathComponent("termpet-import-\(UUID().uuidString)", isDirectory: true)
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -54,15 +54,12 @@ enum FriendPackImporter {
             try fm.copyItem(at: folder, to: staging.appendingPathComponent(safeFolderName(id), isDirectory: true))
             installed.append(id)
         }
-        // 2) 덮어쓰기: 기존 친구 전부 지우기 (숨김 폴더는 그대로)
+        // 2) 같은 id의 기존 친구만 지운다 (직접 복사해 넣어 폴더 이름이 id와 다른 경우도). 다른 친구는 그대로
         try fm.createDirectory(at: friendsDirectory, withIntermediateDirectories: true)
-        if replaceAll {
-            for old in (try? fm.contentsOfDirectory(at: friendsDirectory, includingPropertiesForKeys: nil,
-                                                    options: [.skipsHiddenFiles])) ?? [] {
-                try fm.removeItem(at: old)
-            }
+        for (old, id) in findPacks(in: friendsDirectory) where installed.contains(id) {
+            try fm.removeItem(at: old)
         }
-        // 3) 새 친구 넣기 (같은 id가 남아 있으면 교체)
+        // 3) 새 친구 넣기 (같은 이름의 폴더가 남아 있으면 교체)
         for id in installed {
             let name = safeFolderName(id)
             let dest = friendsDirectory.appendingPathComponent(name, isDirectory: true)

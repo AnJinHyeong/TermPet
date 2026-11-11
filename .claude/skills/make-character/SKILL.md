@@ -107,5 +107,5 @@ ditto "$W/out/<id>" "$F/<id>"
   ```bash
   ditto -c -k --norsrc --noextattr --keepParent "$F/<id>" ~/Desktop/<id>.zip
   ```
-  주의: 앱의 "친구 추가하기(zip)"는 **기존 친구를 모두 지우고** zip 안의 친구들로 바꾼다. 하나만 더하려면 받는 쪽 Friends 폴더(윈도우: `%APPDATA%\TermPet\Friends`)에 폴더를 복사한다.
+  받는 쪽은 앱의 "친구 추가하기(＋)"로 zip 을 고르면 된다 (0.5.2+: 기존 친구는 두고 더함, 같은 id 는 교체. 0.5.1 이하는 기존 친구를 모두 지우므로 Friends 폴더에 직접 복사).
 - 어떤 출처의 어떤 스티커를 썼는지 프로젝트 메모리(friend-packs)에 한 줄 남긴다 (나중에 포즈를 다시 고를 때 필요).
