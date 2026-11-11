@@ -647,7 +647,9 @@ final class PetController: NSObject {
             grounded: !brain.action.isPhysicsControlled,
             climbingSide: brain.action == .climb && risingOutOf == nil ? climbingWall?.side : nil,
             wallDirection: physics.standingOn == nil && !brain.action.isPhysicsControlled
-                ? terrain.nearestWallDirection(originX: physics.origin.x, feetY: physics.origin.y) : nil)
+                ? terrain.nearestWallDirection(originX: physics.origin.x, feetY: physics.origin.y,
+                                               targetX: NSEvent.mouseLocation.x) : nil,
+            headroom: (terrain.ceiling(atX: physics.centerX) ?? .infinity) - physics.origin.y - physics.size.height)
         chaseDistance = abs(input.cursor.x - input.petFrame.midX)
         switch mischief.tick(dt, input) {
         case .none:
@@ -719,13 +721,16 @@ final class PetController: NSObject {
             let top = min(wall.top, terrain.ceiling(atX: physics.centerX) ?? wall.top) - physics.size.height
             let room = max(0, top - physics.origin.y)
             climbLimitY = physics.origin.y + room * CGFloat.random(in: 0.25...0.7, using: &rng)
-            // 포인터를 쫓는 중이면 포인터 높이까지 (거기서 몸을 날린다)
-            if chasing {
-                climbLimitY = min(physics.origin.y + room, max(physics.origin.y + 40,
-                                                               NSEvent.mouseLocation.y - physics.size.height * 0.5))
-            }
+            // 포인터를 쫓는 중이면 포인터 높이까지 (stepClimb이 매 프레임 포인터를 따라 고친다)
+            if chasing { climbLimitY = chaseClimbLimit(wall) }
         }
         if chasing { mischief.didStartClimbing() }
+    }
+
+    /// 쫓는 중 벽을 오를 높이(발): 몸 가운데가 포인터 높이에 오도록, 화면 천장 아래까지만
+    private func chaseClimbLimit(_ wall: Terrain.Wall) -> CGFloat {
+        let top = min(wall.top, terrain.ceiling(atX: physics.centerX) ?? wall.top) - physics.size.height
+        return min(top, NSEvent.mouseLocation.y - physics.size.height * 0.5)
     }
 
     private func stepClimb(_ dt: TimeInterval) {
@@ -736,6 +741,8 @@ final class PetController: NSObject {
             beginFall(velocity: CGVector(dx: -wall.side.sign * 60, dy: 0))
             return
         }
+        // 쫓는 중 올라설 곳 없는 벽: 오르는 높이를 지금 포인터 높이에 맞춘다 (포인터가 내려가면 바로 몸을 날린다)
+        if chasing, climbLimitY.isFinite { climbLimitY = chaseClimbLimit(wall) }
         // 위쪽을 앞 창이 막고 있으면 그 아래까지만 (가려진 벽을 계속 타지 않게)
         let limit = min(climbLimitY, terrain.climbCeiling(for: wall, feetY: physics.origin.y) ?? .infinity)
         switch physics.climb(wall, speed: max(walkSpeed * 1.3, 50) * (chasing ? 2 : 1), dt: dt, terrain: terrain, limitY: limit) {
@@ -746,8 +753,10 @@ final class PetController: NSObject {
             brain.handle(.climbedUp, using: &rng)
         case .letGo:
             brain.handle(.letGo, using: &rng)
-            if chasing, let v = Mischief.leapVelocity(petFrame: CGRect(origin: physics.origin, size: physics.size),
-                                                      cursor: NSEvent.mouseLocation),
+            let frame = CGRect(origin: physics.origin, size: physics.size)
+            let headroom = (terrain.ceiling(atX: physics.centerX) ?? .infinity) - frame.maxY
+            if chasing, let v = Mischief.leapVelocity(petFrame: frame, cursor: NSEvent.mouseLocation, headroom: headroom)
+                ?? Mischief.wallLeap(petFrame: frame, cursor: NSEvent.mouseLocation, headroom: headroom),
                v.dx * wall.side.sign <= 0 {
                 beginFall(velocity: v) // 포인터 쪽으로 몸을 날린다
             } else {

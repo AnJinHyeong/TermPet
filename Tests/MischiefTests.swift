@@ -152,6 +152,65 @@ final class MischiefTests: XCTestCase {
         XCTAssertEqual(m.tick(dt, input(cursor: CGPoint(x: -100, y: 600), frame: up, grounded: false, climbingSide: .left)), .none)
     }
 
+    /// 몸을 날린 포물선을 실제 물리처럼 따라가며 몸 중심이 포인터에 가장 가까웠던 거리와 가장 높이 오른 몸 윗면
+    private func fly(_ v: CGVector, from frame: CGRect, to target: CGPoint) -> (closest: CGFloat, top: CGFloat) {
+        var p = PetPhysics(origin: frame.origin, size: frame.size)
+        p.velocity = v
+        var closest = CGFloat.infinity, top = frame.maxY
+        for _ in 0..<90 {
+            p.velocity.dy -= 1800 / 60
+            p.velocity.dx *= pow(0.6, 1.0 / 60)
+            p.origin.x += p.velocity.dx / 60
+            p.origin.y += p.velocity.dy / 60
+            let f = CGRect(origin: p.origin, size: frame.size)
+            closest = min(closest, hypot(f.midX - target.x, f.midY - target.y))
+            top = max(top, f.maxY)
+        }
+        return (closest, top)
+    }
+
+    /// 벽에 매달려 포인터 높이까지 올라오면 멀리(최대 1000pt) 날아가 닿는다. 천장 근처면 낮고 빠르게.
+    func testWallLeapReachesFarPointer() {
+        let onWall = CGRect(x: 0, y: 700, width: 80, height: 80)
+        for target in [CGPoint(x: 900, y: 740), CGPoint(x: 600, y: 600), CGPoint(x: 1000, y: 800)] {
+            guard let v = Mischief.wallLeap(petFrame: onWall, cursor: target) else { return XCTFail("\(target)") }
+            XCTAssertLessThan(fly(v, from: onWall, to: target).closest, 30, "\(target)")
+        }
+        // 천장까지 40pt 남음 → 머리를 박지 않고 (꼭대기가 천장 아래) 그래도 닿는다
+        let target = CGPoint(x: 700, y: 740)
+        guard let v = Mischief.wallLeap(petFrame: onWall, cursor: target, headroom: 40) else { return XCTFail() }
+        let flight = fly(v, from: onWall, to: target)
+        XCTAssertLessThan(flight.closest, 30)
+        XCTAssertLessThanOrEqual(flight.top, onWall.maxY + 41)
+        XCTAssertNil(Mischief.wallLeap(petFrame: onWall, cursor: CGPoint(x: 1300, y: 740)), "너무 멂")
+    }
+
+    /// 벽 타는 중: 포인터가 멀면 포인터 높이까지 올라온 뒤에 멀리 몸을 날린다
+    func testClimbsToPointerHeightThenLeapsFar() {
+        var m = eager()
+        _ = m.tick(dt, input(cursor: CGPoint(x: 800, y: 700), wallDirection: .left))
+        m.didStartClimbing()
+        let far = CGPoint(x: 800, y: 700)
+        let low = CGRect(x: 0, y: 200, width: 80, height: 80)
+        XCTAssertEqual(m.tick(dt, input(cursor: far, frame: low, grounded: false, climbingSide: .left)), .none, "아직 아래")
+        let level = CGRect(x: 0, y: 650, width: 80, height: 80)
+        guard case .jump(let v) = m.tick(dt, input(cursor: far, frame: level, grounded: false, climbingSide: .left)) else {
+            return XCTFail("far leap expected")
+        }
+        XCTAssertGreaterThan(v.dx, 0)
+    }
+
+    /// 포인터가 너무 높으면 포인터 밑으로 가지 않고 포인터에 가장 가까운 벽으로 곧장 간다
+    func testWallNearestToPointer() {
+        let screens = ScreenLayout(frames: [CGRect(x: 0, y: 0, width: 1600, height: 1000)])
+        let t = Terrain(screens: screens)
+        XCTAssertEqual(t.nearestWallDirection(originX: 300, feetY: 0, targetX: 1400), .right, "펫은 왼쪽 끝이 가깝지만 포인터는 오른쪽 끝")
+        XCTAssertEqual(t.nearestWallDirection(originX: 300, feetY: 0), .left)
+        var m = eager()
+        let pet = CGRect(x: 300, y: 0, width: 80, height: 80)
+        XCTAssertEqual(m.tick(dt, input(cursor: CGPoint(x: 1400, y: 900), frame: pet, wallDirection: .right)), .chase(.right))
+    }
+
     func testNearestWallDirection() {
         let screens = ScreenLayout(frames: [CGRect(x: 0, y: 0, width: 1600, height: 1000)])
         let t = Terrain(screens: screens, windows: [WindowBox(id: 1, frame: CGRect(x: 900, y: 0, width: 300, height: 500))])

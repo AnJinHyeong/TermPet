@@ -176,18 +176,20 @@ struct Terrain {
     }
 
     /// 화면 바닥에 서 있을 때 가장 가까운 기어오를 벽 쪽: 창 옆면, 또는 옆 화면으로 안 이어지는 화면 끝.
-    /// (장난꾸러기 모드: 포인터가 너무 높으면 이 벽으로 달려가 타고 오른다) 벽이 없으면 nil.
-    func nearestWallDirection(originX x: CGFloat, feetY y: CGFloat) -> Direction? {
+    /// `targetX`를 주면 그 x(포인터)에 가장 가까운 벽 (장난꾸러기 모드: 포인터가 너무 높으면 거기로 달려가 타고 오른다).
+    /// 벽이 없으면 nil.
+    func nearestWallDirection(originX x: CGFloat, feetY y: CGFloat, targetX: CGFloat? = nil) -> Direction? {
         guard let i = screens.index(containingX: x + petSize.width / 2, y: y) else { return nil }
         let f = screens.frames[i]
         var best: (dir: Direction, distance: CGFloat)?
         for dir in [Direction.left, .right] {
             let edgeX = dir == .left ? f.minX : f.maxX - petSize.width
-            var distance: CGFloat? = screens.neighbor(of: i, side: dir, atY: y) == nil ? abs(edgeX - x) : nil
+            // 벽면 x (벽에 붙었을 때 몸 가운데)
+            var wallX: CGFloat? = screens.neighbor(of: i, side: dir, atY: y) == nil ? edgeX + petSize.width / 2 : nil
             if let wall = windowWall(fromX: x, toX: edgeX, feetY: y, direction: dir, onScreenFloor: true) {
-                let d = dir == .left ? x - wall.x : wall.x - (x + petSize.width)
-                distance = min(distance ?? .infinity, max(0, d))
+                wallX = wall.x - dir.sign * petSize.width / 2
             }
+            let distance = wallX.map { abs($0 - (targetX ?? x + petSize.width / 2)) }
             if let distance, distance < (best?.distance ?? .infinity) { best = (dir, distance) }
         }
         return best?.dir

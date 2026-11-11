@@ -36,8 +36,10 @@ struct Mischief {
         var grounded: Bool
         /// 벽을 타는 중이면 벽이 있는 쪽 (벽에서 포인터 쪽으로 몸을 날린다)
         var climbingSide: Direction? = nil
-        /// 가장 가까운 기어오를 벽 쪽 (포인터가 너무 높을 때 거기로 달려가 타고 오른다). 없으면 nil
+        /// 포인터에 가장 가까운 기어오를 벽 쪽 (포인터가 너무 높을 때 거기로 달려가 타고 오른다). 없으면 nil
         var wallDirection: Direction? = nil
+        /// 몸 위쪽 여유 (화면 천장까지, pt). 높은 데서 몸을 날릴 때 천장에 머리를 박지 않게 낮게 날아간다
+        var headroom: CGFloat = .infinity
     }
 
     enum Command: Equatable {
@@ -65,6 +67,8 @@ struct Mischief {
     static let maxRise: CGFloat = 320
     /// 몸을 날려 닿을 수 있는 거리(pt, 몸 중심 → 포인터)
     static let leapRange: CGFloat = 380
+    /// 벽에 매달려 포인터 높이까지 올라왔을 때 벽을 차고 날아갈 수 있는 거리 (발판이 있어 훨씬 멀리)
+    static let wallLeapRange: CGFloat = 1000
 
     init(config: Config = Config()) {
         self.config = config
@@ -115,12 +119,17 @@ struct Mischief {
     /// 쫓는 중: 걷기 / 점프 / 벽 찾아 달리기 / 벽에서 몸 날리기
     private mutating func chase(_ input: Input) -> Command {
         let frame = input.petFrame, cursor = input.cursor
-        let leap = Self.leapVelocity(petFrame: frame, cursor: cursor)
+        let leap = Self.leapVelocity(petFrame: frame, cursor: cursor, headroom: input.headroom)
 
-        // 벽 타는 중: 포인터가 벽 반대쪽(트인 쪽)에서 닿을 거리면 벽을 차고 몸을 날린다
+        // 벽 타는 중: 포인터가 벽 반대쪽(트인 쪽)에 있고 닿을 거리면 벽을 차고 몸을 날린다.
+        // 멀리 있으면 포인터 높이까지 올라온 뒤에 (컨트롤러가 오르는 높이를 포인터에 맞춘다) 멀리 날아간다
         if let side = input.climbingSide {
             let behindWall = (cursor.x - frame.midX) * side.sign > frame.width * 0.5
-            if let leap, !behindWall { return .jump(leap) }
+            guard !behindWall else { return .none }
+            if let leap { return .jump(leap) }
+            if cursor.y - frame.midY <= 40, let far = Self.wallLeap(petFrame: frame, cursor: cursor, headroom: input.headroom) {
+                return .jump(far)
+            }
             return .none
         }
         guard input.grounded else { return .none } // 공중에선 잡히는지만 본다
@@ -135,14 +144,14 @@ struct Mischief {
             seekDirection = nil
             return groundedTime >= 0.25 ? .jump(leap) : .none
         }
-        // 너무 높다: 아직 멀면 일단 그쪽으로
+        // 너무 높다 → 포인터에 가장 가까운 벽으로 달려가 타고 오른다 (방향은 벽에 닿을 때까지 유지)
         let dx = cursor.x - frame.midX
-        if seekDirection == nil, abs(dx) > Self.leapRange * 0.7 {
-            return Self.chaseDirection(petFrame: frame, cursorX: cursor.x).map(Command.chase) ?? .none
-        }
-        // 거의 아래인데 못 닿음 → 가까운 벽으로 달려가 타고 오른다 (방향은 벽에 닿을 때까지 유지)
         if seekDirection == nil { seekDirection = input.wallDirection }
         if let dir = seekDirection { return .chase(dir) }
+        // 탈 벽이 없고(창 위 등) 아직 멀면 일단 그쪽으로
+        if abs(dx) > Self.leapRange * 0.7 {
+            return Self.chaseDirection(petFrame: frame, cursorX: cursor.x).map(Command.chase) ?? .none
+        }
         // 탈 벽도 없으면 제자리에서 힘껏 뛰어 본다 (안 닿아도 귀엽게)
         return groundedTime >= 0.9 ? .jump(CGVector(dx: max(-120, min(120, dx * 2)), dy: sqrt(2 * 1800 * Self.maxRise))) : .none
     }
@@ -198,14 +207,30 @@ struct Mischief {
 
     /// 몸 중심이 포인터를 지나가도록 던지는 포물선 초속 (중력 1800 기준). 너무 멀거나 높으면 nil.
     /// 날아가는 시간 T를 거리에 맞춰 정하고 x = vx·T, y = vy·T − g·T²/2 를 풀었다.
-    /// (물리의 공기 저항으로 가로가 조금 덜 가서 vx를 12% 키움)
-    static func leapVelocity(petFrame: CGRect, cursor: CGPoint, gravity: CGFloat = 1800) -> CGVector? {
-        let dx = cursor.x - petFrame.midX
-        let dy = cursor.y - petFrame.midY
+    static func leapVelocity(petFrame: CGRect, cursor: CGPoint, headroom: CGFloat = .infinity,
+                             gravity: CGFloat = 1800) -> CGVector? {
+        let dx = cursor.x - petFrame.midX, dy = cursor.y - petFrame.midY
         let distance = hypot(dx, dy)
         guard distance <= leapRange, dy <= maxRise, dy > -petFrame.height else { return nil }
-        let t = min(0.5, max(0.22, distance / 750))
-        return CGVector(dx: dx / t * 1.12, dy: dy / t + gravity * t / 2)
+        return parabola(dx: dx, dy: dy, time: min(0.5, max(0.22, distance / 750)), headroom: headroom, gravity: gravity)
+    }
+
+    /// 벽에서 포인터 높이쯤까지 올라와 멀리 날아가기 (바닥 점프보다 멀리, 빠르고 낮게). 너무 멀면 nil.
+    static func wallLeap(petFrame: CGRect, cursor: CGPoint, headroom: CGFloat = .infinity,
+                         gravity: CGFloat = 1800) -> CGVector? {
+        let dx = cursor.x - petFrame.midX, dy = cursor.y - petFrame.midY
+        guard abs(dx) <= wallLeapRange, dy <= maxRise, dy > -wallLeapRange else { return nil }
+        return parabola(dx: dx, dy: dy, time: min(0.6, max(0.22, hypot(dx, dy) / 1400)), headroom: headroom, gravity: gravity)
+    }
+
+    /// 시간 T 동안 (dx, dy)만큼 가는 초속. 꼭대기가 `headroom`보다 높아지면 T를 줄여 더 낮고 빠르게.
+    /// 가로는 물리의 공기 저항(초당 0.6배)만큼 덜 가니 그만큼 키운다: x(T) = vx·(1 − 0.6^T) / ln(1/0.6)
+    private static func parabola(dx: CGFloat, dy: CGFloat, time: CGFloat, headroom: CGFloat, gravity: CGFloat) -> CGVector {
+        func vy(_ t: CGFloat) -> CGFloat { dy / t + gravity * t / 2 }
+        var t = time
+        while t > 0.16, max(0, vy(t)) * vy(t) / (2 * gravity) > max(0, headroom) { t -= 0.02 }
+        let drag = log(1 / 0.6)
+        return CGVector(dx: dx * drag / (1 - pow(0.6, t)), dy: vy(t))
     }
 
     /// 입 위치 + 개가 장난감 물고 흔들듯 좌우로 휙휙
