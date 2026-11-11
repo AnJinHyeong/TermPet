@@ -98,7 +98,22 @@ notify = ["/Users/<나>/.termpet/bin/termpet-hook", "codex"]
 notify = ["/Users/<나>/.termpet/bin/termpet-hook", "codex-chain", "<원래 명령>", "<원래 인자>"]
 ```
 
-## 4. 직접 테스트
+## 4. Claude 데스크톱 앱 (일반 채팅)
+
+일반 채팅에는 훅이 없어서 텀펫을 MCP 서버로 등록한다. Claude가 `termpet_notify` 도구를 부르면 `POST /event`로 알림이 온다.
+
+- 맥: `~/Library/Application Support/Claude/claude_desktop_config.json`
+  ```json
+  { "mcpServers": { "termpet": { "command": "/Applications/TermPet.app/Contents/MacOS/TermPet", "args": ["--mcp"] } } }
+  ```
+- 윈도우: `%APPDATA%\Claude\claude_desktop_config.json` (스토어 설치판은 `%LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\Claude\`도)
+  ```json
+  { "mcpServers": { "termpet": { "command": "C:\\Users\\<나>\\AppData\\Local\\Programs\\TermPet\\TermPet.exe", "args": ["C:\\Users\\<나>\\.termpet\\bin\\termpet-mcp.js"], "env": { "ELECTRON_RUN_AS_NODE": "1" } } } }
+  ```
+
+다른 키와 다른 MCP 서버는 그대로 두고 `termpet` 항목만 더한다. Claude 앱을 완전히 종료했다가 다시 켜야 적용된다.
+
+## 5. 직접 테스트
 
 ```bash
 TOKEN=$(cat ~/.termpet/token)

@@ -114,6 +114,62 @@ export const ClaudeHooks = {
   },
 }
 
+// MARK: - Claude 데스크톱 앱 일반 채팅 (%APPDATA%\Claude\claude_desktop_config.json → mcpServers.termpet)
+// 공식 문서(modelcontextprotocol.io/docs/develop/connect-local-servers) 형식:
+//   { "mcpServers": { "termpet": { "command": "<TermPet.exe>", "args": ["<termpet-mcp.js>"], "env": { "ELECTRON_RUN_AS_NODE": "1" } } } }
+// 우리 항목(termpet) 하나만 넣고 빼고, 다른 MCP 서버와 설정은 그대로. Claude 앱을 완전히 껐다 켜야 적용.
+
+export const MCP_SERVER_KEY = 'termpet'
+
+export interface McpLaunch {
+  /** TermPet.exe (Node 로 동작시킬 Electron 실행 파일) */
+  command: string
+  /** ~/.termpet/bin/termpet-mcp.js */
+  script: string
+}
+
+const mcpServersOf = (root: Json): Json => (typeof root.mcpServers === 'object' && root.mcpServers !== null && !Array.isArray(root.mcpServers) ? (root.mcpServers as Json) : {})
+
+export const ClaudeDesktop = {
+  entry(l: McpLaunch): Json {
+    return { command: l.command, args: [l.script], env: { ELECTRON_RUN_AS_NODE: '1' } }
+  },
+
+  isInstalled(text: string | undefined): boolean {
+    try {
+      return typeof mcpServersOf(parseSettings(text))[MCP_SERVER_KEY] === 'object'
+    } catch {
+      return false
+    }
+  },
+
+  /** 연결은 돼 있는데 실행 경로가 지금 앱과 다르면 (설치 위치가 바뀜) */
+  needsUpdate(text: string | undefined, l: McpLaunch): boolean {
+    try {
+      const ours = mcpServersOf(parseSettings(text))[MCP_SERVER_KEY] as Json | undefined
+      if (!ours) return false
+      return JSON.stringify(ours) !== JSON.stringify(ClaudeDesktop.entry(l))
+    } catch {
+      return false
+    }
+  },
+
+  install(text: string | undefined, l: McpLaunch): string {
+    const root = parseSettings(text)
+    root.mcpServers = { ...mcpServersOf(root), [MCP_SERVER_KEY]: ClaudeDesktop.entry(l) }
+    return JSON.stringify(root, null, 2) + '\n'
+  },
+
+  uninstall(text: string): string {
+    const root = parseSettings(text)
+    const servers = mcpServersOf(root)
+    if (!(MCP_SERVER_KEY in servers)) return text
+    delete servers[MCP_SERVER_KEY]
+    root.mcpServers = servers
+    return JSON.stringify(root, null, 2) + '\n'
+  },
+}
+
 /** 이 이벤트에 우리 항목이 정확히 하나 있고 지금 형식과 같은지 */
 function isCurrent(groups: unknown, want: Json): boolean {
   if (!Array.isArray(groups)) return false

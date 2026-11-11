@@ -10,7 +10,7 @@ import { randomBytes } from 'node:crypto'
 import { SELF_TEST_CWD, SELF_TEST_EVENT, type PetEvent } from '../shared/events'
 import { executionPolicyBlocksProfile, hooksBlockedBy } from '../shared/integrations'
 import type { CheckResult, CheckStep, IntegrationKind } from '../shared/ipc'
-import { claudeCmds, claudeSettingsFile, readText, status } from './integrations'
+import { claudeCmds, claudeDesktopConfigFiles, claudeSettingsFile, mcpLaunch, readText, status } from './integrations'
 import { hookPs1 } from './paths'
 
 const SELF_TEST_PREFIX = 'termpet-selftest-'
@@ -48,7 +48,7 @@ interface RunResult {
 }
 
 /** 명령 실행 (stdin 을 UTF-8 바이트로 넣고, 출력은 앞부분만). 시간 초과면 강제 종료 */
-function run(file: string, args: string[], stdin?: string, timeoutMs = 15000): Promise<RunResult> {
+function run(file: string, args: string[], stdin?: string, timeoutMs = 15000, env?: NodeJS.ProcessEnv): Promise<RunResult> {
   return new Promise((resolve) => {
     let output = ''
     let done = false
@@ -59,7 +59,7 @@ function run(file: string, args: string[], stdin?: string, timeoutMs = 15000): P
       }
     }
     try {
-      const child = spawn(file, args, { windowsHide: true })
+      const child = spawn(file, args, { windowsHide: true, env: env ?? process.env })
       const timer = setTimeout(() => {
         child.kill()
         finish({ code: null, output: output || '시간 초과' })
@@ -129,6 +129,8 @@ export async function diagnose(kind: IntegrationKind, ctx: DiagnoseContext): Pro
   switch (kind) {
     case 'claude':
       return diagnoseClaude(ctx)
+    case 'claudeApp':
+      return diagnoseClaudeApp(ctx)
     case 'codex':
       return diagnoseCodex(ctx)
     case 'powershell':
@@ -138,6 +140,46 @@ export async function diagnose(kind: IntegrationKind, ctx: DiagnoseContext): Pro
 
 function finish(steps: CheckStep[], fix?: CheckResult['fix']): CheckResult {
   return { running: false, ok: steps.every((s) => s.ok !== false), steps, fix }
+}
+
+/** Claude 앱 일반 채팅: 설정 파일 → 서버 → Claude 앱이 하는 것과 똑같이 MCP 서버를 띄워 도구 호출 → 앱 도착 */
+async function diagnoseClaudeApp(ctx: DiagnoseContext): Promise<CheckResult> {
+  const steps: CheckStep[] = []
+  const st = status('claudeApp')
+  const files = claudeDesktopConfigFiles()
+  if (!files.length) steps.push(step('Claude 앱', false, 'Claude 데스크톱 앱 설정 폴더가 없어요. Claude 앱을 한 번 켠 뒤 다시 확인해 주세요'))
+  else if (!st.installed) steps.push(step('설정 파일', false, '텀펫이 아직 등록되지 않았어요. [연결]을 눌러 주세요'))
+  else if (st.needsUpdate) steps.push(step('설정 파일', false, '텀펫 위치가 바뀌었어요. [업데이트]를 눌러 주세요 (백업 후)'))
+  else steps.push(step('설정 파일', true, files.join(' · ')))
+
+  steps.push(step('알림 서버', ctx.serverOk, ctx.serverOk ? undefined : ctx.serverText))
+  if (!ctx.serverOk || !st.installed) return finish(steps)
+
+  const l = mcpLaunch()
+  if (!existsSync(l.script)) {
+    steps.push(step('MCP 스크립트', false, `${l.script} 이 없어요. 텀펫을 다시 켜 주세요`))
+    return finish(steps)
+  }
+  const id = SELF_TEST_PREFIX + randomBytes(6).toString('hex')
+  const input =
+    [
+      { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'termpet-check', version: '1' } } },
+      { jsonrpc: '2.0', method: 'notifications/initialized' },
+      { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'termpet_notify', arguments: { summary: SELF_TEST_CWD, kind: 'done' } } },
+    ]
+      .map((m) => JSON.stringify(m))
+      .join('\n') + '\n'
+  const arrived = waitFor(id, 12000)
+  const result = await run(l.command, [l.script], input, 15000, { ...process.env, ELECTRON_RUN_AS_NODE: '1', TERMPET_MCP_SESSION: id })
+  const e = await arrived
+  if (!e) {
+    const why = result.code === null ? '응답하지 않아요' : firstLine(result.output) || `종료 코드 ${result.code}`
+    steps.push(step('MCP 실행 → 앱 도착', false, `도착하지 않았어요: ${why}`))
+    return finish(steps)
+  }
+  steps.push(e.detail === SELF_TEST_CWD ? step('MCP 실행 → 앱 도착', true, '한글 포함 정상') : step('MCP 실행 → 앱 도착', false, `한글이 깨져서 왔어요: ${e.detail ?? ''}`))
+  steps.push(step('Claude 앱 재시작', null, 'Claude 앱을 트레이에서도 완전히 종료한 뒤 다시 켜야 적용돼요. 처음 답변 때 도구 사용을 물으면 [항상 허용]'))
+  return finish(steps)
 }
 
 async function diagnoseClaude(ctx: DiagnoseContext): Promise<CheckResult> {

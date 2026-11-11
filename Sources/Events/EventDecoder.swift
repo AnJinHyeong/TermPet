@@ -40,7 +40,7 @@ enum EventDecoder {
             throw DecodeError.missingField("kind")
         }
 
-        return PetEvent(
+        var event = PetEvent(
             source: source,
             kind: kind,
             message: obj.string("message"),
@@ -54,6 +54,8 @@ enum EventDecoder {
             hostBundleId: obj.string("hostBundleId") ?? context.hostBundleId,
             termProgram: obj.string("termProgram") ?? context.termProgram
         )
+        event.title = obj.string("title")
+        return event
     }
 
     // MARK: - Claude Code 훅 원본 (POST /hook/claude)

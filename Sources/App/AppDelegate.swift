@@ -164,6 +164,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try integrations.toggle(kind, remove: remove)
             if kind == .zsh && !wasOn {
                 showAlert("터미널 명령 알림을 연결했어요", "새로 여는 터미널부터 적용돼요.")
+            } else if kind == .claudeApp && (updating || !wasOn) {
+                showAlert("Claude 앱 채팅을 연결했어요",
+                          "Claude 앱을 완전히 종료(⌘Q)했다가 다시 켜 주세요.\n\n"
+                          + "처음 답변할 때 'termpet_notify' 도구 사용 허락을 물어보면 '항상 허용'을 눌러 주세요. "
+                          + "가끔 알림이 빠지면 Claude 설정 → 프로필 → 개인 맞춤 설정에 "
+                          + "\"답변을 마칠 때마다 termpet_notify 도구로 한 줄 요약을 보내줘\"를 적어 두면 더 잘 불러요.")
+            } else if kind == .claudeApp && wasOn {
+                showAlert("Claude 앱 채팅 연결을 해제했어요", "Claude 앱을 다시 켜면 적용돼요.")
             } else if kind == .claude && (updating || !wasOn) {
                 showAlert("Claude Code를 연결했어요", "새로 시작하는 Claude Code 세션부터 펫 머리 위에 작업 중(…)·권한 대기(✋)가 표시돼요.")
             }

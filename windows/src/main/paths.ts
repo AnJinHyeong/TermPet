@@ -6,6 +6,7 @@
 //   ~/.termpet/bin/termpet-hook.cmd      예전 Claude Code 훅 (0.5.0 이하 설정이 부르던 것 — 업데이트 전까지 유지)
 //   ~/.termpet/bin/termpet-hook.ps1      Codex notify 훅
 //   ~/.termpet/termpet-profile.ps1       PowerShell 긴 명령 알림
+//   ~/.termpet/bin/termpet-mcp.js        Claude 데스크톱 앱 일반 채팅용 MCP 서버 (TermPet.exe 를 Node 로 실행)
 import { app } from 'electron'
 import { randomBytes } from 'node:crypto'
 import { appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
@@ -22,6 +23,7 @@ export const hookCmd = join(binDir, 'termpet-hook.cmd')
 export const hookClaudePs1 = join(binDir, 'termpet-claude.ps1')
 export const hookPs1 = join(binDir, 'termpet-hook.ps1')
 export const profileScript = join(root, 'termpet-profile.ps1')
+export const mcpScript = join(binDir, 'termpet-mcp.js')
 
 export const resourcesPath = () => (app.isPackaged ? process.resourcesPath : join(__dirname, '../../resources'))
 
@@ -56,6 +58,7 @@ export function installBundledScripts() {
     ['termpet-claude.ps1', hookClaudePs1],
     ['termpet-hook.ps1', hookPs1],
     ['termpet-profile.ps1', profileScript],
+    ['termpet-mcp.js', mcpScript],
   ]
   for (const [name, dest] of items) {
     try {

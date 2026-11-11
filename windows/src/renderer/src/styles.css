@@ -630,6 +630,10 @@ button {
 .int-icon.claude {
   background: #ed9473;
 }
+.int-icon.claudeApp {
+  background: #d9859e;
+  font-size: 11px;
+}
 .int-icon.codex {
   background: #809ecc;
 }

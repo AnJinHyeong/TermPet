@@ -193,6 +193,14 @@ function onToggleIntegration(kind: IntegrationKind, remove: boolean) {
     return refreshUI()
   }
   const on = integrationStatus(kind).installed
+  if (kind === 'claudeApp' && on !== before.installed) {
+    void alert(
+      on ? 'Claude 앱 채팅을 연결했어요' : 'Claude 앱 채팅 연결을 해제했어요',
+      on
+        ? 'Claude 앱을 트레이에서도 완전히 종료했다가 다시 켜 주세요.\n\n처음 답변할 때 termpet_notify 도구 사용을 물어보면 [항상 허용]을 눌러 주세요. 가끔 알림이 빠지면 Claude 설정 → 프로필 → 개인 맞춤 설정에 "답변을 마칠 때마다 termpet_notify 도구로 한 줄 요약을 보내줘"를 적어 두면 더 잘 불러요.'
+        : 'Claude 앱을 다시 켜면 적용돼요.',
+    )
+  }
   if (on && (!before.installed || before.needsUpdate)) {
     // 연결·업데이트 직후 이 PC에서 실제로 알림이 오는지 바로 확인 (결과는 패널에 단계별로)
     void runCheck(kind)

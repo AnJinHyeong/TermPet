@@ -28,6 +28,8 @@ struct PetEvent: Equatable, Identifiable {
     var notificationType: String?
     /// Claude가 실행 중인 터미널 (예: ttys016). 같은 터미널의 세션은 진행 중 목록에서 한 줄로 합친다.
     var terminal: String?
+    /// 말풍선 위 작은 제목 (예: "Claude 채팅"). 없으면 cwd의 폴더 이름
+    var title: String?
     var receivedAt: Date
 
     init(id: UUID = UUID(), source: Source, kind: Kind, message: String? = nil, detail: String? = nil,
@@ -54,6 +56,7 @@ struct PetEvent: Equatable, Identifiable {
 
     /// cwd의 마지막 폴더명 = 프로젝트 이름 (예: /Users/me/fitin → "fitin")
     var projectName: String? {
+        if let title, !title.isEmpty { return title }
         guard let cwd, !cwd.isEmpty else { return nil }
         let name = (cwd as NSString).lastPathComponent
         return name.isEmpty || name == "/" ? nil : name

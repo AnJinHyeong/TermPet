@@ -1,9 +1,8 @@
 import SwiftUI
 
-/// 앱 진입점.
-/// React 비유: `@main` ≈ `ReactDOM.createRoot(...).render(<App />)` — 여기서 앱이 시작된다.
+/// 앱 화면 선언. 실제 시작점은 main.swift (`--mcp` 로 실행되면 화면 없이 MCP 서버만 돈다).
+/// React 비유: `TermPetApp.main()` ≈ `ReactDOM.createRoot(...).render(<App />)`.
 /// `App` 프로토콜의 `body`는 컴포넌트의 JSX처럼 "어떤 창/씬을 띄울지"를 선언한다.
-@main
 struct TermPetApp: App {
     // AppKit 쪽 생명주기(펫 창 생성 등)는 AppDelegate가 담당.
     // React 비유: useEffect(() => {...}, []) 로 마운트 시 초기화하는 곳.

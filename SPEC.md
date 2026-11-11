@@ -234,6 +234,7 @@ TermPet/
 | 16 | 윈도우 연결 보완 | Claude 훅을 `shell: powershell` + 실행 정책 무관 스크립트로(Git 유무 상관없이 동작), 예전 형식은 [업데이트], 포트 자동 재시도, [확인] 버튼으로 PC별 단계 진단(설정·정책·서버·실제 훅 실행·한글)·실행 정책 [허용], 윈도우 서버 실제 동작 테스트(Actions) |
 | 17 | 캐릭터 만들기·삭제 | `make-character` 스킬(LINE 스티커 수집·포즈 시트·레시피 빌더·어두운 배경 미리보기), 패널 친구 타일 우클릭 → 지우기(휴지통, 맥·윈도우), 패널 열 때 친구 목록 다시 읽기 |
 | 18 | 친구 더하기 | "친구 추가하기"가 기존 친구를 지우지 않고 더함(같은 id만 교체, 폴더 이름이 달라도), 맥·윈도우. 업데이트 후 실행 중이던 앱 경로로 다시 열기(다른 TermPet.app이 열리던 문제) |
+| 19 | Claude 앱 채팅 알림 | Claude 데스크톱 앱 일반 채팅(훅 없음)을 MCP 도구 `termpet_notify`로 연결: 맥 `TermPet --mcp`(stdio JSON-RPC), 윈도우 `TermPet.exe` + `ELECTRON_RUN_AS_NODE` + `termpet-mcp.js`, `claude_desktop_config.json`의 `mcpServers.termpet` 백업 후 병합(윈도우 스토어판 경로 포함), 말풍선 제목 "Claude 채팅"·누르면 Claude 앱으로, 윈도우 [확인] 실제 실행 점검. 업데이트 후 '업데이트 중' 표시가 남던 문제 수정 |
 
 각 Phase 시작 전에 해당 Phase의 세부 작업 목록을 먼저 보여주고 진행하라.
 

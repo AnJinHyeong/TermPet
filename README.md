@@ -55,7 +55,7 @@ brew update && brew upgrade --cask termpet     # 업데이트
 
 ## AI 연결
 
-메뉴 → **연결**에서 Claude Code·Codex·터미널 명령의 **연결**을 누르면 끝입니다. 다시 누르면 해제됩니다.
+메뉴 → **연결**에서 Claude Code·Claude 앱 채팅·Codex·터미널 명령의 **연결**을 누르면 끝입니다. 다시 누르면 해제됩니다.
 
 - 기존 설정은 지우지 않고 텀펫 항목만 더하며, 바꾸기 전에 백업합니다.
 - 텀펫이 꺼져 있어도 CLI·쉘이 느려지지 않습니다.
@@ -63,6 +63,16 @@ brew update && brew upgrade --cask termpet     # 업데이트
 - 직접 설정하려면 [docs/SETUP.md](docs/SETUP.md)를 참고하세요.
 
 말풍선을 누르면 Cursor·VSCode·Windsurf·Zed는 해당 프로젝트 창으로, 그 밖의 터미널은 앱을 앞으로 가져옵니다.
+
+**Claude 앱 채팅** (Claude 데스크톱 앱의 일반 채팅)
+
+일반 채팅에는 Claude Code 같은 훅이 없어서, 텀펫을 Claude 앱의 MCP 도구로 등록합니다. Claude가 답변을 마칠 때 이 도구를 불러 한 줄 요약을 보내면 말풍선이 뜨고, 누르면 Claude 앱으로 이동합니다.
+
+1. 메뉴 → 연결 → **Claude 앱 채팅**의 **연결**
+2. Claude 앱을 완전히 종료(맥 ⌘Q, 윈도우는 트레이에서도 종료)했다가 다시 켭니다.
+3. 처음 답변할 때 `termpet_notify` 도구 사용을 물어보면 **항상 허용**을 누릅니다.
+
+Claude가 가끔 도구 부르는 걸 잊을 수 있습니다. 그럴 땐 Claude 설정 → 프로필 → 개인 맞춤 설정에 "답변을 마칠 때마다 termpet_notify 도구로 한 줄 요약을 보내줘"를 적어 두세요.
 
 ## 캐릭터
 

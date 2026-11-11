@@ -231,3 +231,58 @@ enum CodexNotifyConfig {
         return "notify = [" + items.joined(separator: ", ") + "]"
     }
 }
+
+// MARK: - Claude 데스크톱 앱 (~/Library/Application Support/Claude/claude_desktop_config.json)
+
+/// Claude 앱 일반 채팅 알림: `mcpServers.termpet` 항목 하나만 넣고 뺀다 (다른 MCP 서버·설정은 그대로).
+/// 형식(공식 문서 modelcontextprotocol.io/docs/develop/connect-local-servers):
+///   { "mcpServers": { "termpet": { "command": "/Applications/TermPet.app/Contents/MacOS/TermPet", "args": ["--mcp"] } } }
+/// Claude 앱을 완전히 종료했다가 다시 켜야 적용된다.
+enum ClaudeDesktopConfig {
+    static let key = ClaudeAppMCP.serverName
+
+    static func entry(command: String) -> [String: Any] {
+        ["command": command, "args": [ClaudeAppMCP.flag]]
+    }
+
+    static func isInstalled(_ data: Data?) -> Bool { server(data) != nil }
+
+    /// 연결은 돼 있는데 실행 경로가 지금 앱과 다르면 (앱을 옮겼거나 예전 설치) → "업데이트"
+    static func needsUpdate(_ data: Data?, command: String) -> Bool {
+        guard let s = server(data) else { return false }
+        return s["command"] as? String != command
+    }
+
+    static func install(into data: Data?, command: String) throws -> Data {
+        var root = try data.map(parse) ?? [:]
+        var servers = root["mcpServers"] as? [String: Any] ?? [:]
+        servers[key] = entry(command: command)
+        root["mcpServers"] = servers
+        return try serialize(root)
+    }
+
+    static func uninstall(from data: Data) throws -> Data {
+        var root = try parse(data)
+        guard var servers = root["mcpServers"] as? [String: Any] else { return data }
+        servers[key] = nil
+        root["mcpServers"] = servers
+        return try serialize(root)
+    }
+
+    private static func server(_ data: Data?) -> [String: Any]? {
+        guard let data, let root = try? parse(data) else { return nil }
+        return (root["mcpServers"] as? [String: Any])?[key] as? [String: Any]
+    }
+
+    private static func parse(_ data: Data) throws -> [String: Any] {
+        if data.isEmpty { return [:] }
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw IntegrationError.unreadable("claude_desktop_config.json 이 올바른 JSON 객체가 아니에요")
+        }
+        return obj
+    }
+
+    private static func serialize(_ root: [String: Any]) throws -> Data {
+        try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .withoutEscapingSlashes])
+    }
+}

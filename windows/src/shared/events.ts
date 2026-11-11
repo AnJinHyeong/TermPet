@@ -28,6 +28,8 @@ export interface PetEvent {
   notificationType?: string
   /** 같은 터미널의 세션을 한 줄로 합치기 위한 터미널 id (윈도우: WT_SESSION) */
   terminal?: string
+  /** 말풍선 위 작은 제목 (예: "Claude 채팅"). 없으면 cwd 폴더 이름 */
+  title?: string
   receivedAt: number
 }
 
@@ -54,7 +56,8 @@ export function makeEvent(fields: Omit<PetEvent, 'id' | 'receivedAt'> & Partial<
 }
 
 /** cwd의 마지막 폴더명 = 프로젝트 이름 (윈도우 \ 와 / 모두) */
-export function projectName(e: Pick<PetEvent, 'cwd'>): string | undefined {
+export function projectName(e: Pick<PetEvent, 'cwd' | 'title'>): string | undefined {
+  if (e.title) return e.title
   if (!e.cwd) return undefined
   const parts = e.cwd.split(/[\\/]+/).filter(Boolean)
   const name = parts[parts.length - 1]
@@ -144,6 +147,7 @@ export function decodeStandard(body: string, ctx: DecodeContext = {}): PetEvent 
     host: str(o, 'host') ?? str(o, 'hostBundleId') ?? ctx.host,
     termProgram: str(o, 'termProgram') ?? ctx.termProgram,
     terminal: ctx.terminal,
+    title: str(o, 'title'),
   })
 }
 

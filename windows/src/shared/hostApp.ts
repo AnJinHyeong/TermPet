@@ -3,7 +3,7 @@
 //  - VSCODE_GIT_ASKPASS_NODE: VS Code 계열 통합 터미널이면 에디터 exe 경로 (Cursor.exe, Code.exe …)
 //  - TERM_PROGRAM: vscode / WezTerm …
 //  - WT_SESSION: Windows Terminal
-export type HostKind = 'cursor' | 'vscode' | 'vscodeInsiders' | 'windsurf' | 'windowsTerminal' | 'wezterm' | 'other'
+export type HostKind = 'cursor' | 'vscode' | 'vscodeInsiders' | 'windsurf' | 'windowsTerminal' | 'wezterm' | 'claudeApp' | 'other'
 
 export interface HostApp {
   kind: HostKind
@@ -27,6 +27,7 @@ export function resolveHost(host: string | undefined, termProgram: string | unde
     if (name === 'windsurf.exe') return withPath('windsurf')
     if (host === 'WindowsTerminal' || name === 'windowsterminal.exe') return { kind: 'windowsTerminal' }
     if (name === 'wezterm-gui.exe') return { kind: 'wezterm' }
+    if (name === 'claude.exe') return { kind: 'claudeApp' } // Claude 데스크톱 앱 (일반 채팅 MCP 알림)
   }
   switch (termProgram) {
     case 'vscode':
@@ -62,6 +63,8 @@ export function processNamesFor(kind: HostKind): string[] {
       return ['windowsterminal.exe']
     case 'wezterm':
       return ['wezterm-gui.exe']
+    case 'claudeApp':
+      return ['claude.exe']
     case 'cursor':
       return ['cursor.exe']
     case 'vscode':

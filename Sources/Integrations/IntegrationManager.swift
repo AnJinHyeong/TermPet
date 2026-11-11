@@ -6,12 +6,13 @@ import Observation
 @Observable
 final class IntegrationManager {
     enum Kind: String, CaseIterable, Identifiable {
-        case claude, codex, zsh
+        case claude, claudeApp, codex, zsh
         var id: String { rawValue }
 
         var title: String {
             switch self {
             case .claude: return "Claude Code"
+            case .claudeApp: return "Claude 앱 채팅"
             case .codex: return "Codex"
             case .zsh: return "터미널 명령"
             }
@@ -20,6 +21,7 @@ final class IntegrationManager {
         var subtitle: String {
             switch self {
             case .claude: return "응답 완료 · 권한 요청"
+            case .claudeApp: return "답변 완료"
             case .codex: return "응답 완료"
             case .zsh: return "30초 넘게 걸린 명령"
             }
@@ -39,16 +41,23 @@ final class IntegrationManager {
     func file(for kind: Kind) -> URL {
         switch kind {
         case .claude: return home.appendingPathComponent(".claude/settings.json")
+        case .claudeApp: return home.appendingPathComponent("Library/Application Support/Claude/claude_desktop_config.json")
         case .codex: return home.appendingPathComponent(".codex/config.toml")
         case .zsh: return home.appendingPathComponent(".zshrc")
         }
     }
 
     var hookPath: String { home.appendingPathComponent(".termpet/bin/termpet-hook").path }
+    /// Claude 앱이 MCP 서버로 실행할 명령 = 지금 실행 중인 텀펫 (`TermPet --mcp`)
+    var mcpCommand: String = Bundle.main.executablePath ?? "/Applications/TermPet.app/Contents/MacOS/TermPet"
 
-    /// Codex는 ~/.codex 폴더가 있을 때만 (설치돼 있을 때만) 연결 가능
+    /// Codex는 ~/.codex 폴더가, Claude 앱은 설정 폴더가 있을 때만 (설치돼 있을 때만) 연결 가능
     func isAvailable(_ kind: Kind) -> Bool {
-        kind != .codex || FileManager.default.fileExists(atPath: home.appendingPathComponent(".codex").path)
+        switch kind {
+        case .codex: return FileManager.default.fileExists(atPath: home.appendingPathComponent(".codex").path)
+        case .claudeApp: return FileManager.default.fileExists(atPath: file(for: kind).deletingLastPathComponent().path)
+        default: return true
+        }
     }
 
     func refresh() {
@@ -61,6 +70,9 @@ final class IntegrationManager {
             case .claude:
                 state[kind] = ClaudeHooksConfig.isInstalled(data)
                 update[kind] = state[kind] == true && !ClaudeHooksConfig.missingEvents(data).isEmpty
+            case .claudeApp:
+                state[kind] = ClaudeDesktopConfig.isInstalled(data)
+                update[kind] = ClaudeDesktopConfig.needsUpdate(data, command: mcpCommand)
             case .codex: state[kind] = CodexNotifyConfig.isInstalled(text)
             case .zsh: state[kind] = ZshrcConfig.isInstalled(text)
             }
@@ -83,6 +95,9 @@ final class IntegrationManager {
         case .claude:
             updated = on ? try ClaudeHooksConfig.uninstall(from: original ?? Data())
                          : try ClaudeHooksConfig.install(into: original)
+        case .claudeApp:
+            updated = on ? try ClaudeDesktopConfig.uninstall(from: original ?? Data())
+                         : try ClaudeDesktopConfig.install(into: original, command: mcpCommand)
         case .codex:
             updated = Data((on ? CodexNotifyConfig.uninstall(from: text ?? "")
                                : try CodexNotifyConfig.install(into: text, hookPath: hookPath)).utf8)

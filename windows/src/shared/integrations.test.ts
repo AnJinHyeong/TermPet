@@ -1,7 +1,7 @@
 // 설정 병합 · 호스트 판별 · 기타 순수 로직 테스트 (맥 IntegrationTests / AppUpdaterTests 대응)
 import { describe, expect, it } from 'vitest'
 import { findProjectRoot, planFocus, resolveHost } from './hostApp'
-import { claudeHookCommands, ClaudeHooks, CodexNotify, executionPolicyBlocksProfile, hooksBlockedBy, parseStringArray, PowerShellProfile, PROFILE_LINE, psQuote, rootNotify } from './integrations'
+import { claudeHookCommands, ClaudeDesktop, ClaudeHooks, CodexNotify, executionPolicyBlocksProfile, hooksBlockedBy, parseStringArray, PowerShellProfile, PROFILE_LINE, psQuote, rootNotify } from './integrations'
 import { decodeClaudeHook, SELF_TEST_CWD, SELF_TEST_EVENT } from './events'
 import { effectiveLayer, isNewer, isQuiet, micInUseFromRegQuery, parseRelease, placeBubble, safeFolderName } from './misc'
 
@@ -174,5 +174,30 @@ describe('기타', () => {
   it('친구 폴더 이름', () => {
     expect(safeFolderName('../a\\b:c')).toBe('_a_b_c')
     expect(safeFolderName('..')).toBe('friend')
+  })
+})
+
+describe('ClaudeDesktop (claude_desktop_config.json)', () => {
+  const l = { command: 'C:\\Users\\me\\AppData\\Local\\Programs\\TermPet\\TermPet.exe', script: 'C:\\Users\\me\\.termpet\\bin\\termpet-mcp.js' }
+
+  it('다른 설정·MCP 서버는 그대로 두고 termpet 만 넣고 뺀다', () => {
+    const original = JSON.stringify({ preferences: { a: 1 }, mcpServers: { other: { command: 'x' } } })
+    const out = ClaudeDesktop.install(original, l)
+    const root = JSON.parse(out)
+    expect(root.preferences).toEqual({ a: 1 })
+    expect(root.mcpServers.other).toEqual({ command: 'x' })
+    expect(root.mcpServers.termpet).toEqual({ command: l.command, args: [l.script], env: { ELECTRON_RUN_AS_NODE: '1' } })
+    expect(ClaudeDesktop.isInstalled(out)).toBe(true)
+    expect(ClaudeDesktop.needsUpdate(out, l)).toBe(false)
+    expect(ClaudeDesktop.needsUpdate(out, { ...l, command: 'D:\\TermPet.exe' })).toBe(true)
+    const removed = JSON.parse(ClaudeDesktop.uninstall(out))
+    expect(removed.mcpServers).toEqual({ other: { command: 'x' } })
+    expect(removed.preferences).toEqual({ a: 1 })
+  })
+
+  it('파일이 없으면 새로, 깨진 JSON 은 손대지 않고 에러', () => {
+    expect(ClaudeDesktop.isInstalled(ClaudeDesktop.install(undefined, l))).toBe(true)
+    expect(() => ClaudeDesktop.install('{oops', l)).toThrow()
+    expect(ClaudeDesktop.isInstalled('{oops')).toBe(false)
   })
 })

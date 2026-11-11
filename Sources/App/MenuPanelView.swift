@@ -685,7 +685,7 @@ private struct IntegrationRow: View {
                     .modifier(ControlSurface(on: installed, radius: 12))
                 }
                 .buttonStyle(PressableStyle())
-                .hint(needsUpdate ? "작업 중 표시용 항목 추가 (백업 후)"
+                .hint(needsUpdate ? "새 형식으로 다시 연결 (백업 후)"
                       : installed ? "누르면 연결 해제 (설정 파일 백업 후)" : "누르면 연결 (설정 파일 백업 후)")
             }
         }
@@ -697,6 +697,7 @@ private struct IntegrationRow: View {
     private var symbol: String {
         switch kind {
         case .claude: return "sparkles"
+        case .claudeApp: return "bubble.left.and.text.bubble.right.fill"
         case .codex: return "chevron.left.forwardslash.chevron.right"
         case .zsh: return "terminal.fill"
         }
@@ -705,6 +706,7 @@ private struct IntegrationRow: View {
     private var color: Color {
         switch kind {
         case .claude: return Color(red: 0.93, green: 0.58, blue: 0.45)
+        case .claudeApp: return Color(red: 0.85, green: 0.52, blue: 0.62)
         case .codex: return Color(red: 0.50, green: 0.62, blue: 0.80)
         case .zsh: return Color(red: 0.50, green: 0.78, blue: 0.62)
         }
