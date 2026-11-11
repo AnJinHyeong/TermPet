@@ -254,15 +254,25 @@ export const CodexNotify = {
     return ['powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', ps1Path]
   },
 
-  /** 우리 notify면 [codex 인자 위치] 반환 */
+  /** 우리 notify면 [codex 인자 위치] 반환 (다른 도구가 --previous-notify 로 감싼 경우는 제외) */
   ourIndex(args: string[]): number {
-    const i = args.findIndex((a) => a.includes(HOOK_MARKER))
+    const w = CodexNotify.wrappedIndex(args)
+    const i = args.findIndex((a, k) => a.includes(HOOK_MARKER) && (w < 0 || k < w))
     return i < 0 ? -1 : i + 1
+  },
+
+  /**
+   * 다른 도구(ChatGPT 앱의 Codex Computer Use 등)가 우리 notify 를 자기 명령 안에 `--previous-notify '<JSON 배열>'`로
+   * 다시 감싼 경우 그 옵션 위치 (없으면 -1). 그 도구가 우리를 대신 불러 주므로 연결된 상태다
+   */
+  wrappedIndex(args: string[]): number {
+    const i = args.indexOf('--previous-notify')
+    return i >= 0 && i + 1 < args.length && args[i + 1].includes(HOOK_MARKER) ? i : -1
   },
 
   isInstalled(text: string | undefined): boolean {
     const found = text ? rootNotify(text) : undefined
-    return !!found && CodexNotify.ourIndex(found[1]) >= 0
+    return !!found && (CodexNotify.ourIndex(found[1]) >= 0 || CodexNotify.wrappedIndex(found[1]) >= 0)
   },
 
   install(text: string | undefined, ps1Path: string): string {
@@ -291,9 +301,27 @@ export const CodexNotify = {
     if (!found) return text
     const [index, args] = found
     const at = CodexNotify.ourIndex(args)
-    if (at < 0) return text
     const nl = text.includes('\r\n') ? '\r\n' : '\n'
     const lines = text.split(/\r?\n/)
+    const w = CodexNotify.wrappedIndex(args)
+    if (at < 0 && w >= 0) {
+      // 감싼 도구는 두고, 그 안의 우리 부분만 뺀다. 원래 명령만 남으면(= 감싼 도구 자신) 옵션째 지운다
+      const head = args.slice(0, w)
+      const tail = args.slice(w + 2)
+      let inner: unknown
+      try {
+        inner = JSON.parse(args[w + 1])
+      } catch {
+        inner = []
+      }
+      const list = Array.isArray(inner) ? inner.filter((x): x is string => typeof x === 'string') : []
+      const chainAt = list.findIndex((a) => a === 'codex-chain')
+      const restored = chainAt >= 0 && list.slice(0, chainAt).some((a) => a.includes(HOOK_MARKER)) ? list.slice(chainAt + 1) : []
+      const same = restored.length === head.length && restored.every((a, k) => a === head[k])
+      lines[index] = renderNotify(restored.length && !same ? [...head, '--previous-notify', JSON.stringify(restored), ...tail] : [...head, ...tail])
+      return lines.join(nl)
+    }
+    if (at < 0) return text
     if (args[at] === 'codex-chain' && args.length > at + 1) lines[index] = renderNotify(args.slice(at + 1))
     else lines.splice(index, 1)
     return lines.join(nl)

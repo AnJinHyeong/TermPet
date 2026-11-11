@@ -114,6 +114,14 @@ final class EventDecoderTests: XCTestCase {
         XCTAssertThrowsError(try EventDecoder.decodeCodexNotify(data(#"{"type":"other"}"#)))
     }
 
+    /// ChatGPT(Codex) 앱이 대화 제목을 지으려고 돌리는 작업의 알림은 무시 (말풍선에 JSON이 그대로 보이던 문제)
+    func testCodexTitleGenerationIgnored() throws {
+        let title = #"{\"title\":\"텀펫 알람 기능 추가\",\"description\":\"알람 기능 검토\"}"#
+        XCTAssertThrowsError(try EventDecoder.decodeCodexNotify(data(#"{"type":"agent-turn-complete","last-assistant-message":""# + title + #""}"#)))
+        let e = try EventDecoder.decodeCodexNotify(data(#"{"type":"agent-turn-complete","last-assistant-message":"{괄호로 시작하는 답}"}"#))
+        XCTAssertEqual(e.detail, "{괄호로 시작하는 답}")
+    }
+
     func testOneLineTruncates() {
         XCTAssertEqual(EventDecoder.oneLine("\n\n  **Hello**  \nworld"), "Hello")
         XCTAssertEqual(EventDecoder.oneLine(String(repeating: "a", count: 300)).count, 120)

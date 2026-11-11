@@ -145,7 +145,15 @@ enum CodexNotifyConfig {
 
     static func isInstalled(_ text: String?) -> Bool {
         guard let text, let (_, args) = rootNotify(in: text) else { return false }
-        return args.first?.contains(marker) == true
+        return args.first?.contains(marker) == true || wrappedIndex(args) != nil
+    }
+
+    /// 다른 도구(ChatGPT 앱의 Codex Computer Use 등)가 우리 notify를 자기 명령 안에
+    /// `--previous-notify '<JSON 배열>'`로 다시 감싼 경우 그 옵션 위치. 그 도구가 우리를 대신 불러 주므로 연결된 상태다.
+    ///   예: ["…/SkyComputerUseClient", "turn-ended", "--previous-notify", "[\"…/termpet-hook\",\"codex-chain\",…]"]
+    static func wrappedIndex(_ args: [String]) -> Int? {
+        guard let i = args.firstIndex(of: "--previous-notify"), i + 1 < args.count, args[i + 1].contains(marker) else { return nil }
+        return i
     }
 
     static func install(into text: String?, hookPath: String) throws -> String {
@@ -169,7 +177,22 @@ enum CodexNotifyConfig {
     }
 
     static func uninstall(from text: String) -> String {
-        guard let (index, args) = rootNotify(in: text), args.first?.contains(marker) == true else { return text }
+        guard let (index, args) = rootNotify(in: text) else { return text }
+        if args.first?.contains(marker) != true, let i = wrappedIndex(args) {
+            // 감싼 도구는 두고, 그 안의 우리 부분만 뺀다. 원래 명령만 남으면(= 감싼 도구 자신) 옵션째 지운다
+            let outer = Array(args[..<i]) + Array(args[(i + 2)...])
+            let inner = (try? JSONSerialization.jsonObject(with: Data(args[i + 1].utf8))) as? [String] ?? []
+            let restored = inner.count > 2 && inner[1] == "codex-chain" ? Array(inner.dropFirst(2)) : []
+            var newArgs = outer
+            if !restored.isEmpty, restored != Array(args[..<i]),
+               let json = try? JSONSerialization.data(withJSONObject: restored), let s = String(data: json, encoding: .utf8) {
+                newArgs = Array(args[..<i]) + ["--previous-notify", s] + Array(args[(i + 2)...])
+            }
+            var lines = text.components(separatedBy: "\n")
+            lines[index] = render(newArgs)
+            return lines.joined(separator: "\n")
+        }
+        guard args.first?.contains(marker) == true else { return text }
         var lines = text.components(separatedBy: "\n")
         if args.count > 2, args[1] == "codex-chain" {
             lines[index] = render(Array(args.dropFirst(2)))   // 원래 notify 복원

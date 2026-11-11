@@ -94,6 +94,9 @@ describe('PowerShell 프로필', () => {
   })
 })
 
+/** 테스트용 notify 줄 (TOML 기본 문자열) */
+const renderLine = (args: string[]) => `notify = [${args.map((a) => JSON.stringify(a)).join(', ')}]\n`
+
 describe('Codex notify', () => {
   const ps1 = 'C:\\Users\\me\\.termpet\\bin\\termpet-hook.ps1'
   it('없으면 첫 테이블 앞에 추가, 해제하면 제거', () => {
@@ -110,6 +113,19 @@ describe('Codex notify', () => {
     const on = CodexNotify.install(before, ps1)
     expect(rootNotify(on)![1].slice(-3)).toEqual(['codex-chain', 'notify-send.exe', 'done'])
     expect(CodexNotify.uninstall(on)).toBe(before)
+  })
+  it('다른 도구(Computer Use)가 --previous-notify 로 다시 감싸도 연결됨, 해제하면 그 도구 원래 줄로', () => {
+    const sky = 'C:\\Sky\\SkyComputerUseClient.exe'
+    const before = renderLine([sky, 'turn-ended'])
+    const ours = CodexNotify.install(before, ps1)
+    const inner = rootNotify(ours)![1]
+    const wrapped = renderLine([sky, 'turn-ended', '--previous-notify', JSON.stringify(inner)])
+    expect(CodexNotify.isInstalled(wrapped)).toBe(true)
+    expect(CodexNotify.install(wrapped, ps1)).toBe(wrapped) // 또 감싸지 않는다 (알림 두 번 방지)
+    expect(rootNotify(CodexNotify.uninstall(wrapped))![1]).toEqual([sky, 'turn-ended'])
+    // 감싼 도구 앞에 원래 다른 notify 가 있었으면 그건 남긴다
+    const other = renderLine([sky, 'turn-ended', '--previous-notify', JSON.stringify([...CodexNotify.hookPrefix(ps1), 'codex-chain', 'beep.exe'])])
+    expect(rootNotify(CodexNotify.uninstall(other))![1]).toEqual([sky, 'turn-ended', '--previous-notify', '["beep.exe"]'])
   })
   it('TOML 문자열 배열 (리터럴 문자열·이스케이프)', () => {
     expect(parseStringArray(`['C:\\x', "a\\"b"] # c`)).toEqual(['C:\\x', 'a"b'])

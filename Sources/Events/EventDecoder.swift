@@ -162,6 +162,8 @@ enum EventDecoder {
         let obj = try jsonObject(data)
         let type = obj.string("type") ?? ""
         guard type == "agent-turn-complete" else { throw DecodeError.ignored("type=\(type)") }
+        // ChatGPT(Codex) 앱이 대화 제목을 지으려고 몰래 돌리는 작업도 끝나면 notify가 온다 → 알림 아님
+        if let last = obj.string("last-assistant-message"), isTitleJSON(last) { throw DecodeError.ignored("title") }
         return PetEvent(
             source: .codex,
             kind: .done,
@@ -171,6 +173,14 @@ enum EventDecoder {
             hostBundleId: context.hostBundleId,
             termProgram: context.termProgram
         )
+    }
+
+    /// `{"title":"…","description":"…"}` 처럼 제목 JSON 하나뿐인 답 (앱 내부의 제목 짓기 작업)
+    static func isTitleJSON(_ text: String) -> Bool {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard t.hasPrefix("{"), t.hasSuffix("}"), let data = t.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return obj["title"] is String
     }
 
     // MARK: - helpers

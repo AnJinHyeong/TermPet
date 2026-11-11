@@ -68,6 +68,18 @@ final class CodexNotifyConfigTests: XCTestCase {
         XCTAssertFalse(CodexNotifyConfig.isInstalled(CodexNotifyConfig.uninstall(from: out)))
     }
 
+    /// ChatGPT 앱의 Codex Computer Use가 우리 notify를 `--previous-notify`로 다시 감싼 실제 형태 (2026-11-11 확인)
+    func testWrappedByComputerUseStillInstalledAndRestores() throws {
+        let sky = "/Users/me/.codex/computer-use/Codex Computer Use.app/Contents/SharedSupport/SkyComputerUseClient.app/Contents/MacOS/SkyComputerUseClient"
+        let wrapped = #"notify = [""# + sky + #"", "turn-ended", "--previous-notify", "[\"\\/Users\\/me\\/.termpet\\/bin\\/termpet-hook\",\"codex-chain\",\""# + sky.replacingOccurrences(of: "/", with: "\\/") + #"\",\"turn-ended\"]"]"# + "\nmodel = \"o3\"\n"
+        XCTAssertEqual(CodexNotifyConfig.rootNotify(in: wrapped)?.1.count, 4)
+        XCTAssertTrue(CodexNotifyConfig.isInstalled(wrapped))
+        XCTAssertEqual(try CodexNotifyConfig.install(into: wrapped, hookPath: hook), wrapped, "또 감싸지 않는다 (알림 두 번 방지)")
+        let off = CodexNotifyConfig.uninstall(from: wrapped)
+        XCTAssertEqual(CodexNotifyConfig.rootNotify(in: off)?.1, [sky, "turn-ended"], "감싼 도구의 원래 줄로")
+        XCTAssertFalse(CodexNotifyConfig.isInstalled(off))
+    }
+
     func testChainsExistingNotifyAndRestoresItExactly() throws {
         let existing = #"notify = ["/Apps/Sky Client", "turn-ended"]"#
         let original = existing + "\nmodel = \"o3\"\n"

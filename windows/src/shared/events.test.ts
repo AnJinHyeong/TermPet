@@ -88,6 +88,11 @@ describe('표준·Codex 해석', () => {
     const e = decodeCodexNotify(JSON.stringify({ type: 'agent-turn-complete', 'last-assistant-message': 'Done', cwd: '/p', 'thread-id': 't' }))
     expect(e).toMatchObject({ source: 'codex', kind: 'done', detail: 'Done', sessionId: 't' })
   })
+  it('ChatGPT(Codex) 앱의 제목 짓기 작업 알림은 무시', () => {
+    const title = JSON.stringify({ title: '텀펫 알람 기능 추가', description: '알람 기능 검토' })
+    expect(() => decodeCodexNotify(JSON.stringify({ type: 'agent-turn-complete', 'last-assistant-message': title }))).toThrow()
+    expect(decodeCodexNotify(JSON.stringify({ type: 'agent-turn-complete', 'last-assistant-message': '{괄호로 시작하는 답}' })).detail).toBe('{괄호로 시작하는 답}')
+  })
   it('oneLine 은 120자로 자른다', () => {
     expect([...oneLine('가'.repeat(200))].length).toBe(120)
   })

@@ -280,12 +280,26 @@ export function koreanNotification(message: string | undefined, type: string | u
 
 // MARK: - Codex notify (POST /hook/codex)
 
+/** {"title":"…","description":"…"} 처럼 제목 JSON 하나뿐인 답 (앱 내부의 제목 짓기 작업) */
+export function isTitleJSON(text: string): boolean {
+  const t = text.trim()
+  if (!t.startsWith('{') || !t.endsWith('}')) return false
+  try {
+    const o = JSON.parse(t) as unknown
+    return typeof o === 'object' && o !== null && typeof (o as Record<string, unknown>).title === 'string'
+  } catch {
+    return false
+  }
+}
+
 /** TODO: Codex 문서 기준 {"type":"agent-turn-complete", "last-assistant-message", "cwd", "thread-id"} — 그 외는 무시 */
 export function decodeCodexNotify(body: string, ctx: DecodeContext = {}): PetEvent {
   const o = parseObject(body)
   const type = str(o, 'type') ?? ''
   if (type !== 'agent-turn-complete') throw new DecodeError(`type=${type}`, true)
   const last = str(o, 'last-assistant-message')
+  // ChatGPT(Codex) 앱이 대화 제목을 지으려고 몰래 돌리는 작업도 끝나면 notify 가 온다 → 알림 아님
+  if (last && isTitleJSON(last)) throw new DecodeError('title', true)
   return makeEvent({
     source: 'codex',
     kind: 'done',
