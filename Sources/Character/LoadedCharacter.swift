@@ -127,10 +127,11 @@ final class SpriteCharacter {
         Self.fallbacks(for: action).lazy.compactMap { self.animations[$0]?.count }.first ?? 0
     }
 
-    /// 없는 동작을 무엇으로 대신할지 (벽 오르기 그림이 없으면 잡힌 그림 → 가만히)
+    /// 없는 동작을 무엇으로 대신할지 (벽 오르기 그림이 없으면 잡힌 그림 → 가만히, 물기 → 화남)
     static func fallbacks(for action: PetAction) -> [PetAction] {
         switch action {
         case .climb: return [.climb, .dragged, .idle]
+        case .bite: return [.bite, .angry, .idle]      // 물기 그림이 없으면 화난 얼굴
         case .idle: return [.idle]
         default: return [action, .idle]
         }

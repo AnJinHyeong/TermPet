@@ -993,8 +993,8 @@ struct PetView: View {
         }
     }
 
-    /// 물고 있을 땐 공중에서도 화난(으르릉) 얼굴
-    private var shownAction: PetAction { model.biting ? .angry : model.action }
+    /// 물고 있을 땐 공중에서도 물기 그림 (팩에 없으면 화난 얼굴)
+    private var shownAction: PetAction { model.biting ? .bite : model.action }
 
     /// 선택된 캐릭터 종류에 따라 렌더러 선택 (TS의 switch로 컴포넌트 고르기와 같음)
     @ViewBuilder

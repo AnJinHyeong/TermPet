@@ -94,7 +94,7 @@ struct PetBrain {
         case .talk, .happy, .angry, .ask:
             if elapsed >= duration { enterIdle(using: &rng) }
 
-        case .sleep, .dragged, .fall, .climb:
+        case .sleep, .dragged, .fall, .climb, .bite: // bite는 그림 전용 (두뇌는 물기 상태로 들어가지 않음)
             break // 외부 입력(깨우기/드롭/착지/다 오름)으로만 바뀜
         }
     }

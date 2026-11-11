@@ -69,7 +69,7 @@ private struct DefaultCharacterRenderer {
             p.offsetY = -CGFloat(jump) * 10
             if jump < 0.25 { p.scaleY = 0.94; p.scaleX = 1.04 } // 착지 순간 찌그러짐
             p.arms = .up
-        case .angry:
+        case .angry, .bite:
             p.shakeX = CGFloat(sin(t * 45)) * 1.5
             p.scaleY = 0.97
             p.scaleX = 1.03
@@ -111,7 +111,7 @@ private struct DefaultCharacterRenderer {
         case .sleep: return .closed
         case .dragged, .fall: return .wide
         case .climb: return .angry // 힘주는 눈
-        case .angry: return .angry
+        case .angry, .bite: return .angry
         default: return .normal
         }
     }
@@ -121,7 +121,7 @@ private struct DefaultCharacterRenderer {
         case .idle, .walk: return .smile
         case .happy: return .grin
         case .talk: return .talk
-        case .angry: return .frown
+        case .angry, .bite: return .frown
         case .ask, .dragged, .fall, .climb: return .o
         case .sleep: return .sleep
         }

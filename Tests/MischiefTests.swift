@@ -163,6 +163,12 @@ final class MischiefTests: XCTestCase {
         XCTAssertEqual(two.nearestWallDirection(originX: 900, feetY: 0), .left)
     }
 
+    func testBitePoseFallsBackToAngry() {
+        XCTAssertEqual(SpriteCharacter.fallbacks(for: .bite), [.bite, .angry, .idle])
+        XCTAssertEqual(CharacterPack.parseStateKey("bite")?.0, .bite)
+        XCTAssertEqual(CharacterPack.parseStateKey("bite.2")?.1, 2)
+    }
+
     func testBrainClimbNowAndFace() {
         var rng = SeededGenerator(seed: 10)
         var b = PetBrain()

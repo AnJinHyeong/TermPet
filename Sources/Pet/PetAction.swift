@@ -15,6 +15,7 @@ enum PetAction: String, CaseIterable {
     case dragged   // 마우스로 잡혀 있음
     case fall      // 떨어지는 중 (점프·던져짐 포함)
     case climb     // 창/화면 벽을 기어오르는 중
+    case bite      // 장난꾸러기 모드: 포인터를 물고 흔드는 중 (그림이 없으면 angry)
 
     /// 이벤트로 잠깐 표시되고 시간이 지나면 idle로 돌아가는 상태들
     var isReaction: Bool {
@@ -37,6 +38,7 @@ enum PetAction: String, CaseIterable {
         case .dragged: return "잡혔을 때"
         case .fall: return "떨어질 때"
         case .climb: return "벽 오를 때"
+        case .bite: return "포인터 물 때"
         }
     }
 

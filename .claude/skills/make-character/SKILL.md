@@ -16,6 +16,7 @@ description: 텀펫(TermPet) 친구 캐릭터 팩 만들기 — 캐릭터 이름
 | `sheet.py sources OUT.png DIR...` | 후보 그림 격자 + 파일 이름 → Read 로 보고 포즈 고르기 |
 | `build_pack.py recipe.json OUT` | 레시피대로 팩 만들기 (배경·조각 지우기, 크기 통일, 8프레임 움직임) |
 | `sheet.py pack OUT.png PACKDIR` | 만든 팩을 상태별로, **어두운 배경**에서 확인 |
+| `add_states.py recipe.json PACKDIR` | 이미 있는 팩에 상태만 더하기 (예: `bite`). 크기는 그 팩 idle 에 맞추고 character.json 은 `.bak` 백업 후 병합. 설치된 팩 대신 복사본에 먼저 해 보고 확인 후 넣기 |
 
 ## 1. 무엇을 만들지 정하기
 
@@ -48,6 +49,7 @@ python3 $S/sheet.py sources $W/sources.png $W/src
 | `dragged` | 마우스로 잡았을 때 | 매달리거나 놀란 그림 |
 | `fall` | 떨어질 때 | 넘어지거나 날아가는 그림 |
 | `climb` | 창 벽 오르기 | 매달리거나 엿보는 그림. 없으면 idle 그림에 `"motion": "lean"` |
+| `bite` | 장난꾸러기 모드에서 포인터를 물고 흔들 때 | 무언가를 물거나 먹거나 덮치는 그림 (없으면 angry 그림을 씀) |
 
 피할 것: 몸이 스티커 가장자리에서 잘린 그림(빌더가 ⚠ 경고), 글씨가 몸에 붙은 그림, 다른 캐릭터와 겹친 그림.
 

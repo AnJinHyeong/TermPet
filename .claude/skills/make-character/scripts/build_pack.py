@@ -38,10 +38,10 @@ MAX_ANIM_FRAMES = 20
 
 DEFAULT_MOTION = {
     'idle': 'breathe', 'walk': 'hop', 'talk': 'sway', 'happy': 'hop', 'angry': 'shake', 'ask': 'sway',
-    'sleep': 'sleepy', 'dragged': 'float', 'fall': 'wobble', 'climb': 'lean',
+    'sleep': 'sleepy', 'dragged': 'float', 'fall': 'wobble', 'climb': 'lean', 'bite': 'shake',
 }
 DEFAULT_FPS = {
-    'idle': 6, 'walk': 10, 'talk': 8, 'happy': 12, 'angry': 12, 'ask': 8, 'sleep': 3, 'dragged': 8, 'fall': 6, 'climb': 8,
+    'idle': 6, 'walk': 10, 'talk': 8, 'happy': 12, 'angry': 12, 'ask': 8, 'sleep': 3, 'dragged': 8, 'fall': 6, 'climb': 8, 'bite': 12,
 }
 STATES = set(DEFAULT_MOTION)
 
