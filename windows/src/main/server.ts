@@ -4,7 +4,8 @@ import type { PetEvent } from '../shared/events'
 import { HEAD_ONLY_PATHS, logLine, route } from '../shared/router'
 import { appendEventsLog } from './paths'
 
-export type ServerState = { type: 'stopped' } | { type: 'listening'; port: number } | { type: 'failed'; message: string }
+/** retryable = 다른 포트로 다시 시도하면 될 수 있는 실패 (사용 중 / 윈도우 예약 대역) */
+export type ServerState = { type: 'stopped' } | { type: 'listening'; port: number } | { type: 'failed'; message: string; retryable?: boolean }
 
 const MAX_BODY = 1_000_000
 const HEAD_BYTES = 8192
@@ -44,7 +45,11 @@ export function startServer(port: number, token: string, onEvent: (e: PetEvent) 
   })
   server.on('listening', () => onState({ type: 'listening', port }))
   server.on('error', (e: NodeJS.ErrnoException) =>
-    onState({ type: 'failed', message: e.code === 'EADDRINUSE' ? `포트 ${port} 사용 중` : e.message }),
+    onState({
+      type: 'failed',
+      message: e.code === 'EADDRINUSE' ? `포트 ${port} 사용 중` : e.code === 'EACCES' ? `포트 ${port} 를 열 수 없음 (윈도우 예약 대역)` : e.message,
+      retryable: e.code === 'EADDRINUSE' || e.code === 'EACCES',
+    }),
   )
   server.on('close', () => onState({ type: 'stopped' }))
   // 루프백에만 바인딩 → 같은 네트워크의 다른 기기에서 접근 불가

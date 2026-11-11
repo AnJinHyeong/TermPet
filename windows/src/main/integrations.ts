@@ -6,7 +6,9 @@ import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type { IntegrationKind } from '../shared/ipc'
 import { backupStamp, claudeHookCommands, ClaudeHooks, CodexNotify, IntegrationError, PowerShellProfile } from '../shared/integrations'
-import { hookCmd, hookPs1 } from './paths'
+import { hookClaudePs1, hookPs1 } from './paths'
+
+export const claudeCmds = () => claudeHookCommands(hookClaudePs1)
 
 export const INTEGRATIONS: { kind: IntegrationKind; title: string; subtitle: string }[] = [
   { kind: 'claude', title: 'Claude Code', subtitle: '응답 완료 · 권한 요청' },
@@ -17,10 +19,12 @@ export const INTEGRATIONS: { kind: IntegrationKind; title: string; subtitle: str
 const home = homedir()
 
 /** 연동별 설정 파일. PowerShell 은 Windows PowerShell 5.1 · PowerShell 7 프로필 둘 다 */
+export const claudeSettingsFile = () => join(process.env.CLAUDE_CONFIG_DIR || join(home, '.claude'), 'settings.json')
+
 export function filesFor(kind: IntegrationKind): string[] {
   switch (kind) {
     case 'claude':
-      return [join(home, '.claude', 'settings.json')]
+      return [claudeSettingsFile()]
     case 'codex':
       return [join(home, '.codex', 'config.toml')]
     case 'powershell': {
@@ -36,7 +40,7 @@ interface FileText {
   bom: boolean
 }
 
-function readText(path: string): FileText {
+export function readText(path: string): FileText {
   let real = path
   try {
     real = realpathSync(path) // dotfiles 심볼릭 링크면 실제 파일을 고친다
@@ -65,7 +69,7 @@ export function status(kind: IntegrationKind): { installed: boolean; needsUpdate
     switch (kind) {
       case 'claude': {
         const installed = ClaudeHooks.isInstalled(files[0].text)
-        return { installed, needsUpdate: installed && ClaudeHooks.missingEvents(files[0].text).length > 0 }
+        return { installed, needsUpdate: installed && ClaudeHooks.needsUpdate(files[0].text, claudeCmds()) }
       }
       case 'codex':
         return { installed: CodexNotify.isInstalled(files[0].text), needsUpdate: false }
@@ -88,7 +92,7 @@ export function toggle(kind: IntegrationKind, remove: boolean): string[] {
   const updates: [FileText, string][] = files.map((f) => {
     switch (kind) {
       case 'claude':
-        return [f, on ? ClaudeHooks.uninstall(f.text ?? '{}') : ClaudeHooks.install(f.text, claudeHookCommands(hookCmd))]
+        return [f, on ? ClaudeHooks.uninstall(f.text ?? '{}') : ClaudeHooks.install(f.text, claudeCmds())]
       case 'codex':
         return [f, on ? CodexNotify.uninstall(f.text ?? '') : CodexNotify.install(f.text, hookPs1)]
       case 'powershell':

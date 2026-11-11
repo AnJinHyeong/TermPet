@@ -2,7 +2,8 @@
 //   ~/.termpet/token                     인증 토큰
 //   ~/.termpet/port                      현재 서버 포트 (훅 스크립트가 읽음)
 //   ~/.termpet/events.log                받은 요청 기록
-//   ~/.termpet/bin/termpet-hook.cmd      Claude Code 훅 (stdin → curl)
+//   ~/.termpet/bin/termpet-claude.ps1    Claude Code 훅 (stdin → HTTP, "shell": "powershell")
+//   ~/.termpet/bin/termpet-hook.cmd      예전 Claude Code 훅 (0.5.0 이하 설정이 부르던 것 — 업데이트 전까지 유지)
 //   ~/.termpet/bin/termpet-hook.ps1      Codex notify 훅
 //   ~/.termpet/termpet-profile.ps1       PowerShell 긴 명령 알림
 import { app } from 'electron'
@@ -18,6 +19,7 @@ export const portFile = join(root, 'port')
 export const eventsLog = join(root, 'events.log')
 export const binDir = join(root, 'bin')
 export const hookCmd = join(binDir, 'termpet-hook.cmd')
+export const hookClaudePs1 = join(binDir, 'termpet-claude.ps1')
 export const hookPs1 = join(binDir, 'termpet-hook.ps1')
 export const profileScript = join(root, 'termpet-profile.ps1')
 
@@ -51,6 +53,7 @@ export function installBundledScripts() {
   const src = join(resourcesPath(), 'hooks')
   const items: [string, string][] = [
     ['termpet-hook.cmd', hookCmd],
+    ['termpet-claude.ps1', hookClaudePs1],
     ['termpet-hook.ps1', hookPs1],
     ['termpet-profile.ps1', profileScript],
   ]

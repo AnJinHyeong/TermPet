@@ -10,14 +10,23 @@ export const CLAUDE_PROGRESS_EVENTS = ['UserPromptSubmit', 'PostToolUse', 'StopF
 export const CLAUDE_EVENTS = [...CLAUDE_CORE_EVENTS, ...CLAUDE_PROGRESS_EVENTS]
 export const HOOK_MARKER = 'termpet-hook'
 
+export interface ClaudeHookCommands {
+  command: string
+  toolCommand: string
+}
+
+/** PowerShell 작은따옴표 문자열 ('' 로 이스케이프) */
+export const psQuote = (s: string) => `'${s.replaceAll("'", "''")}'`
+
 /**
- * 윈도우 훅 명령. Claude Code가 훅을 Git Bash로 돌릴지 cmd.exe로 돌릴지 버전마다 달라서
- * (TODO: 공식 문서에서 확정되면 정리) 양쪽 다 실행되는 형태로 만든다:
- * 슬래시(/) 절대 경로 + 큰따옴표, 환경변수($HOME/%USERPROFILE%) 없이.
+ * 윈도우 훅 명령. Claude Code 는 훅을 Git Bash 로, Git 이 없으면 PowerShell 로 돌린다 (공식 문서:
+ * https://code.claude.com/docs/en/hooks — "Git Bash on Windows, or PowerShell when Git Bash isn't installed").
+ * PC마다 셸이 달라지지 않게 훅 항목에 `"shell": "powershell"` 을 지정하고, PowerShell 문법으로 쓴다.
+ * 스크립트 파일을 `& .ps1` 로 부르면 실행 정책(Restricted)에 막히므로, 파일 내용을 scriptblock 으로 만들어 실행한다.
  */
-export function claudeHookCommands(hookCmdPath: string) {
-  const p = hookCmdPath.replaceAll('\\', '/')
-  return { command: `"${p}" claude`, toolCommand: `"${p}" claude-tool` }
+export function claudeHookCommands(ps1Path: string): ClaudeHookCommands {
+  const run = `& ([scriptblock]::Create([IO.File]::ReadAllText(${psQuote(ps1Path)})))`
+  return { command: `${run} claude`, toolCommand: `${run} claude-tool` }
 }
 
 type Json = Record<string, unknown>
@@ -34,7 +43,12 @@ function parseSettings(text: string | undefined): Json {
   return v as Json
 }
 
-const isOurs = (hook: unknown) => typeof (hook as Json)?.command === 'string' && ((hook as Json).command as string).includes(HOOK_MARKER)
+/** 우리 훅: 지금 형식(termpet-claude.ps1)과 예전 형식(termpet-hook.cmd) 모두 */
+const CLAUDE_MARKERS = [HOOK_MARKER, 'termpet-claude']
+const isOurs = (hook: unknown) => {
+  const c = (hook as Json)?.command
+  return typeof c === 'string' && CLAUDE_MARKERS.some((m) => c.includes(m))
+}
 const groupHooks = (g: unknown): unknown[] => (Array.isArray((g as Json)?.hooks) ? ((g as Json).hooks as unknown[]) : [])
 const hasOurs = (groups: unknown) => Array.isArray(groups) && groups.some((g) => groupHooks(g).some(isOurs))
 
@@ -58,19 +72,29 @@ export const ClaudeHooks = {
     return CLAUDE_EVENTS.filter((e) => !hasOurs(h[e]))
   },
 
-  entry(event: string, cmds: { command: string; toolCommand: string }): Json {
-    const e: Json = { type: 'command', command: event === 'PostToolUse' ? cmds.toolCommand : cmds.command, timeout: 5 }
-    if (CLAUDE_PROGRESS_EVENTS.includes(event)) e.async = true
-    return e
+  /** 빠진 이벤트가 있거나, 우리 항목이 지금 형식과 다르면(예전 .cmd 명령 등) 업데이트 필요 */
+  needsUpdate(text: string | undefined, cmds: ClaudeHookCommands): boolean {
+    const h = hooksOf(text) ?? {}
+    return CLAUDE_EVENTS.some((e) => !isCurrent(h[e], ClaudeHooks.entry(e, cmds)))
   },
 
-  install(text: string | undefined, cmds: { command: string; toolCommand: string }): string {
+  /**
+   * 이벤트별 항목. 윈도우는 PowerShell 을 띄우는 데 0.3~1초 걸려서 모두 async(백그라운드) —
+   * 응답이 끝날 때 Claude 를 기다리게 하지 않는다 (알림만 보내고 결정은 안 하므로 async 여도 됨).
+   */
+  entry(event: string, cmds: ClaudeHookCommands): Json {
+    return { type: 'command', shell: 'powershell', command: event === 'PostToolUse' ? cmds.toolCommand : cmds.command, timeout: 10, async: true }
+  },
+
+  /** 우리 항목을 지금 형식으로 (예전 형식은 지우고 새로). 이미 최신이면 그대로. 다른 훅은 건드리지 않는다 */
+  install(text: string | undefined, cmds: ClaudeHookCommands): string {
     const root = parseSettings(text)
     const hooks = (typeof root.hooks === 'object' && root.hooks !== null ? root.hooks : {}) as Json
     for (const event of CLAUDE_EVENTS) {
-      if (hasOurs(hooks[event])) continue
-      const groups = Array.isArray(hooks[event]) ? (hooks[event] as unknown[]) : []
-      hooks[event] = [...groups, { hooks: [ClaudeHooks.entry(event, cmds)] }]
+      const want = ClaudeHooks.entry(event, cmds)
+      if (isCurrent(hooks[event], want)) continue
+      const groups = withoutOurs(hooks[event])
+      hooks[event] = [...groups, { hooks: [want] }]
     }
     root.hooks = hooks
     return JSON.stringify(root, null, 2) + '\n'
@@ -81,18 +105,57 @@ export const ClaudeHooks = {
     const hooks = root.hooks as Json | undefined
     if (typeof hooks !== 'object' || hooks === null) return text
     for (const event of CLAUDE_EVENTS) {
-      const groups = hooks[event]
-      if (!Array.isArray(groups)) continue
-      const cleaned = groups.flatMap((g) => {
-        if (!Array.isArray((g as Json)?.hooks)) return [g]
-        const kept = groupHooks(g).filter((h) => !isOurs(h))
-        return kept.length ? [{ ...(g as Json), hooks: kept }] : []
-      })
+      if (!Array.isArray(hooks[event])) continue
+      const cleaned = withoutOurs(hooks[event])
       if (cleaned.length) hooks[event] = cleaned
       else delete hooks[event]
     }
     return JSON.stringify(root, null, 2) + '\n'
   },
+}
+
+/** 이 이벤트에 우리 항목이 정확히 하나 있고 지금 형식과 같은지 */
+function isCurrent(groups: unknown, want: Json): boolean {
+  if (!Array.isArray(groups)) return false
+  const ours = groups.flatMap((g) => groupHooks(g).filter(isOurs)) as Json[]
+  return ours.length === 1 && Object.keys(want).every((k) => ours[0][k] === want[k]) && Object.keys(ours[0]).length === Object.keys(want).length
+}
+
+/** 그룹들에서 우리 항목만 뺀다 (비게 된 그룹은 없앤다) */
+function withoutOurs(groups: unknown): unknown[] {
+  if (!Array.isArray(groups)) return []
+  return groups.flatMap((g) => {
+    if (!Array.isArray((g as Json)?.hooks)) return [g]
+    const kept = groupHooks(g).filter((h) => !isOurs(h))
+    return kept.length ? [{ ...(g as Json), hooks: kept }] : []
+  })
+}
+
+/**
+ * 훅을 막는 설정 찾기 (사용자·관리자 settings.json). 막혀 있으면 이유, 아니면 undefined.
+ * 공식 문서: disableAllHooks(모든 훅 끔), allowManagedHooksOnly / strictPluginOnlyCustomization(관리자 훅만 허용)
+ */
+export function hooksBlockedBy(userText: string | undefined, managedText: string | undefined): string | undefined {
+  const read = (t: string | undefined): Json => {
+    try {
+      return parseSettings(t)
+    } catch {
+      return {}
+    }
+  }
+  const managed = read(managedText)
+  const user = read(userText)
+  if (managed.disableAllHooks === true) return '회사(관리자) 설정이 모든 훅을 꺼 두었어요 (disableAllHooks)'
+  if (managed.allowManagedHooksOnly === true) return '회사(관리자) 설정이 관리자 훅만 허용해요 (allowManagedHooksOnly)'
+  if (managed.strictPluginOnlyCustomization === true) return '회사(관리자) 설정이 플러그인 훅만 허용해요 (strictPluginOnlyCustomization)'
+  if (user.disableAllHooks === true) return '~/.claude/settings.json 에 "disableAllHooks": true 가 있어요. 지우거나 false 로 바꿔 주세요'
+  return undefined
+}
+
+/** `Get-ExecutionPolicy` 결과 → 프로필 스크립트가 막히는지 (Restricted · AllSigned · Undefined(=클라이언트 기본 Restricted)) */
+export function executionPolicyBlocksProfile(output: string): boolean {
+  const p = output.trim().split(/\r?\n/).pop()?.trim().toLowerCase() ?? ''
+  return p === 'restricted' || p === 'allsigned' || p === 'undefined'
 }
 
 // MARK: - PowerShell 프로필 (긴 명령 알림) — 맥의 ~/.zshrc 대응

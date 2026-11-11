@@ -1,7 +1,7 @@
 // 트레이 아이콘을 누르면 뜨는 패널 (맥 MenuPanelView.swift 와 같은 구성).
 // 무대(지금 캐릭터) → 업데이트 → 진행 중 → 친구 고르기 → 놀기 → AI 연결 → 알림 → 표시 위치 → 하단
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import type { PanelAction, PanelState } from '../../shared/ipc'
+import type { CheckResult, IntegrationKind, PanelAction, PanelState } from '../../shared/ipc'
 import { LAYERS } from '../../shared/misc'
 import { formatDuration } from '../../shared/notifications'
 import { packUrl, Sprite } from './Sprite'
@@ -116,25 +116,38 @@ export function Panel() {
         <Label icon="🔗">AI 연결</Label>
         <Card>
           {s.integrations.map((i) => (
-            <div key={i.kind} className={`integration ${i.available ? '' : 'disabled'}`}>
-              <span className={`int-icon ${i.kind}`} title={`${i.subtitle} 알림`}>
-                {i.kind === 'claude' ? '✳' : i.kind === 'codex' ? '</>' : '>_'}
-              </span>
-              <span className="grow">
-                <span className="strong">{i.title}</span>
-                <span className="sub">{i.subtitle}</span>
-              </span>
-              {!i.available ? (
-                <span className="sub">설치 안 됨</span>
-              ) : (
-                <button
-                  className={`connect ${i.installed ? 'on' : ''}`}
-                  title={i.needsUpdate ? '빠진 항목 추가 (백업 후)' : i.installed ? '누르면 연결 해제 (설정 파일 백업 후)' : '누르면 연결 (설정 파일 백업 후)'}
-                  onClick={() => act({ type: 'toggleIntegration', kind: i.kind, remove: i.installed && !i.needsUpdate })}
-                >
-                  {i.needsUpdate ? '⟳ 업데이트' : i.installed ? '✓ 연결됨' : '연결'}
-                </button>
-              )}
+            <div key={i.kind}>
+              <div className={`integration ${i.available ? '' : 'disabled'}`}>
+                <span className={`int-icon ${i.kind}`} title={`${i.subtitle} 알림`}>
+                  {i.kind === 'claude' ? '✳' : i.kind === 'codex' ? '</>' : '>_'}
+                </span>
+                <span className="grow">
+                  <span className="strong">{i.title}</span>
+                  <span className="sub">{i.subtitle}</span>
+                </span>
+                {!i.available ? (
+                  <span className="sub">설치 안 됨</span>
+                ) : (
+                  <>
+                    <button
+                      className="diag-btn"
+                      title="이 PC에서 알림이 실제로 오는지 처음부터 끝까지 확인"
+                      disabled={i.check?.running}
+                      onClick={() => act({ type: 'checkIntegration', kind: i.kind })}
+                    >
+                      {i.check?.running ? '…' : '확인'}
+                    </button>
+                    <button
+                      className={`connect ${i.installed ? 'on' : ''}`}
+                      title={i.needsUpdate ? '이 PC에 맞는 형식으로 바꾸기 (백업 후)' : i.installed ? '누르면 연결 해제 (설정 파일 백업 후)' : '누르면 연결 (설정 파일 백업 후)'}
+                      onClick={() => act({ type: 'toggleIntegration', kind: i.kind, remove: i.installed && !i.needsUpdate })}
+                    >
+                      {i.needsUpdate ? '⟳ 업데이트' : i.installed ? '✓ 연결됨' : '연결'}
+                    </button>
+                  </>
+                )}
+              </div>
+              {i.check && <CheckView kind={i.kind} check={i.check} />}
             </div>
           ))}
         </Card>
@@ -274,5 +287,29 @@ function Chip(props: { icon: string; on?: boolean; disabled?: boolean; hint?: st
       <span className="chip-icon">{props.icon}</span>
       {props.children}
     </button>
+  )
+}
+
+/** [연결 확인] 결과: 단계별 ✓ / ✗ / ℹ + 설명, 바로 고칠 수 있으면 버튼 */
+function CheckView({ kind, check }: { kind: IntegrationKind; check: CheckResult }) {
+  return (
+    <div className={`diag ${check.running ? 'running' : check.ok ? 'ok' : 'bad'}`}>
+      {check.running && <div className="diag-title">확인하는 중… (최대 15초)</div>}
+      {!check.running && <div className="diag-title">{check.ok ? '이 PC에서 잘 동작해요' : '문제를 찾았어요'}</div>}
+      {check.steps.map((st) => (
+        <div key={st.label} className="diag-step">
+          <span className={`mark ${st.ok === true ? 'ok' : st.ok === false ? 'bad' : 'info'}`}>{st.ok === true ? '✓' : st.ok === false ? '✗' : 'i'}</span>
+          <span className="grow">
+            <span className="diag-label">{st.label}</span>
+            {st.detail && <span className="diag-detail">{st.detail}</span>}
+          </span>
+        </div>
+      ))}
+      {check.fix && !check.running && (
+        <button className="connect on diag-fix" onClick={() => act({ type: 'fixIntegration', kind, action: check.fix!.action })}>
+          {check.fix.label}
+        </button>
+      )}
+    </div>
   )
 }

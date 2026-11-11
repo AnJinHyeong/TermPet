@@ -149,6 +149,10 @@ export function decodeStandard(body: string, ctx: DecodeContext = {}): PetEvent 
 
 // MARK: - Claude Code 훅 원본 (POST /hook/claude)
 
+/** [연결 확인]용 가짜 훅 이벤트 이름과 인코딩 확인용 경로 */
+export const SELF_TEST_EVENT = 'TermPetSelfTest'
+export const SELF_TEST_CWD = 'C:\\텀펫-연결확인'
+
 /** 공식 문서(https://code.claude.com/docs/en/hooks) 기준 공통 필드: session_id, transcript_path, cwd, hook_event_name */
 export function decodeClaudeHook(body: string, ctx: DecodeContext = {}): PetEvent {
   const o = parseObject(body)
@@ -196,6 +200,10 @@ export function decodeClaudeHook(body: string, ctx: DecodeContext = {}): PetEven
       break
     case 'SessionEnd':
       e.kind = 'ended'
+      break
+    case SELF_TEST_EVENT:
+      // 패널의 [연결 확인]이 훅 명령을 직접 실행해 보낸 것 (cwd 에 한글을 넣어 인코딩까지 확인)
+      e.message = '연결 확인 완료! 앞으로 Claude 알림이 여기로 와요'
       break
     default:
       // TODO: 다른 훅 이벤트(SubagentStop 등)를 연결하게 되면 추가

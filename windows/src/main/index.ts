@@ -6,9 +6,10 @@ import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { join, normalize, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { makeEvent, type PetEvent } from '../shared/events'
-import type { IntegrationKind, PanelAction, PanelState } from '../shared/ipc'
+import type { CheckResult, IntegrationKind, PanelAction, PanelState } from '../shared/ipc'
 import { LAYERS } from '../shared/misc'
 import { currentStats, statsSummary } from '../shared/notifications'
+import { allowScripts, diagnose, takeSelfTest } from './diagnose'
 import { focusEvent, rememberWindow } from './focus'
 import { importPacks } from './importer'
 import { INTEGRATIONS, isAvailable, status as integrationStatus, toggle as toggleIntegration } from './integrations'
@@ -112,22 +113,55 @@ async function alert(title: string, detail: string) {
 
 // MARK: - AI 연결
 
+/** 연동별 [연결 확인] 결과 (패널에 단계별로 표시) */
+const checks = new Map<IntegrationKind, CheckResult>()
+
+async function runCheck(kind: IntegrationKind) {
+  if (checks.get(kind)?.running) return
+  checks.set(kind, { running: true, steps: checks.get(kind)?.steps ?? [] })
+  refreshUI()
+  const server = panelServer()
+  try {
+    checks.set(kind, await diagnose(kind, { serverOk: server.ok, serverText: server.text }))
+  } catch (e) {
+    checks.set(kind, { running: false, ok: false, steps: [{ label: '확인 중 오류', ok: false, detail: (e as Error).message }] })
+  }
+  refreshUI()
+}
+
+async function runFix(kind: IntegrationKind, action: 'allowScripts') {
+  if (action !== 'allowScripts') return
+  hidePanel()
+  const r = await dialog.showMessageBox({
+    type: 'question',
+    title: '텀펫',
+    message: 'PowerShell 스크립트 실행을 허용할까요?',
+    detail: '내 계정(CurrentUser)의 실행 정책만 RemoteSigned 로 바꿔요. 이 PC에서 만든 스크립트(프로필)는 실행되고, 인터넷에서 받은 서명 없는 스크립트는 계속 막혀요.\n\n되돌리기: PowerShell 에서 Set-ExecutionPolicy -Scope CurrentUser Undefined',
+    buttons: ['허용', '취소'],
+    defaultId: 0,
+    cancelId: 1,
+  })
+  if (r.response !== 0) return
+  const problem = await allowScripts()
+  if (problem) void alert('실행 정책을 바꾸지 못했어요', problem)
+  void runCheck(kind)
+}
+
 function onToggleIntegration(kind: IntegrationKind, remove: boolean) {
   const before = integrationStatus(kind)
-  const updating = before.needsUpdate && !remove
   const title = INTEGRATIONS.find((i) => i.kind === kind)!.title
   try {
     toggleIntegration(kind, remove)
-    if (kind === 'powershell' && !before.installed) {
-      void alert(
-        '터미널 명령 알림을 연결했어요',
-        '새로 여는 PowerShell 창부터 적용돼요.\n\n프로필 스크립트가 막혀 있으면(실행 정책 Restricted) 동작하지 않아요. 그럴 땐 PowerShell 에서 한 번:\nSet-ExecutionPolicy -Scope CurrentUser RemoteSigned',
-      )
-    } else if (kind === 'claude' && (updating || !before.installed)) {
-      void alert('Claude Code를 연결했어요', '새로 시작하는 Claude Code 세션부터 펫 머리 위에 작업 중(…)·권한 대기(✋)가 표시돼요.')
-    }
   } catch (e) {
     void alert(`${title} 연결을 바꾸지 못했어요`, `${(e as Error).message}\n\n설정 파일은 바뀌지 않았어요.`)
+    return refreshUI()
+  }
+  const on = integrationStatus(kind).installed
+  if (on && (!before.installed || before.needsUpdate)) {
+    // 연결·업데이트 직후 이 PC에서 실제로 알림이 오는지 바로 확인 (결과는 패널에 단계별로)
+    void runCheck(kind)
+  } else if (!on) {
+    checks.delete(kind)
   }
   refreshUI()
 }
@@ -152,12 +186,7 @@ function panelState(): PanelState {
     walkOnWindowsAvailable: win32Available(),
     layer: pet.layer,
     mood: pet.mood,
-    server:
-      serverState.type === 'listening'
-        ? { ok: true, text: '알림 받는 중' }
-        : serverState.type === 'failed'
-          ? { ok: false, text: `오류: ${serverState.message}` }
-          : { ok: false, text: '알림 꺼짐' },
+    server: panelServer(),
     statsLine: statsSummary(currentStats(pet.stats)),
     sessions: pet.sessions.ordered.map((s) => ({
       id: s.id,
@@ -166,12 +195,18 @@ function panelState(): PanelState {
       state: s.state,
       since: s.since,
     })),
-    integrations: INTEGRATIONS.map((i) => ({ ...i, ...integrationStatus(i.kind), available: isAvailable(i.kind) })),
+    integrations: INTEGRATIONS.map((i) => ({ ...i, ...integrationStatus(i.kind), available: isAvailable(i.kind), check: checks.get(i.kind) })),
     quiet: { manualOn: pet.quiet.manualOn, duringMeetings: pet.quiet.duringMeetings, soundOnAsk: pet.quiet.soundOnAsk, isQuiet: pet.quiet.quiet },
     launchAtLogin: app.getLoginItemSettings().openAtLogin,
     update: { state: st.state, version: st.state === 'available' ? st.version : undefined, message: st.state === 'failed' ? st.message : undefined },
     isDev: !app.isPackaged,
   }
+}
+
+function panelServer(): { ok: boolean; text: string } {
+  if (serverState.type === 'listening') return { ok: true, text: serverState.port === DEFAULT_PORT ? '알림 받는 중' : `알림 받는 중 (포트 ${serverState.port})` }
+  if (serverState.type === 'failed') return { ok: false, text: `오류: ${serverState.message}` }
+  return { ok: false, text: '알림 꺼짐' }
 }
 
 let refreshQueued = false
@@ -259,6 +294,10 @@ ipcMain.on('panel:action', (_e, a: PanelAction) => {
       return pet.receive(makeEvent({ source: 'shell', kind: 'done', message: '알림이 잘 보이나요?' }))
     case 'toggleIntegration':
       return onToggleIntegration(a.kind, a.remove)
+    case 'checkIntegration':
+      return void runCheck(a.kind)
+    case 'fixIntegration':
+      return void runFix(a.kind, a.action)
     case 'quietManual':
       pet.quiet.toggleManual()
       return refreshUI()
@@ -367,16 +406,33 @@ function startEventServer() {
     return
   }
   const stored = settings().port
-  const port = stored && stored >= 1024 && stored <= 65535 ? stored : DEFAULT_PORT
-  writePort(port)
+  const first = stored && stored >= 1024 && stored <= 65535 ? stored : DEFAULT_PORT
+  listenFrom(first, token, 0)
+}
+
+/**
+ * 포트를 열고, 다른 프로그램이 쓰고 있거나(EADDRINUSE) 윈도우가 예약해 둔 대역이면(EACCES — Hyper-V·WSL·Docker)
+ * 다음 포트로 최대 20번 다시 시도. 훅 스크립트는 ~/.termpet/port 를 읽으므로 그대로 따라온다.
+ */
+function listenFrom(port: number, token: string, attempt: number) {
   startServer(
     port,
     token,
     (e) => {
+      if (takeSelfTest(e)) {
+        // [연결 확인]이 보낸 것: 말풍선으로만 보여 주고 진행 중 목록·창 기억에는 남기지 않는다
+        pet.receive({ ...e, sessionId: undefined, cwd: undefined, transcriptPath: undefined })
+        return
+      }
       rememberWindow(e)
       pet.receive(e)
     },
     (s) => {
+      if (s.type === 'failed' && s.retryable && attempt < 20 && port < 65535) {
+        console.warn(`[TermPet] 포트 ${port} 사용 불가 → ${port + 1}`)
+        return listenFrom(port + 1, token, attempt + 1)
+      }
+      if (s.type === 'listening') writePort(s.port)
       serverState = s
       refreshUI()
     },
@@ -388,6 +444,23 @@ async function devSnapshot(dir: string) {
   const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
   await wait(2500)
   pet.receive(debugAsk())
+  // [연결 확인] 결과 모양 확인용 예시
+  checks.set('claude', {
+    running: false,
+    ok: false,
+    steps: [
+      { label: '설정 파일', ok: false, detail: '예전 형식이에요. [업데이트]를 누르면 이 PC에 맞게 바꿔요 (백업 후)' },
+      { label: '훅 허용', ok: true },
+      { label: 'Git Bash', ok: null, detail: '없음 → Claude Code 기본 셸이 PowerShell 이에요 (텀펫 훅은 그대로 동작)' },
+      { label: '알림 서버', ok: true },
+    ],
+  })
+  checks.set('powershell', {
+    running: false,
+    ok: false,
+    steps: [{ label: '스크립트 실행 허용', ok: false, detail: '실행 정책이 Restricted이라 프로필이 실행되지 않아요. [허용]을 누르면 내 계정에만 RemoteSigned 로 바꿔요' }],
+    fix: { label: '허용', action: 'allowScripts' },
+  })
   togglePanel()
   panel?.removeAllListeners('blur') // 터미널에서 띄우면 앱이 포커스를 못 받아 바로 닫히므로 (개발용 스냅샷만)
   await wait(1500)

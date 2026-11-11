@@ -1,14 +1,48 @@
 // 설정 병합 · 호스트 판별 · 기타 순수 로직 테스트 (맥 IntegrationTests / AppUpdaterTests 대응)
 import { describe, expect, it } from 'vitest'
 import { findProjectRoot, planFocus, resolveHost } from './hostApp'
-import { claudeHookCommands, ClaudeHooks, CodexNotify, parseStringArray, PowerShellProfile, PROFILE_LINE, rootNotify } from './integrations'
+import { claudeHookCommands, ClaudeHooks, CodexNotify, executionPolicyBlocksProfile, hooksBlockedBy, parseStringArray, PowerShellProfile, PROFILE_LINE, psQuote, rootNotify } from './integrations'
+import { decodeClaudeHook, SELF_TEST_CWD, SELF_TEST_EVENT } from './events'
 import { effectiveLayer, isNewer, isQuiet, micInUseFromRegQuery, parseRelease, placeBubble, safeFolderName } from './misc'
 
-const cmds = claudeHookCommands('C:\\Users\\me\\.termpet\\bin\\termpet-hook.cmd')
+const cmds = claudeHookCommands('C:\\Users\\me\\.termpet\\bin\\termpet-claude.ps1')
 
 describe('Claude 훅 병합', () => {
-  it('명령은 슬래시 절대 경로 + 따옴표 (bash·cmd 양쪽)', () => {
-    expect(cmds.command).toBe('"C:/Users/me/.termpet/bin/termpet-hook.cmd" claude')
+  it('명령은 PowerShell 로 스크립트 내용을 실행 (실행 정책 무관), 항목에 shell: powershell', () => {
+    expect(cmds.command).toBe("& ([scriptblock]::Create([IO.File]::ReadAllText('C:\\Users\\me\\.termpet\\bin\\termpet-claude.ps1'))) claude")
+    expect(cmds.toolCommand.endsWith(' claude-tool')).toBe(true)
+    expect(ClaudeHooks.entry('Stop', cmds)).toMatchObject({ type: 'command', shell: 'powershell', async: true })
+  })
+  it("경로의 작은따옴표는 '' 로 (사용자 이름에 ' 가 있어도)", () => {
+    expect(psQuote("C:\\Users\\O'Neil")).toBe("'C:\\Users\\O''Neil'")
+  })
+  it('예전 형식(.cmd 명령)은 업데이트 필요 → 설치하면 새 형식으로 바뀌고 다른 훅은 유지', () => {
+    const oldCmds = { command: '"C:/Users/me/.termpet/bin/termpet-hook.cmd" claude', toolCommand: '"C:/Users/me/.termpet/bin/termpet-hook.cmd" claude-tool' }
+    const oldEntry = (e: string) => ({ type: 'command', command: e === 'PostToolUse' ? oldCmds.toolCommand : oldCmds.command, timeout: 5 })
+    const hooks: Record<string, unknown> = { Stop: [{ hooks: [{ type: 'command', command: 'echo hi' }, oldEntry('Stop')] }] }
+    for (const e of ['Notification', 'UserPromptSubmit', 'PostToolUse', 'StopFailure', 'SessionEnd']) hooks[e] = [{ hooks: [oldEntry(e)] }]
+    const before = JSON.stringify({ hooks })
+    expect(ClaudeHooks.isInstalled(before)).toBe(true)
+    expect(ClaudeHooks.needsUpdate(before, cmds)).toBe(true)
+    const after = ClaudeHooks.install(before, cmds)
+    expect(ClaudeHooks.needsUpdate(after, cmds)).toBe(false)
+    expect(ClaudeHooks.install(after, cmds)).toBe(after)
+    const obj = JSON.parse(after)
+    expect(after).not.toContain('termpet-hook.cmd')
+    expect(obj.hooks.Stop[0].hooks).toEqual([{ type: 'command', command: 'echo hi' }])
+    expect(obj.hooks.Stop[1].hooks[0]).toEqual(ClaudeHooks.entry('Stop', cmds))
+  })
+  it('훅을 막는 설정 찾기', () => {
+    expect(hooksBlockedBy('{}', undefined)).toBeUndefined()
+    expect(hooksBlockedBy('{"disableAllHooks": true}', undefined)).toContain('disableAllHooks')
+    expect(hooksBlockedBy('{}', '{"allowManagedHooksOnly": true}')).toContain('allowManagedHooksOnly')
+    expect(hooksBlockedBy('{oops', '{oops')).toBeUndefined()
+  })
+  it('[연결 확인] 가짜 훅 이벤트는 완료 알림 + 한글 경로 그대로', () => {
+    const e = decodeClaudeHook(JSON.stringify({ hook_event_name: SELF_TEST_EVENT, session_id: 'termpet-selftest-1', cwd: SELF_TEST_CWD }))
+    expect(e.kind).toBe('done')
+    expect(e.cwd).toBe(SELF_TEST_CWD)
+    expect(e.message).toBeTruthy()
   })
   it('기존 설정·다른 훅은 그대로 두고 추가, 두 번 해도 한 번만', () => {
     const before = JSON.stringify({ model: 'opus', hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo hi' }] }] } })
@@ -18,7 +52,7 @@ describe('Claude 훅 병합', () => {
     const obj = JSON.parse(once)
     expect(obj.model).toBe('opus')
     expect(obj.hooks.Stop).toHaveLength(2)
-    expect(obj.hooks.PostToolUse[0].hooks[0]).toMatchObject({ command: cmds.toolCommand, async: true })
+    expect(obj.hooks.PostToolUse[0].hooks[0]).toMatchObject({ command: cmds.toolCommand, async: true, shell: 'powershell' })
     expect(ClaudeHooks.isInstalled(once)).toBe(true)
     expect(ClaudeHooks.missingEvents(once)).toEqual([])
   })
@@ -30,6 +64,16 @@ describe('Claude 훅 병합', () => {
   it('깨진 JSON 은 에러 (덮어쓰지 않음), BOM 은 허용', () => {
     expect(() => ClaudeHooks.install('{oops', cmds)).toThrow()
     expect(() => ClaudeHooks.install('\uFEFF{}', cmds)).not.toThrow()
+  })
+})
+
+describe('PowerShell 실행 정책', () => {
+  it('Restricted · AllSigned · Undefined 면 프로필이 막힌다', () => {
+    expect(executionPolicyBlocksProfile('Restricted\r\n')).toBe(true)
+    expect(executionPolicyBlocksProfile('AllSigned')).toBe(true)
+    expect(executionPolicyBlocksProfile('Undefined')).toBe(true)
+    expect(executionPolicyBlocksProfile('RemoteSigned\r\n')).toBe(false)
+    expect(executionPolicyBlocksProfile('Bypass')).toBe(false)
   })
 })
 

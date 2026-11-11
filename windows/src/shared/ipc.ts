@@ -47,6 +47,21 @@ export interface PanelFriend {
 
 export type IntegrationKind = 'claude' | 'codex' | 'powershell'
 
+/** [연결 확인] 한 단계: ok=true ✓ / false ✗ / null 참고 정보 */
+export interface CheckStep {
+  label: string
+  ok: boolean | null
+  detail?: string
+}
+
+export interface CheckResult {
+  running: boolean
+  ok?: boolean
+  steps: CheckStep[]
+  /** 패널에서 바로 고칠 수 있는 문제면 버튼 */
+  fix?: { label: string; action: 'allowScripts' }
+}
+
 export interface PanelState {
   version: string
   friends: PanelFriend[]
@@ -62,7 +77,7 @@ export interface PanelState {
   server: { ok: boolean; text: string }
   statsLine?: string
   sessions: PanelSession[]
-  integrations: { kind: IntegrationKind; title: string; subtitle: string; installed: boolean; needsUpdate: boolean; available: boolean }[]
+  integrations: { kind: IntegrationKind; title: string; subtitle: string; installed: boolean; needsUpdate: boolean; available: boolean; check?: CheckResult }[]
   quiet: { manualOn: boolean; duringMeetings: boolean; soundOnAsk: boolean; isQuiet: boolean }
   launchAtLogin: boolean
   update: { state: 'idle' | 'checking' | 'upToDate' | 'available' | 'updating' | 'failed'; version?: string; message?: string }
@@ -79,6 +94,8 @@ export type PanelAction =
   | { type: 'dropFromTop' }
   | { type: 'testNotification' }
   | { type: 'toggleIntegration'; kind: IntegrationKind; remove: boolean }
+  | { type: 'checkIntegration'; kind: IntegrationKind }
+  | { type: 'fixIntegration'; kind: IntegrationKind; action: 'allowScripts' }
   | { type: 'quietManual' }
   | { type: 'quietMeetings' }
   | { type: 'soundOnAsk' }
