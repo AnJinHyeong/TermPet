@@ -699,6 +699,7 @@ final class PetController: NSObject {
             flyingPointer = (path, 0)
             dropIfCarried()
             brain.handle(.face(path.direction), using: &rng) // 공간이 넓은 쪽으로 돌아서 던진다
+            model.tossUntil = clock + 0.8
             brain.handle(.react(.happy, duration: 1.2), using: &rng) // 뿌듯
             syncModel()
         case .release:
@@ -1044,7 +1045,10 @@ struct PetView: View {
     }
 
     /// 물고 있을 땐 공중에서도 물기 그림 (팩에 없으면 화난 얼굴)
-    private var shownAction: PetAction { model.biting ? .bite : model.action }
+    private var shownAction: PetAction {
+        if model.biting { return .bite }
+        return model.time < model.tossUntil ? .toss : model.action // 던진 직후 (팩에 없으면 신난 얼굴)
+    }
 
     /// 선택된 캐릭터 종류에 따라 렌더러 선택 (TS의 switch로 컴포넌트 고르기와 같음)
     @ViewBuilder

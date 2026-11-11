@@ -270,6 +270,8 @@ final class MischiefTests: XCTestCase {
 
     func testBitePoseFallsBackToAngry() {
         XCTAssertEqual(SpriteCharacter.fallbacks(for: .bite), [.bite, .angry, .idle])
+        XCTAssertEqual(SpriteCharacter.fallbacks(for: .toss), [.toss, .happy, .idle])
+        XCTAssertEqual(CharacterPack.parseStateKey("throw")?.0, .toss)
         XCTAssertEqual(CharacterPack.parseStateKey("bite")?.0, .bite)
         XCTAssertEqual(CharacterPack.parseStateKey("bite.2")?.1, 2)
     }

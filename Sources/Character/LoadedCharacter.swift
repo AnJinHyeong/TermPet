@@ -132,6 +132,7 @@ final class SpriteCharacter {
         switch action {
         case .climb: return [.climb, .dragged, .idle]
         case .bite: return [.bite, .angry, .idle]      // 물기 그림이 없으면 화난 얼굴
+        case .toss: return [.toss, .happy, .idle]      // 던지기 그림이 없으면 신난 얼굴
         case .idle: return [.idle]
         default: return [action, .idle]
         }

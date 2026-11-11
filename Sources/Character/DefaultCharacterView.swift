@@ -64,7 +64,7 @@ private struct DefaultCharacterRenderer {
             let s = CGFloat(sin(t * 10))
             p.offsetY = -abs(s) * 3
             p.footLift = (max(0, s) * 3, max(0, -s) * 3)
-        case .happy:
+        case .happy, .toss:
             let jump = abs(sin(at * 9))
             p.offsetY = -CGFloat(jump) * 10
             if jump < 0.25 { p.scaleY = 0.94; p.scaleX = 1.04 } // 착지 순간 찌그러짐
@@ -107,7 +107,7 @@ private struct DefaultCharacterRenderer {
 
     private var eyes: Eyes {
         switch action {
-        case .happy: return .happy
+        case .happy, .toss: return .happy
         case .sleep: return .closed
         case .dragged, .fall: return .wide
         case .climb: return .angry // 힘주는 눈
@@ -119,7 +119,7 @@ private struct DefaultCharacterRenderer {
     private var mouth: Mouth {
         switch action {
         case .idle, .walk: return .smile
-        case .happy: return .grin
+        case .happy, .toss: return .grin
         case .talk: return .talk
         case .angry, .bite: return .frown
         case .ask, .dragged, .fall, .climb: return .o

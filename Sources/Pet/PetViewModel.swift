@@ -17,6 +17,8 @@ final class PetViewModel {
     var biting: Bool = false
     /// 물기 시작한 시각 (`time` 기준)
     var biteStart: TimeInterval = 0
+    /// 포인터를 던진 직후 이 시각(model.time)까지 던지기 그림
+    var tossUntil: TimeInterval = -1
     /// 앱 시작 후 계속 흐르는 애니메이션 시계(초) — 숨쉬기, 눈 깜빡임 등
     var time: TimeInterval = 0
     /// 현재 상태에 들어온 뒤 지난 시간 — 점프 등 상태 시작 기준 애니메이션
