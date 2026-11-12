@@ -146,7 +146,10 @@ struct PetPhysics {
             velocity = .zero
             standingOn = floor.windowID
             clampHorizontally(layout: terrain.screens)
-            if standingOn == nil { stepOutOfDock(terrain: terrain) }
+            if standingOn == nil {
+                settleOnOneScreen(layout: terrain.screens)
+                stepOutOfDock(terrain: terrain)
+            }
             return true
         }
         if terrain.screens.frames.isEmpty { return true } // 화면이 하나도 없는 비정상 상황: 그냥 멈춤
@@ -219,6 +222,15 @@ struct PetPhysics {
             if fix.onDock { standingOn = box.id }
             return
         }
+    }
+
+    /// 화면 바닥에 내려섰는데 몸이 두 모니터 경계에 걸쳐 있으면, 몸 가운데가 있는 모니터 안으로 완전히 들어간다.
+    /// (걸친 채 서 있으면 macOS가 창을 한쪽 모니터 것으로만 쳐서 다른 쪽에 넘어간 부분이 반투명하게 보인다.
+    ///  던져지거나 포인터를 쫓아 뛰다가 경계 위에 떨어질 때 생기던 문제)
+    mutating func settleOnOneScreen(layout: ScreenLayout) {
+        guard let i = layout.index(containingX: centerX, y: origin.y) else { return }
+        let f = layout.frames[i]
+        origin.x = max(f.minX, min(origin.x, f.maxX - size.width))
     }
 
     /// 펫 몸이 이웃 화면이 없는 쪽 가장자리 밖으로 삐져나가지 않게 x 보정.

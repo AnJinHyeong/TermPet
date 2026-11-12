@@ -44,6 +44,8 @@ final class PetController: NSObject {
     /// 손을 놓을 높이 (꼭대기에 올라설 곳이 없는 벽)
     private var climbLimitY: CGFloat = .infinity
     private var lastWindowScan: CFTimeInterval = 0
+    /// 마지막으로 자리 잡고 있던 모니터 (바뀌면 창을 다시 앞으로 올린다)
+    private var lastScreenIndex: Int?
     /// 서 있던 창이 마지막으로 움직인 시각 (창을 끄는 중인지 판단)
     private var lastRideAt: CFTimeInterval = -.infinity
     private var isRidingWindow: Bool {
@@ -411,6 +413,15 @@ final class PetController: NSObject {
         stepMischief(dt)
         if !isDragging, let window, window.frame.origin != physics.origin {
             window.setFrameOrigin(physics.origin)
+        }
+        // 다른 모니터로 넘어가 자리를 잡았으면 창을 다시 앞으로 올린다: 코드로 옮긴 창은 macOS가 예전 모니터 것으로
+        // 계속 쳐서 새 모니터에서 반투명하게 남을 때가 있다 (모니터마다 Space가 따로일 때)
+        if !isDragging, !brain.action.isPhysicsControlled {
+            let screen = layout.index(containingX: physics.centerX, y: physics.origin.y)
+            if screen != lastScreenIndex {
+                lastScreenIndex = screen
+                if model.isVisible { window?.orderFrontRegardless() }
+            }
         }
         bubble.follow(petFrame: CGRect(origin: physics.origin, size: physics.size))
         // 오래된 세션 정리·기분 풀림은 10초에 한 번이면 충분

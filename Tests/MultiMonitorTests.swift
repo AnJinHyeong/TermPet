@@ -14,6 +14,20 @@ final class MultiMonitorTests: XCTestCase {
         for _ in 0..<3000 where !p.fall(dt: 1.0 / 60, terrain: terrain) {}
     }
 
+    /// 같은 높이로 나란한 모니터 경계 위에 떨어지면(던져짐·포인터 쫓아 점프) 한쪽 모니터 안으로 완전히 들어간다
+    /// (걸친 채 서 있으면 넘어간 부분이 반투명하게 보인다)
+    func testLandingOnBoundaryMovesFullyOntoOneScreen() {
+        let side = ScreenLayout(frames: [CGRect(x: 0, y: 0, width: 1000, height: 800), CGRect(x: 1000, y: 0, width: 1000, height: 800)])
+        let flat = Terrain(screens: side, petSize: pet)
+        for (startX, expected) in [(950.0, 920.0), (970.0, 1000.0)] as [(CGFloat, CGFloat)] { // 가운데가 왼쪽 / 오른쪽 모니터
+            var p = PetPhysics(origin: CGPoint(x: startX, y: 300), size: pet)
+            p.prepareFall(terrain: flat)
+            for _ in 0..<3000 where !p.fall(dt: 1.0 / 60, terrain: flat) {}
+            XCTAssertEqual(p.origin.y, 0)
+            XCTAssertEqual(p.origin.x, expected, "x=\(startX)")
+        }
+    }
+
     func testStepNeighborNeedsRoomAtTop() {
         XCTAssertEqual(layout.stepNeighbor(of: 0, side: .left, aboveY: 0, petHeight: 80), 1)
         XCTAssertNil(layout.stepNeighbor(of: 0, side: .right, aboveY: 0, petHeight: 80))
