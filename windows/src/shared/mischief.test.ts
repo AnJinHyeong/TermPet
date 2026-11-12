@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { PetBrain } from './brain'
 import { animationFor, fallbacks, parseStateKey, type Animation } from './characterPack'
 import type { Rect, Vector } from './geometry'
-import { Mischief, PointerThrow, userMove, type MischiefInput } from './mischief'
+import { defaultMischiefConfig, Mischief, PointerThrow, userMove, type MischiefInput } from './mischief'
 import { PetPhysics } from './physics'
 import { ScreenLayout, Terrain } from './terrain'
 
@@ -15,7 +15,7 @@ function input(cursor: { x: number; y: number }, patch: Partial<MischiefInput> =
 }
 
 /** 켜자마자 바로 쫓는 장난꾸러기 */
-const eager = () => new Mischief({ startDelay: 0, biteDuration: 1.3, cooldownAfterThrow: 4, cooldownAfterGiveUp: 2.5 })
+const eager = () => new Mischief({ ...defaultMischiefConfig, startDelay: 0 })
 
 function seeded(seed = 1) {
   let s = seed
@@ -43,6 +43,49 @@ function fly(v: Vector, frame: Rect, target: { x: number; y: number }) {
 }
 
 describe('Mischief', () => {
+  it('닿지 않는 자리는 몇 번 뛰어 보고 포기, 포인터가 움직이면 다시 쫓는다', () => {
+    const m = eager()
+    const high = { x: 545, y: 900 } // 바로 위 너무 높고 탈 벽도 없음
+    let jumps = 0
+    let gaveUp = false
+    for (let i = 0; i < 30 * 30 && !gaveUp; i++) {
+      const cmd = m.tick(dt, input(high))
+      if (cmd.type === 'jump') jumps++
+      if (cmd.type === 'stopChase') gaveUp = true
+    }
+    expect(gaveUp).toBe(true)
+    expect(jumps).toBe(m.config.maxAttempts)
+    expect(m.phase).toBe('ready')
+    // 포인터가 그 자리에 있는 동안은 다시 안 덤빈다 (쉬는 시간이 지나도)
+    for (let i = 0; i < 30 * 20; i++) expect(m.tick(dt, input({ x: 550, y: 905 }))).toEqual({ type: 'none' })
+    expect(m.tick(dt, input({ x: 900, y: 40 }))).toEqual({ type: 'chase', direction: 'right' })
+  })
+
+  it('포인터가 계속 움직이면 포기하지 않고, 벽만 오르내리는 것도 센다', () => {
+    const moving = eager()
+    let jumps = 0
+    for (let i = 0; i < 30 * 30; i++) {
+      const cmd = moving.tick(dt, input({ x: 545, y: 200 + (jumps % 2) * 100 })) // 점프할 때마다 다른 자리로 (놀아 주는 중)
+      expect(cmd.type).not.toBe('stopChase')
+      if (cmd.type === 'jump') jumps++
+    }
+    expect(jumps).toBeGreaterThan(moving.config.maxAttempts)
+
+    const m = eager()
+    const far = { x: 545, y: 900 }
+    for (let i = 0; i < m.config.maxAttempts; i++) {
+      expect(m.tick(dt, input(far, { wallDirection: 'left' }))).toEqual({ type: 'chase', direction: 'left' })
+      m.didStartClimbing()
+      expect(m.phase).toBe('chasing')
+    }
+    m.tick(dt, input(far, { wallDirection: 'left' }))
+    m.didStartClimbing()
+    expect(m.phase).toBe('ready')
+    expect(m.gaveUpAt).toBeDefined()
+    m.reset()
+    expect(m.gaveUpAt).toBeUndefined()
+  })
+
   it('포인터가 어디 있든 쫓아간다', () => {
     const m = eager()
     expect(m.tick(dt, input({ x: 1500, y: 40 }))).toEqual({ type: 'chase', direction: 'right' })

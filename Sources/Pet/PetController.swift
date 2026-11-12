@@ -232,7 +232,9 @@ final class PetController: NSObject {
         // Code 탭에서 훅 알림과 겹치는 "Claude 채팅" 알림은 버린다 (두 번 뜨지 않게)
         if sessions.tracker.isDuplicateChatSignal(incoming) { return }
         var event = incoming
-        sessions.apply(event)
+        let previous = sessions.apply(event)
+        // 끝난 지 60초 뒤 오는 "입력 기다리는 중" 리마인더: 이미 알린 세션이면 말풍선·"!"를 또 띄우지 않는다
+        if SessionTracker.isRedundantIdlePrompt(event, previous: previous) { return }
         guard event.isNotification else {
             // 작업 시작·도구 실행·세션 종료: 세션이 다시 움직였으면 그 세션의 지난 알림(권한 요청 등)은 해결된 것
             if sessions.state(of: event) != .waiting { bubble.resolve(sessionOf: event) }
@@ -1101,7 +1103,8 @@ struct PetBadgeView: View {
 final class SessionStore {
     private(set) var tracker = SessionTracker()
 
-    func apply(_ event: PetEvent) { tracker.apply(event) }
+    @discardableResult
+    func apply(_ event: PetEvent) -> SessionTracker.State? { tracker.apply(event) }
 
     func state(of event: PetEvent) -> SessionTracker.State? {
         SessionTracker.key(for: event).flatMap { tracker.sessions[$0]?.state }

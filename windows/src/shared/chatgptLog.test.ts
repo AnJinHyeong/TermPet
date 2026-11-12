@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ChatGPTWatcher } from '../main/chatgptWatcher'
-import { ChatGPTReducer, dayFolder, isCodexThread, parseChatGPTLogLine } from './chatgptLog'
+import { ChatGPTReducer, dayFolder, isCodexThread, LOCAL_WINDOW_MS, parseChatGPTLogLine } from './chatgptLog'
 import { planFocus } from './hostApp'
 
 const refetch =
@@ -17,17 +17,33 @@ const started = '2026-11-11T07:54:44.856Z error [electron-message-handler] Recei
 describe('ChatGPT 앱 로그', () => {
   it('답변 완료·시작 줄을 알아본다', () => {
     expect(parseChatGPTLogLine(refetch)).toEqual({ type: 'completed', conversationId: '6af42003-045c-83ee-8b87-4716e0b39754' })
-    expect(parseChatGPTLogLine(ignored)?.type).toBe('completed')
+    expect(parseChatGPTLogLine(ignored)?.type).toBe('completedElsewhere')
     expect(parseChatGPTLogLine(shown)?.type).toBe('completed')
     expect(parseChatGPTLogLine(started)).toEqual({ type: 'started', conversationId: '6af3fa2c-4db4-8191-82cc-eea3cd30808e' })
   })
 
   it('Codex 대화(UUID v7)와 다른 줄은 건너뛴다', () => {
     expect(parseChatGPTLogLine('… [desktop-notifications] show turn-complete conversationId=01a1c98a-03f6-7ea0-a0a2-ae7a0bf1510f')).toBeUndefined()
-    expect(parseChatGPTLogLine('… chatgpt_conversation_refetch_completed conversationId=6af42003-045c-83ee-8b87-4716e0b39754 reason=focus')).toBeUndefined()
+    expect(parseChatGPTLogLine('… chatgpt_conversation_refetch_completed conversationId=6af42003-045c-83ee-8b87-4716e0b39754 reason=focus')?.type).toBe('seen') // 알림은 아니고 '여기서 연 대화' 표시
     expect(parseChatGPTLogLine('… [desktop-notifications] show turn-complete conversationId=null')).toBeUndefined()
     expect(isCodexThread('019f20ee-0994-7022-876d-d68d432affce')).toBe(true)
     expect(isCodexThread('6af42003-045c-83ee-8b87-4716e0b39754')).toBe(false)
+  })
+
+  it('이 앱에서 연 대화만 "안 열린 대화 완료"를 알린다 (휴대폰·웹에서 한 대화는 조용히)', () => {
+    const id = '6af42003-045c-83ee-8b87-4716e0b39754'
+    expect(parseChatGPTLogLine(`… chatgpt_conversation_refetch_started conversationId=${id} reason=explicit_update`)).toEqual({ type: 'seen', conversationId: id })
+    expect(parseChatGPTLogLine(`… IAB_LIFECYCLE received browser sidebar owner sync ownerRoutePath=/c/${id} windowId=1`)).toEqual({ type: 'seen', conversationId: id })
+    expect(parseChatGPTLogLine(`… chatgpt_conversation_update_ignored conversationId=${id} reason=conversation_not_loaded updateType=refetch`)).toBeUndefined()
+    expect(parseChatGPTLogLine(`… chatgpt_conversation_refetch_completed conversationId=${id} reason=missed_messages`)).toBeUndefined()
+
+    const r = new ChatGPTReducer()
+    expect(r.event({ type: 'completedElsewhere', conversationId: 'phone' }, 1000)).toBeUndefined()
+    expect(r.event({ type: 'seen', conversationId: 'here' }, 1000)).toBeUndefined()
+    expect(r.event({ type: 'completedElsewhere', conversationId: 'here' }, 61_000)?.kind).toBe('done')
+    expect(r.event({ type: 'completedElsewhere', conversationId: 'here' }, 61_000 + LOCAL_WINDOW_MS)).toBeUndefined()
+    expect(r.event({ type: 'completed', conversationId: 'c3' }, 1000)).toBeDefined()
+    expect(r.event({ type: 'completedElsewhere', conversationId: 'c3' }, 121_000)).toBeDefined()
   })
 
   it('같은 턴은 한 번만, 제목은 ChatGPT, 누르면 ChatGPT 앱', () => {
@@ -72,7 +88,7 @@ describe('ChatGPTWatcher', () => {
     w.poll()
     expect(got).toHaveBeenCalledTimes(1)
     // 켠 뒤 새로 생긴 파일은 처음부터
-    writeFileSync(join(day, 'codex-desktop-b.log'), ignored + '\n')
+    writeFileSync(join(day, 'codex-desktop-b.log'), shown + '\n')
     w.poll()
     expect(got).toHaveBeenCalledTimes(2)
   })

@@ -13,9 +13,13 @@ export interface MischiefConfig {
   cooldownAfterThrow: number
   /** 벽에 막혀 돌아섰거나 클릭으로 놓아줬을 때 잠깐 쉬는 시간 */
   cooldownAfterGiveUp: number
+  /** 같은 자리의 포인터에 이만큼 덤볐는데도(점프·벽 타기) 못 잡으면 포기한다 (닿지 않는 자리에서 끝없이 점프만 반복하지 않게) */
+  maxAttempts: number
+  /** 포인터가 이만큼 움직이면 새 자리로 본다 (헛점프 횟수 초기화 / 포기했던 포인터 다시 쫓기) */
+  sameSpotRadius: number
 }
 
-export const defaultMischiefConfig: MischiefConfig = { startDelay: 1, biteDuration: 1.3, cooldownAfterThrow: 4, cooldownAfterGiveUp: 2.5 }
+export const defaultMischiefConfig: MischiefConfig = { startDelay: 1, biteDuration: 1.3, cooldownAfterThrow: 4, cooldownAfterGiveUp: 2.5, maxAttempts: 4, sameSpotRadius: 80 }
 
 export type MischiefPhase = 'ready' | 'chasing' | 'biting' | 'throwing'
 
@@ -68,6 +72,12 @@ export class Mischief {
   private biteLeft = 0
   /** 바닥에 내려선 뒤 지난 시간 (점프 사이에 잠깐 웅크리는 박자) */
   private groundedTime = 0
+  /** 같은 자리의 포인터에 덤빈 횟수와 그 자리 */
+  private attempts = 0
+  private attemptSpot?: Point
+  /** 못 잡고 포기한 포인터 자리 (포인터가 여기서 벗어날 때까지 다시 안 쫓는다) */
+  gaveUpAt?: Point
+  private lastCursor: Point = { x: 0, y: 0 }
 
   constructor(readonly config: MischiefConfig = defaultMischiefConfig) {
     this.cooldown = config.startDelay
@@ -76,6 +86,8 @@ export class Mischief {
   tick(dt: number, input: MischiefInput): MischiefCommand {
     this.phaseTime += dt
     this.groundedTime = input.grounded ? this.groundedTime + dt : 0
+    this.lastCursor = input.cursor
+    if (this.gaveUpAt && !this.isSameSpot(this.gaveUpAt, input.cursor)) this.gaveUpAt = undefined // 포인터가 움직였다 → 다시 논다
     if (!input.canPlay) {
       if (this.phase === 'chasing') {
         this.rest(this.config.cooldownAfterGiveUp)
@@ -91,12 +103,14 @@ export class Mischief {
     switch (this.phase) {
       case 'ready':
         this.cooldown -= dt
-        if (this.cooldown > 0 || !input.grounded || input.mouseDown) return NONE
+        if (this.cooldown > 0 || this.gaveUpAt || !input.grounded || input.mouseDown) return NONE
         this.enter('chasing')
         return this.chase(input)
       case 'chasing':
         if (!input.mouseDown && Mischief.catches(input.petFrame, input.cursor)) {
           this.enter('biting')
+          this.attempts = 0
+          this.attemptSpot = undefined
           this.biteLeft = this.config.biteDuration
           return { type: 'startBite' }
         }
@@ -131,9 +145,9 @@ export class Mischief {
     if (input.climbingSide) {
       const behindWall = (cursor.x - midX(frame)) * sign(input.climbingSide) > frame.width * 0.5
       if (behindWall) return NONE
-      if (leap) return { type: 'jump', velocity: leap }
+      if (leap) return this.attempt({ type: 'jump', velocity: leap })
       const far = cursor.y - midY(frame) <= 40 ? Mischief.wallLeap(frame, cursor, headroom) : undefined
-      return far ? { type: 'jump', velocity: far } : NONE
+      return far ? this.attempt({ type: 'jump', velocity: far }) : NONE
     }
     if (!input.grounded) return NONE // 공중에선 잡히는지만 본다
 
@@ -148,7 +162,7 @@ export class Mischief {
     // 머리 위 닿는 거리 → 웅크렸다 점프해서 낚아채기
     if (leap) {
       this.seekDirection = undefined
-      return this.groundedTime >= 0.25 ? { type: 'jump', velocity: leap } : NONE
+      return this.groundedTime >= 0.25 ? this.attempt({ type: 'jump', velocity: leap }) : NONE
     }
     // 너무 높다 → 포인터에 가장 가까운 벽으로 달려가 타고 오른다 (방향은 벽에 닿을 때까지 유지)
     const dx = cursor.x - midX(frame)
@@ -158,13 +172,39 @@ export class Mischief {
     if (Math.abs(dx) > Mischief.leapRange * 0.7) return chaseToward()
     // 탈 벽도 없으면 제자리에서 힘껏 뛰어 본다 (안 닿아도 귀엽게)
     return this.groundedTime >= 0.9
-      ? { type: 'jump', velocity: { dx: Math.max(-120, Math.min(120, dx * 2)), dy: Math.sqrt(2 * 1800 * Mischief.maxRise) } }
+      ? this.attempt({ type: 'jump', velocity: { dx: Math.max(-120, Math.min(120, dx * 2)), dy: Math.sqrt(2 * 1800 * Mischief.maxRise) } })
       : NONE
+  }
+
+  private isSameSpot(a: Point, b: Point): boolean {
+    return Math.hypot(a.x - b.x, a.y - b.y) <= this.config.sameSpotRadius
+  }
+
+  /** 덤비기(점프·벽 타기) 한 번을 센다. 같은 자리의 포인터에 maxAttempts 번 덤비고도 못 잡았으면 포기하고 쉰다 (true) */
+  private countAttempt(): boolean {
+    if (this.attemptSpot && this.isSameSpot(this.attemptSpot, this.lastCursor)) {
+      this.attempts += 1
+    } else {
+      this.attemptSpot = this.lastCursor
+      this.attempts = 1
+    }
+    if (this.attempts <= this.config.maxAttempts) return false
+    this.gaveUpAt = this.lastCursor
+    this.attempts = 0
+    this.attemptSpot = undefined
+    this.rest(this.config.cooldownAfterGiveUp)
+    return true
+  }
+
+  private attempt(jump: MischiefCommand): MischiefCommand {
+    return this.countAttempt() ? { type: 'stopChase' } : jump
   }
 
   /** 벽을 타기 시작했다 (벽 찾기 끝) */
   didStartClimbing() {
     this.seekDirection = undefined
+    // 벽을 타고 올라가 몸을 날려도 못 잡는 자리면 벽만 계속 오르내리게 되므로 같이 센다
+    if (this.phase === 'chasing') this.countAttempt()
   }
 
   /** 포인터가 다 날아갔다 */
@@ -182,6 +222,10 @@ export class Mischief {
     this.phase = 'ready'
     this.phaseTime = 0
     this.cooldown = this.config.startDelay
+    this.seekDirection = undefined
+    this.attempts = 0
+    this.attemptSpot = undefined
+    this.gaveUpAt = undefined
   }
 
   private enter(p: MischiefPhase) {

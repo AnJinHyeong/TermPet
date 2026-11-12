@@ -14,6 +14,11 @@ struct Mischief {
         var cooldownAfterThrow: TimeInterval = 4
         /// 벽에 막혀 돌아섰거나 클릭으로 놓아줬을 때 잠깐 쉬는 시간
         var cooldownAfterGiveUp: TimeInterval = 2.5
+        /// 같은 자리의 포인터에 이만큼 덤볐는데도(점프·벽 타기) 못 잡으면 포기한다.
+        /// 메뉴바·Dock 위처럼 닿지 않는 자리에서 끝없이 점프만 반복하지 않게
+        var maxAttempts = 4
+        /// 포인터가 이만큼(pt) 움직이면 새 자리로 본다 (헛점프 횟수 초기화 / 포기했던 포인터 다시 쫓기)
+        var sameSpotRadius: CGFloat = 80
     }
 
     enum Phase: Equatable {
@@ -64,6 +69,12 @@ struct Mischief {
     private var groundedTime: TimeInterval = 0
     /// 포인터가 너무 높아서 벽을 찾아 달려가는 방향 (벽에 붙으면 끝)
     private(set) var seekDirection: Direction?
+    /// 같은 자리의 포인터에 덤빈 횟수와 그 자리
+    private var attempts = 0
+    private var attemptSpot: CGPoint?
+    /// 못 잡고 포기한 포인터 자리 (포인터가 여기서 벗어날 때까지 다시 안 쫓는다)
+    private(set) var gaveUpAt: CGPoint?
+    private var lastCursor: CGPoint = .zero
 
     /// 바닥에서 한 번에 뛰어오를 수 있는 높이(pt)
     static let maxRise: CGFloat = 320
@@ -80,6 +91,8 @@ struct Mischief {
     mutating func tick(_ dt: TimeInterval, _ input: Input) -> Command {
         phaseTime += dt
         groundedTime = input.grounded ? groundedTime + dt : 0
+        lastCursor = input.cursor
+        if let spot = gaveUpAt, !isSameSpot(spot, input.cursor) { gaveUpAt = nil } // 포인터가 움직였다 → 다시 논다
         if !input.canPlay {
             switch phase {
             case .chasing: rest(config.cooldownAfterGiveUp); return .stopChase
@@ -91,13 +104,15 @@ struct Mischief {
         switch phase {
         case .ready:
             cooldown -= dt
-            guard cooldown <= 0, input.grounded, !input.mouseDown else { return .none }
+            guard cooldown <= 0, gaveUpAt == nil, input.grounded, !input.mouseDown else { return .none }
             enter(.chasing)
             return chase(input)
 
         case .chasing:
             if !input.mouseDown, Self.catches(petFrame: input.petFrame, cursor: input.cursor) {
                 enter(.biting)
+                attempts = 0
+                attemptSpot = nil
                 biteLeft = config.biteDuration
                 return .startBite
             }
@@ -131,9 +146,9 @@ struct Mischief {
         if let side = input.climbingSide {
             let behindWall = (cursor.x - frame.midX) * side.sign > frame.width * 0.5
             guard !behindWall else { return .none }
-            if let leap { return .jump(leap) }
+            if let leap { return attempt(.jump(leap)) }
             if cursor.y - frame.midY <= 40, let far = Self.wallLeap(petFrame: frame, cursor: cursor, headroom: input.headroom) {
-                return .jump(far)
+                return attempt(.jump(far))
             }
             return .none
         }
@@ -147,7 +162,7 @@ struct Mischief {
         // 머리 위 닿는 거리 → 웅크렸다 점프해서 낚아채기
         if let leap {
             seekDirection = nil
-            return groundedTime >= 0.25 ? .jump(leap) : .none
+            return groundedTime >= 0.25 ? attempt(.jump(leap)) : .none
         }
         // 너무 높다 → 포인터에 가장 가까운 벽으로 달려가 타고 오른다 (방향은 벽에 닿을 때까지 유지)
         let dx = cursor.x - frame.midX
@@ -158,12 +173,40 @@ struct Mischief {
             return Self.chaseDirection(petFrame: frame, cursorX: cursor.x).map(Command.chase) ?? .none
         }
         // 탈 벽도 없으면 제자리에서 힘껏 뛰어 본다 (안 닿아도 귀엽게)
-        return groundedTime >= 0.9 ? .jump(CGVector(dx: max(-120, min(120, dx * 2)), dy: sqrt(2 * 1800 * Self.maxRise))) : .none
+        return groundedTime >= 0.9
+            ? attempt(.jump(CGVector(dx: max(-120, min(120, dx * 2)), dy: sqrt(2 * 1800 * Self.maxRise)))) : .none
+    }
+
+    private func isSameSpot(_ a: CGPoint, _ b: CGPoint) -> Bool {
+        hypot(a.x - b.x, a.y - b.y) <= config.sameSpotRadius
+    }
+
+    /// 덤비기(점프·벽 타기) 한 번을 센다. 같은 자리의 포인터에 `maxAttempts`번 덤비고도 못 잡았으면
+    /// 포기하고 쉰다 (true). 포인터가 움직이면 처음부터 다시 센다.
+    private mutating func countAttempt() -> Bool {
+        if let spot = attemptSpot, isSameSpot(spot, lastCursor) {
+            attempts += 1
+        } else {
+            attemptSpot = lastCursor
+            attempts = 1
+        }
+        guard attempts > config.maxAttempts else { return false }
+        gaveUpAt = lastCursor
+        attempts = 0
+        attemptSpot = nil
+        rest(config.cooldownAfterGiveUp)
+        return true
+    }
+
+    private mutating func attempt(_ jump: Command) -> Command {
+        countAttempt() ? .stopChase : jump
     }
 
     /// 벽을 타기 시작했다 (벽 찾기 끝)
     mutating func didStartClimbing() {
         seekDirection = nil
+        // 벽을 타고 올라가 몸을 날려도 못 잡는 자리(너무 멀거나 메뉴바)면 벽만 계속 오르내리게 되므로 같이 센다
+        if phase == .chasing { _ = countAttempt() }
     }
 
     /// 포인터가 다 날아갔다
@@ -183,6 +226,10 @@ struct Mischief {
         phase = .ready
         phaseTime = 0
         cooldown = config.startDelay
+        seekDirection = nil
+        attempts = 0
+        attemptSpot = nil
+        gaveUpAt = nil
     }
 
     private mutating func enter(_ p: Phase) {

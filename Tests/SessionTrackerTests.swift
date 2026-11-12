@@ -45,6 +45,29 @@ final class SessionTrackerTests: XCTestCase {
         XCTAssertEqual(t.waitingCount, 0)
     }
 
+    /// 끝난 지 60초 뒤 오는 리마인더: 이미 알린 세션·모르는 세션이면 알림이 아니다 (말풍선·"!"가 또 뜨던 문제)
+    func testIdlePromptIsRedundantUnlessStopWasMissed() {
+        let idle = claude(.ask, type: "idle_prompt")
+        var t = SessionTracker()
+        t.apply(claude(.done), now: t0)
+        XCTAssertTrue(SessionTracker.isRedundantIdlePrompt(idle, previous: t.apply(idle, now: t0 + 60)))
+
+        // 모르는 세션(끝난 뒤 닫힌 대화, /clear 직후): 목록에도 안 만든다
+        var unknown = SessionTracker()
+        XCTAssertTrue(SessionTracker.isRedundantIdlePrompt(idle, previous: unknown.apply(idle, now: t0)))
+        XCTAssertTrue(unknown.sessions.isEmpty)
+
+        // 끝 신호(Stop)를 놓쳐 아직 "작업 중"이면: 알리고, 끝난 것으로 고친다
+        var missed = SessionTracker()
+        missed.apply(claude(.working), now: t0)
+        XCTAssertFalse(SessionTracker.isRedundantIdlePrompt(idle, previous: missed.apply(idle, now: t0 + 60)))
+        XCTAssertEqual(missed.sessions["claude:s1"]?.state, .done)
+        XCTAssertEqual(missed.workingCount, 0)
+
+        // 권한 요청은 리마인더가 아니다
+        XCTAssertFalse(SessionTracker.isRedundantIdlePrompt(claude(.ask, type: "permission_prompt"), previous: .done))
+    }
+
     func testEventsWithoutSessionAreIgnored() {
         var t = SessionTracker()
         XCTAssertNil(t.apply(PetEvent(source: .shell, kind: .error), now: t0))

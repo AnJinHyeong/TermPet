@@ -15,6 +15,9 @@ struct RequestLog {
             parts.append("\(e.source.rawValue)/\(e.kind.rawValue)")
             parts.append(e.projectName ?? "-")
             if let host = e.hostBundleId ?? e.termProgram { parts.append("host=\(host)") }
+            // 어느 대화의 어떤 알림이었는지 (같은 프로젝트에 대화가 여럿일 때·리마인더 구분용)
+            if let sid = e.sessionId { parts.append("sid=\(sid.prefix(8))") }
+            if let type = e.notificationType { parts.append("type=\(type)") }
         } else if status != 200 || path != "/health" {
             parts.append(body) // 거부/무시 사유
         }

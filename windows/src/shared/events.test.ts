@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { decodeClaudeHook, decodeClaudeTool, decodeCodexNotify, decodeStandard, koreanNotification, makeEvent, oneLine, projectName } from './events'
 import { currentStats, formatDuration, makeContent, moodFrom, NotificationQueue, recordStats, statsSpeech, defaultMessages, packMessages } from './notifications'
 import { constantTimeEquals, logLine, route } from './router'
-import { pickBadge, SessionTracker } from './sessions'
+import { isRedundantIdlePrompt, pickBadge, SessionTracker } from './sessions'
 
 const TOKEN = 'a'.repeat(64)
 const post = (path: string, body: object | string, headers: Record<string, string> = {}) =>
@@ -117,6 +117,22 @@ describe('SessionTracker', () => {
     t.apply(ev('done'))
     t.apply(ev('ask', { notificationType: 'idle_prompt' }))
     expect(t.ordered[0].state).toBe('done')
+  })
+  it('끝난 뒤 60초 리마인더(idle_prompt)는 끝 신호를 놓쳤을 때만 알림', () => {
+    const idle = ev('ask', { notificationType: 'idle_prompt' })
+    const t = new SessionTracker()
+    t.apply(ev('done'))
+    expect(isRedundantIdlePrompt(idle, t.apply(idle))).toBe(true)
+    // 모르는 세션: 목록에도 안 만든다
+    const unknown = new SessionTracker()
+    expect(isRedundantIdlePrompt(idle, unknown.apply(idle))).toBe(true)
+    expect(unknown.sessions.size).toBe(0)
+    // 끝 신호를 놓쳐 아직 작업 중이면 알리고 끝난 것으로 고친다
+    const missed = new SessionTracker()
+    missed.apply(ev('working'))
+    expect(isRedundantIdlePrompt(idle, missed.apply(idle))).toBe(false)
+    expect(missed.ordered[0].state).toBe('done')
+    expect(isRedundantIdlePrompt(ev('ask', { notificationType: 'permission_prompt' }), 'done')).toBe(false)
   })
   it('오래된 작업 중은 정리', () => {
     const t = new SessionTracker()

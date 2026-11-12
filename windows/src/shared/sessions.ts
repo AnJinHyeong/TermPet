@@ -29,6 +29,13 @@ export function sessionKey(e: PetEvent): string | undefined {
   return `${e.source}:${e.sessionId}`
 }
 
+/**
+ * idle_prompt 리마인더를 알림으로 띄울 필요가 없는지. previous = apply 가 돌려준 이전 상태.
+ * 끝났다는 알림은 Stop 때 이미 했으므로, 끝 신호를 놓쳐 아직 "작업 중"으로 알고 있던 때만 알린다
+ * (예전엔 완료 말풍선을 확인한 뒤에도 60초 뒤 "입력을 기다리고 있어요" 말풍선과 "!"가 매번 다시 떴다)
+ */
+export const isRedundantIdlePrompt = (e: PetEvent, previous: SessionState | undefined) => isIdlePrompt(e) && previous !== 'working'
+
 export class SessionTracker {
   sessions = new Map<string, Session>()
 
@@ -45,11 +52,17 @@ export class SessionTracker {
       return prev?.state
     }
 
+    // idle_prompt = Claude가 끝난 지 60초 뒤 보내는 "입력 기다리는 중" 리마인더.
+    // 모르는 세션이면(끝난 뒤 닫힌 대화, /clear 직후 등) 목록에 새로 만들지 않는다
+    if (isIdlePrompt(e) && !prev) return undefined
+
     let state: SessionState
     if (e.kind === 'working') state = 'working'
     else if (e.kind === 'done') state = 'done'
     else if (e.kind === 'error') state = 'error'
-    else state = isIdlePrompt(e) ? (prev?.state ?? 'done') : 'waiting' // idle_prompt 는 권한 대기가 아님
+    // idle_prompt 는 권한 대기가 아님. "작업 중"이었다면 끝 신호(Stop)를 놓친 것이니 끝난 것으로 고친다
+    else if (isIdlePrompt(e)) state = prev?.state === 'working' ? 'done' : (prev?.state ?? 'done')
+    else state = 'waiting'
 
     const focus: PetEvent = { ...e }
     if (prev) {

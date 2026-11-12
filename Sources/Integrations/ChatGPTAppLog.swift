@@ -10,24 +10,38 @@ import Foundation
 ///   …[desktop-notifications] show turn-complete conversationId=6af4…                          ← 앱이 직접 띄운 완료 알림
 ///   …Received turn/started for unknown conversation conversationId=6af4…                      ← 답 시작 (일부 대화만)
 /// Codex 대화(UUID v7, 예: 01a1c98a-03f6-7ea0-…)는 notify가 이미 알려 주므로 건너뛴다.
+///
+/// 주의: `update_ignored … conversation_not_loaded` 는 "이 앱 창에 안 열려 있는 대화"의 서버 소식이라
+/// **휴대폰·웹에서 한 대화**가 끝났을 때도 똑같이 찍힌다 (실제로 겪음: 맥에선 아무것도 안 물었는데 알림이 반복).
+/// → 이 앱에서 최근에 연 적이 있는 대화(`seen`)일 때만 알린다.
 enum ChatGPTAppLog {
     enum Signal: Equatable {
         case started(conversationId: String)
         case completed(conversationId: String)
+        /// 이 앱 창에 안 열린 대화가 끝났다는 서버 소식 (다른 기기에서 한 대화일 수 있다)
+        case completedElsewhere(conversationId: String)
+        /// 이 앱에서 그 대화를 열었거나 갱신했다 (알림은 아니고 "여기서 쓰는 대화" 표시용)
+        case seen(conversationId: String)
     }
 
     static func parse(_ line: String) -> Signal? {
+        let ignoredUpdate = line.contains("chatgpt_conversation_update_ignored")
         let started = line.contains("Received turn/started")
         let completed = (line.contains("chatgpt_conversation_refetch_completed") && line.contains("reason=explicit_update"))
-            || (line.contains("chatgpt_conversation_update_ignored") && line.contains("updateType=completed"))
             || line.contains("[desktop-notifications] show turn-complete")
-        guard started || completed, let id = conversationId(in: line), !isCodexThread(id) else { return nil }
-        return started ? .started(conversationId: id) : .completed(conversationId: id)
+        let elsewhere = ignoredUpdate && line.contains("updateType=completed")
+        guard let id = conversationId(in: line), !isCodexThread(id) else { return nil }
+        if started { return .started(conversationId: id) }
+        if completed { return .completed(conversationId: id) }
+        if elsewhere { return .completedElsewhere(conversationId: id) }
+        // 서버가 밀어 준 소식(update_ignored)·놓친 메시지 따라잡기(missed_messages)는 다른 기기에서 한 대화에도 찍힌다 → 연 것으로 안 친다
+        return ignoredUpdate || line.contains("reason=missed_messages") ? nil : .seen(conversationId: id)
     }
 
+    /// `conversationId=<uuid>` 또는 대화 주소 `/c/<uuid>` (앱에서 그 대화를 열면 찍힌다)
     static func conversationId(in line: String) -> String? {
-        guard let r = line.range(of: #"conversationId=[0-9a-fA-F-]{36}"#, options: .regularExpression) else { return nil }
-        return String(line[r].dropFirst("conversationId=".count)).lowercased()
+        guard let r = line.range(of: #"(conversationId=|/c/)[0-9a-fA-F-]{36}"#, options: .regularExpression) else { return nil }
+        return String(line[r].suffix(36)).lowercased()
     }
 
     /// Codex 스레드 ID = UUID 버전 7 (세 번째 묶음이 7로 시작). 일반 채팅 ID는 그렇지 않다 (예: 6af42003-045c-83ee-…)
@@ -47,17 +61,30 @@ enum ChatGPTAppLog {
 
     /// 한 대화의 완료 신호가 여러 줄(갱신 + 앱 알림)로 오므로 이 시간 안의 같은 신호는 한 번만
     static let dedupeWindow: TimeInterval = 20
+    /// 이 앱에서 대화를 연 뒤 이 시간 안에 온 "안 열린 대화 완료" 소식만 알린다 (물어 놓고 다른 대화로 넘어간 경우)
+    static let localWindow: TimeInterval = 30 * 60
 
     /// 신호 → 펫 이벤트. 같은 대화의 같은 신호가 방금 있었으면 nil.
     struct Reducer {
         private var last: [String: Date] = [:]
+        /// 이 앱에서 열었던 대화 → 마지막으로 본 시각
+        private var seen: [String: Date] = [:]
 
         mutating func event(for signal: Signal, now: Date = Date()) -> PetEvent? {
             let (id, kind): (String, PetEvent.Kind)
             switch signal {
             case .started(let c): (id, kind) = (c, .working)
             case .completed(let c): (id, kind) = (c, .done)
+            case .completedElsewhere(let c):
+                // 이 앱에서 연 적 없는 대화 = 다른 기기에서 한 대화 → 알리지 않는다
+                guard let t = seen[c], now.timeIntervalSince(t) < ChatGPTAppLog.localWindow else { return nil }
+                (id, kind) = (c, .done)
+            case .seen(let c):
+                if seen.count > 200 { seen = seen.filter { now.timeIntervalSince($0.value) < ChatGPTAppLog.localWindow } }
+                seen[c] = now
+                return nil
             }
+            if case .completedElsewhere = signal {} else { seen[id] = now }
             let key = "\(kind.rawValue):\(id)"
             if let t = last[key], now.timeIntervalSince(t) < ChatGPTAppLog.dedupeWindow { return nil }
             if last.count > 200 { last = last.filter { now.timeIntervalSince($0.value) < ChatGPTAppLog.dedupeWindow } }

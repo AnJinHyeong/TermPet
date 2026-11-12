@@ -12,7 +12,7 @@ import { Mischief, PointerThrow, userMove } from '../shared/mischief'
 import { loopFPS, PetPhysics, throwVelocity } from '../shared/physics'
 import { NotificationHistory } from '../shared/history'
 import { normalizePrefs, scaledSize, type PetPrefs } from '../shared/prefs'
-import { pickBadge, SessionTracker, type PetBadge } from '../shared/sessions'
+import { isRedundantIdlePrompt, pickBadge, SessionTracker, type PetBadge } from '../shared/sessions'
 import { hasFullscreenWindow, ScreenLayout, Terrain, type Wall, type WindowBox } from '../shared/terrain'
 import { BubbleController } from './bubble'
 import { focusEvent } from './focus'
@@ -247,7 +247,9 @@ export class PetController {
     // Code 탭에서 훅 알림과 겹치는 "Claude 채팅" 알림은 버린다 (두 번 뜨지 않게)
     if (this.sessions.isDuplicateChatSignal(incoming)) return
     const e = { ...incoming }
-    this.sessions.apply(e)
+    const previous = this.sessions.apply(e)
+    // 끝난 지 60초 뒤 오는 "입력 기다리는 중" 리마인더: 이미 알린 세션이면 말풍선·"!"를 또 띄우지 않는다
+    if (isRedundantIdlePrompt(e, previous)) return
     if (!isNotification(e)) {
       // 작업 시작·도구 실행·세션 종료: 세션이 다시 움직이면 지난 권한 요청 알림은 해결된 것
       if (this.sessions.stateOf(e) !== 'waiting') this.bubble.resolve(e)

@@ -56,14 +56,23 @@ struct SessionTracker {
             return previous?.state
         }
 
+        // idle_prompt = Claude가 끝난 지 60초 뒤 보내는 "입력 기다리는 중" 리마인더.
+        // 모르는 세션이면(끝난 뒤 닫힌 대화, /clear 직후 등) 목록에 새로 만들지 않는다
+        if event.isIdlePrompt, previous == nil { return nil }
+
         let state: State
         switch event.kind {
         case .working: state = .working
         case .done: state = .done
         case .error: state = .error
         case .ask:
-            // idle_prompt = "끝났고 입력을 기다리는 중" 리마인더 → 권한 대기가 아니다
-            state = event.isIdlePrompt ? (previous?.state ?? .done) : .waiting
+            // idle_prompt = "끝났고 입력을 기다리는 중" 리마인더 → 권한 대기가 아니다.
+            // "작업 중"이었다면 끝 신호(Stop)를 놓친 것이니 끝난 것으로 고친다
+            if event.isIdlePrompt {
+                state = previous?.state == .working ? .done : (previous?.state ?? .done)
+            } else {
+                state = .waiting
+            }
         case .ended: return previous?.state // 위에서 처리됨
         }
 
@@ -85,6 +94,13 @@ struct SessionTracker {
             focusEvent: focus
         )
         return previous?.state
+    }
+
+    /// idle_prompt 리마인더를 알림으로 띄울 필요가 없는지. `previous` = `apply`가 돌려준 이전 상태.
+    /// 끝났다는 알림은 Stop 때 이미 했으므로, 끝 신호를 놓쳐 아직 "작업 중"으로 알고 있던 때만 알린다.
+    /// (예전엔 완료 말풍선을 확인한 뒤에도 60초 뒤 "입력을 기다리고 있어요" 말풍선과 "!"가 매번 다시 떴다)
+    static func isRedundantIdlePrompt(_ event: PetEvent, previous: State?) -> Bool {
+        event.isIdlePrompt && previous != .working
     }
 
     /// Claude 앱 Code 탭(= Claude Code)에서는 훅 신호가 오는데, Claude가 텀펫 MCP 도구(termpet_notify)까지 불러서

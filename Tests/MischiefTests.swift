@@ -34,6 +34,73 @@ final class MischiefTests: XCTestCase {
         XCTAssertGreaterThan(v.dy, 1000)
     }
 
+    /// 메뉴바·Dock 위처럼 닿지 않는 자리: 몇 번 뛰어 보고 포기, 포인터가 움직이면 다시 쫓는다
+    func testGivesUpOnUnreachablePointerUntilItMoves() {
+        var m = eager()
+        let high = CGPoint(x: 545, y: 900) // 바로 위 너무 높고 탈 벽도 없음
+        var jumps = 0
+        var gaveUp = false
+        for _ in 0..<(30 * 30) where !gaveUp {
+            switch m.tick(dt, input(cursor: high)) {
+            case .jump: jumps += 1
+            case .stopChase: gaveUp = true
+            default: break
+            }
+        }
+        XCTAssertTrue(gaveUp, "끝없이 점프만 반복하면 안 된다")
+        XCTAssertEqual(jumps, m.config.maxAttempts)
+        XCTAssertEqual(m.phase, .ready)
+        // 포인터가 그 자리에 있는 동안은 다시 안 덤빈다 (쉬는 시간이 지나도)
+        for _ in 0..<(30 * 20) { XCTAssertEqual(m.tick(dt, input(cursor: CGPoint(x: 550, y: 905))), .none) }
+        // 포인터가 움직이면 다시 쫓는다
+        XCTAssertEqual(m.tick(dt, input(cursor: CGPoint(x: 900, y: 40))), .chase(.right))
+    }
+
+    /// 닿을 듯한 높이(천장에 막힘)에서 헛점프만 반복하는 것도 센다. 포인터가 계속 움직이면 포기하지 않는다
+    func testCountsMissedLeapsButNotWhilePointerMoves() {
+        var m = eager()
+        var still = 0
+        var gaveUp = false
+        for _ in 0..<(30 * 30) where !gaveUp {
+            switch m.tick(dt, input(cursor: CGPoint(x: 545, y: 300))) { // 닿는 거리 → 점프 (하지만 계속 못 잡음)
+            case .jump: still += 1
+            case .stopChase: gaveUp = true
+            default: break
+            }
+        }
+        XCTAssertTrue(gaveUp)
+        XCTAssertEqual(still, m.config.maxAttempts)
+
+        // 포인터가 점프할 때마다 다른 자리로 옮겨 가면(사용자가 놀아 주는 중) 포기하지 않는다
+        var moving = eager()
+        var jumps = 0
+        for _ in 0..<(30 * 30) {
+            let cursor = CGPoint(x: 545, y: 200 + CGFloat(jumps % 2) * 100)
+            let cmd = moving.tick(dt, input(cursor: cursor))
+            XCTAssertNotEqual(cmd, .stopChase)
+            if case .jump = cmd { jumps += 1 }
+        }
+        XCTAssertGreaterThan(jumps, moving.config.maxAttempts)
+    }
+
+    /// 벽을 타고 올라가도 못 잡는 자리(벽에서 너무 멂): 벽만 계속 오르내리지 않는다
+    func testGivesUpAfterRepeatedClimbs() {
+        var m = eager()
+        let far = CGPoint(x: 545, y: 900)
+        for _ in 0..<m.config.maxAttempts {
+            XCTAssertEqual(m.tick(dt, input(cursor: far, wallDirection: .left)), .chase(.left))
+            m.didStartClimbing()
+            XCTAssertEqual(m.phase, .chasing)
+        }
+        _ = m.tick(dt, input(cursor: far, wallDirection: .left))
+        m.didStartClimbing()
+        XCTAssertEqual(m.phase, .ready)
+        XCTAssertNotNil(m.gaveUpAt)
+        // 잡으면 횟수는 처음부터
+        m.reset()
+        XCTAssertNil(m.gaveUpAt)
+    }
+
     func testWaitsAfterTurningOnAndWhileButtonPressed() {
         var m = Mischief()
         XCTAssertEqual(m.tick(0.5, input(cursor: CGPoint(x: 900, y: 40))), .none, "켜자마자는 잠깐 기다림")
